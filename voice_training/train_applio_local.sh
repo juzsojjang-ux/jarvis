@@ -38,8 +38,11 @@ echo "==> [2/5] preprocess  (dataset=$DATASET, sr=$SR, cores=$CORES)"
   --process_effects False --noise_reduction False --normalization_mode none
 
 echo "==> [3/5] extract  (f0=rmvpe, embedder=contentvec)"
+# NOTE: --include_mutes is REQUIRED by core.py (despite the default in help).
+# embedder stays contentvec: the rvc-python inference runtime is contentvec-based,
+# so training with korean-hubert-base would break inference compatibility.
 "$PY" core.py extract --model_name "$MODEL" --sample_rate $SR \
-  --cpu_cores "$CORES" --f0_method rmvpe --embedder_model contentvec
+  --cpu_cores "$CORES" --f0_method rmvpe --embedder_model contentvec --include_mutes 2
 
 echo "==> [4/5] train  (epochs=$EPOCHS, batch=8, MPS, overtraining detector on)"
 "$PY" core.py train --model_name "$MODEL" --vocoder HiFi-GAN --sample_rate $SR \
