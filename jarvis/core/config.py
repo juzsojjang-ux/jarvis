@@ -47,8 +47,13 @@ class Settings(BaseSettings):
     rvc_model_path: str = "~/jarvis/voice_models/jarvis.pth"
     rvc_index_path: str = "~/jarvis/voice_models/jarvis.index"
     rvc_sample_rate: int = 40000
-    rvc_index_rate: float = 0.75
-    rvc_f0_up: int = 0
+    # SIMILARITY-FIRST defaults (user priority: Korean speech must sound maximally like
+    # JARVIS). index_rate 0.9 pulls timbre hard toward the trained voice. f0_up -12 is
+    # MEASURED, not guessed: MeloTTS-KR's default speaker has median f0 210.1 Hz vs the
+    # JARVIS reference 108.2 Hz (+11.5 semitones) — without the octave-down shift the
+    # output would be JARVIS timbre at a female pitch.
+    rvc_index_rate: float = 0.9
+    rvc_f0_up: int = -12
 
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)

@@ -48,6 +48,15 @@ def _build_rvc_python_cmd(a: argparse.Namespace, device: str) -> list[str]:
     ]
     if a.index:                      # rvc-python's explicit index flag (-ip)
         cmd += ["-ip", a.index]
+    # Similarity-tuning knobs, env-overridable without touching the convert contract:
+    # protect (-pr) guards voiceless consonants (lower = stronger conversion),
+    # rms_mix_rate (-rmr) mixes source/target loudness envelopes.
+    protect = os.environ.get("JARVIS_RVC_PROTECT")
+    if protect:
+        cmd += ["-pr", protect]
+    rms = os.environ.get("JARVIS_RVC_RMS")
+    if rms:
+        cmd += ["-rmr", rms]
     return cmd
 
 
