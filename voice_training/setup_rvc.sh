@@ -58,6 +58,9 @@ echo "==> rvc-python (no deps) + RVC's known-good runtime stack (Python 3.10)"
   "av" "loguru" "python-multipart" \
   "fastapi" "uvicorn" "requests" "tqdm" "audioread" "resampy"
 
+echo "==> patching fairseq for torch>=2.6 (weights_only default change)"
+"$VENV/bin/python" "$ROOT/voice_training/patch_fairseq.py"
+
 echo "==> verifying rvc_python.infer actually imports (torch + fairseq + soundfile)"
 "$VENV/bin/python" - <<'PY'
 import rvc_python.infer  # noqa: F401  -- real import, not just find_spec
