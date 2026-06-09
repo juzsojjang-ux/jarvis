@@ -2,7 +2,7 @@
 
 - **작성일:** 2026-06-09
 - **작성자:** 이성재 + Claude (brainstorming)
-- **상태:** 설계 확정 대기 (사용자 검토 단계)
+- **상태:** 설계 확정 (사용자 검토 완료) — 구현 플랜 작성 단계. **대상 기기: MacBook M4 Pro, 24GB.**
 - **근거:** 7개 영역 병렬 리서치 + 영역별 적대적 검증 (워크플로 `jarvis-spec-research`, 14개 에이전트, 2026-06-09). 모든 라이브러리/버전/라이선스/애플실리콘 실현가능성은 웹 사실확인을 거침.
 
 ---
@@ -43,6 +43,7 @@
 | TTS | 로컬(맥에서 추론) |
 | 두뇌 | **Claude API** (`claude-opus-4-8` 기본) — 클라우드 |
 | 런타임 | **Python** |
+| 대상 기기 | **MacBook M4 Pro, 24GB** (확정) — RVC+TTS 동시 상주 여유, **양자화 불필요** |
 | 비용 정책 | 학습 등 1회성 무거운 작업은 빌린 GPU/Colab 허용. **매일 쓰는 추론은 맥 로컬** |
 
 ---
@@ -170,7 +171,7 @@ docs/superpowers/specs/  # 이 문서
   - RVC는 **prosody(억양/말투)를 전달하지 않음** — 출력은 **MeloTTS 억양 + 자비스 음색**. 자비스 특유의 차분한 톤까지 원하면 아키텍처 B(GPT-SoVITS)만 가능(단 발음 리스크).
   - MLX-RVC는 **file-to-file 배치(스트리밍 아님)** → A는 2단 체인이라 **RVC는 TTS 문장이 끝나야 시작** → 단어단위 스트리밍 어려움, **발화(문장) 단위 지연**으로 설계.
   - **faiss-cpu는 `>=1.7.2`** (1.7.0은 arm64 휠 없음/소스빌드 실패). 전제로 **`brew install swig`**.
-  - **하드웨어 바닥:** MeloTTS + HuBERT/ContentVec + RMVPE + generator 동시 상주 → **~16GB+ RAM 권장**. 8GB는 스왑/저하 → **사용자 맥 사양(칩+RAM) 측정 게이트** 필요.
+  - **하드웨어:** MeloTTS + HuBERT/ContentVec + RMVPE + generator 동시 상주 → ~16GB+ 권장. **대상 M4 Pro 24GB로 여유 — 양자화 불필요**(다만 첫 통합 시 실측으로 RTF·헤드룸 확인).
   - 깊은 남성 한국어 소스가 자비스로 더 깨끗하게 변환됨(여성 기본 소스 피함). f0는 **RMVPE** 사용, index/retrieval ratio 튜닝.
 - **대안 — 아키텍처 B (폴백): GPT-SoVITS** (MIT, v4=48k, 한국어 v2+). 단일모델 few-shot(텍스트→자비스 음색). 리스크: 영어전용 자비스 데이터로 **한국어 교차합성 시 억양/오발음**, 맥은 **CPU 전용 추론(MPS 품질 저하 + 메모리 누수)**. → A가 어색하면 B로 전환.
 
@@ -250,7 +251,7 @@ docs/superpowers/specs/  # 이 문서
 > "자비스 대사 클립도 알아서 받아서 해" — 아래 파이프라인을 스크립트화하고, **실제 다운로드·학습은 구현 단계에서 실행**한다(저작권상 사용자가 검수한 URL 목록 권장).
 
 ### 8.1 Stage A — 수집·전처리 (맥 로컬, 빠름)
-1. **수집:** `yt-dlp -x --audio-format wav --audio-quality 0` 로 "JARVIS all lines / supercut / best moments(Paul Bettany)" 컴필레이션. 배경 스코어 적은 클립 선호(아이언맨1 랩/첫 부팅 장면이 가장 깨끗). 검색 예: `JARVIS all lines Iron Man`, `JARVIS supercut Paul Bettany`.
+1. **수집(자동):** 사용자 제공 소스 없음 → **내가 큐레이션한 URL 목록**으로 `yt-dlp -x --audio-format wav --audio-quality 0` 자동 수집. "JARVIS all lines / supercut / best moments(Paul Bettany)" 컴필레이션, 배경 스코어 적은 클립 선호(아이언맨1 랩/첫 부팅 장면이 가장 깨끗). 검색 예: `JARVIS all lines Iron Man`, `JARVIS supercut Paul Bettany`. **대량 다운로드 전 URL 목록만 1회 사용자에게 공유 후 진행**(저작권·클린함 확인).
 2. **보컬 분리:** `audio-separator==0.44.2`(MIT, Python≥3.10) + **BS-Roformer `model_bs_roformer_ep_317_sdr_12.9755.ckpt`**, 애플실리콘 **CoreMLExecutionProvider**(`--env_info`로 확인). 폴백 `demucs-mlx`/`htdemucs`.
 3. **분할:** `ffmpeg silenceremove` 또는 `pydub split_on_silence`(3–12초 조각).
 4. **정규화:** `ffmpeg loudnorm`.
@@ -306,13 +307,13 @@ Microphone, Input Monitoring/Accessibility(pynput) — 실행 주체(venv 스크
 
 ---
 
-## 11. 아직 사용자 결정이 필요한 열린 질문
+## 11. 결정 현황
 
-1. **맥 사양(칩 + RAM)?** — RVC+TTS 동시 상주 ~16GB+ 권장. 8GB면 양자화/품질 조정 필요. (RTF·헤드룸 결정)
-2. **"완전 로컬" 만족 여부:** 두뇌가 클라우드여도 OK? (OK가 기본 가정. 오프라인 폴백 LLM은 v1 비목표)
-3. **자비스 음성 소스:** 직접 줄 클립/링크가 있나, 아니면 내가 검수 URL 목록으로 자동 수집? (저작권상 검수 권장)
-4. **음색 품질 vs 차분한 말투:** 아키텍처 A(발음 보장, 억양은 MeloTTS)로 시작 → 자비스 특유 톤까지 원하면 B(GPT-SoVITS) 실험.
-5. **대화/작업 라우팅:** 키워드 휴리스틱(권장, 빠름) vs 분류 호출(라운드트립 추가 — 음성 핫패스 비권장).
+1. ✅ **맥 사양:** **M4 Pro, 24GB** — RVC+TTS 동시 상주 여유, **양자화 불필요**(fp16 large-v3-turbo + MeloTTS + RVC 풀체인 상주 가능).
+2. ✅ **"완전 로컬":** 두뇌는 클라우드(Claude API) 수용. 오프라인 폴백 LLM은 v1 비목표(§9.1).
+3. ✅ **자비스 음성 소스:** 사용자 제공 없음 → **자동 수집**(큐레이션 URL 목록 기반; 대량 다운로드 전 목록만 1회 공유 후 진행). 개인용·비공개·재배포 금지(§8.6).
+4. ▶ **음색 vs 말투:** 아키텍처 **A로 시작**(발음 보장, 억양은 MeloTTS). 자비스 특유 톤까지 원하면 B(GPT-SoVITS) 실험 — 구현 후 A/B 청취로 결정.
+5. ▶ **대화/작업 라우팅:** **키워드 휴리스틱 기본**(빠름). 분류 호출은 라운드트립 추가라 음성 핫패스 비권장.
 
 ---
 
