@@ -1,14 +1,20 @@
 """Config-driven TTS backend selection.
 
-"auto" (default): the JARVIS voice (XTTS-v2 zero-shot clone) when the .venv-xtts runtime
-AND a reference wav exist; otherwise the macOS `say` voice. "xtts" forces XTTS, "melotts"
-forces MeloTTS-KR, "say" forces macOS say.
+"auto" (default) picks the best available JARVIS voice chain:
+  1. Trained RVC model present (voice_models/jarvis.pth + .venv-rvc) -> "melotts":
+     native-Korean MeloTTS feeds the RVC timbre conversion (vc_backend="auto" pairs
+     with this) — best Korean quality, no cross-lingual artifacts.
+  2. Else XTTS runtime + reference wav -> "xtts": zero-shot JARVIS clone speaking
+     Korean directly (good, but cross-lingual).
+  3. Else macOS "say".
+"xtts" / "melotts" / "say" force a specific backend.
 """
 from __future__ import annotations
 
 import os
 
 from jarvis.tts.base import TTSBackend
+from jarvis.vc.resolve import resolve_model_path
 
 
 def _xtts_ready(settings) -> bool:
@@ -16,10 +22,23 @@ def _xtts_ready(settings) -> bool:
             and os.path.exists(os.path.expanduser(settings.xtts_ref_path)))
 
 
+def _rvc_chain_ready(settings) -> bool:
+    # Mirrors jarvis.vc.factory's auto gate (model + isolated runtime) and also needs
+    # the MeloTTS worker venv that feeds the conversion.
+    return (resolve_model_path(settings.rvc_model_path) is not None
+            and os.path.exists(os.path.expanduser(settings.rvc_python))
+            and os.path.exists(os.path.expanduser(settings.tts_worker_python)))
+
+
 def make_tts(settings) -> TTSBackend:
     backend = settings.tts_backend
     if backend == "auto":
-        backend = "xtts" if _xtts_ready(settings) else "say"
+        if _rvc_chain_ready(settings):
+            backend = "melotts"
+        elif _xtts_ready(settings):
+            backend = "xtts"
+        else:
+            backend = "say"
     if backend == "say":
         from jarvis.tts.system_say import SystemSayTTS
         return SystemSayTTS()

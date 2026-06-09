@@ -9,9 +9,11 @@ from jarvis.tts.xtts_kr import XTTSBackend
 
 
 def _s(**kw):
-    base = dict(tts_backend="say", tts_worker_python="~/jarvis/.venv-tts/bin/python",
+    base = dict(tts_backend="say", tts_worker_python="/nonexistent/.venv-tts/bin/python",
                 xtts_python="/nonexistent/.venv-xtts/bin/python",
                 xtts_ref_path="/nonexistent/jarvis_ref.wav", xtts_device="cpu",
+                rvc_model_path="/nonexistent/voice_models/jarvis.pth",
+                rvc_python="/nonexistent/.venv-rvc/bin/python",
                 language="ko")
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -49,6 +51,22 @@ def test_auto_uses_xtts_when_runtime_and_ref_present(tmp_path):
 
 def test_auto_falls_back_to_say_when_not_ready():
     assert isinstance(make_tts(_s(tts_backend="auto")), SystemSayTTS)
+
+
+def test_auto_prefers_melotts_when_rvc_chain_ready(tmp_path):
+    # trained jarvis.pth + .venv-rvc + .venv-tts present -> native-Korean MeloTTS
+    # feeds the RVC timbre conversion (beats cross-lingual XTTS).
+    pth = tmp_path / "jarvis.pth"
+    pth.write_bytes(b"x")
+    rvc_py = tmp_path / "rvc-python"
+    rvc_py.write_text("")
+    tts_py = tmp_path / "tts-python"
+    tts_py.write_text("")
+    xtts_py, ref = _ready(tmp_path)  # xtts ALSO ready — rvc chain must win
+    tts = make_tts(_s(tts_backend="auto", rvc_model_path=str(pth),
+                      rvc_python=str(rvc_py), tts_worker_python=str(tts_py),
+                      xtts_python=xtts_py, xtts_ref_path=ref))
+    assert isinstance(tts, MeloTTSKR) and not isinstance(tts, XTTSBackend)
 
 
 def test_make_tts_unknown_raises():
