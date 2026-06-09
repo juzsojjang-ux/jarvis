@@ -44,7 +44,9 @@ include = ["jarvis*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# importlib mode: path-based module identity so same-basename test files
+# (tests/tts/test_factory.py & tests/vc/test_factory.py) don't collide.
+addopts = "-q --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100

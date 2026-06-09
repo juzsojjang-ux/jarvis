@@ -15,8 +15,8 @@ from .brain.sentence import SentenceChunker
 from .core.config import Settings
 from .core.orchestrator import Orchestrator
 from .stt.mlx_whisper import MLXWhisperSTT
-from .tts.system_say import SystemSayTTS
-from .vc.null_vc import NullVC
+from .tts.factory import make_tts
+from .vc.factory import make_vc
 
 
 def build_orchestrator(*, client: AsyncAnthropic | None = None) -> Orchestrator:
@@ -32,8 +32,8 @@ def build_orchestrator(*, client: AsyncAnthropic | None = None) -> Orchestrator:
         stt=MLXWhisperSTT(settings.stt_repo, language=settings.language),
         brain=brain,
         chunker=SentenceChunker(),
-        tts=SystemSayTTS(voice="Yuna"),
-        vc=NullVC(sample_rate=settings.playback_rate),
+        tts=make_tts(settings),
+        vc=make_vc(settings),
         playback=Playback(sample_rate=settings.playback_rate),
     )
 
