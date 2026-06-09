@@ -27,6 +27,7 @@ class Orchestrator:
         self.state = State.IDLE
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
+        self._bg_tasks: set[asyncio.Task] = set()
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -40,7 +41,11 @@ class Orchestrator:
     def _on_press(self) -> None:
         # Barge-in: a press while a pipeline is running cancels it before re-capturing.
         if self._task is not None and not self._task.done():
-            asyncio.create_task(self._cancel_pipeline())
+            # Keep a strong ref: the loop only weakly references tasks, so a bare
+            # create_task() can be GC'd mid-await and silently skip playback.abort().
+            bg = asyncio.create_task(self._cancel_pipeline())
+            self._bg_tasks.add(bg)
+            bg.add_done_callback(self._bg_tasks.discard)
         self.state = State.CAPTURING
         self.capture.start()
 
@@ -58,7 +63,8 @@ class Orchestrator:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self.playback.abort()
-        self.state = State.IDLE
+        # State transitions are owned by _on_press/_on_release; do NOT set IDLE here —
+        # during a barge-in this runs after _on_press already set CAPTURING.
 
     async def _pipeline(self, pcm: np.ndarray) -> None:
         text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, self.settings.language)
