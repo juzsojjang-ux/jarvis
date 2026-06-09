@@ -25,12 +25,15 @@ def make_melo_synth():
     from melo.api import TTS
     model = TTS(language="KR", device="cpu")
     spk = model.hps.data.spk2id["KR"]
+    # JARVIS speaks with a calm, measured butler cadence — slightly slower than the
+    # MeloTTS default reads smoother after the RVC timbre conversion. Env-tunable.
+    speed = float(os.environ.get("JARVIS_MELO_SPEED", "0.95"))
 
     def synth(text: str):
         fd, path = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         try:
-            model.tts_to_file(text, spk, path, speed=1.0)
+            model.tts_to_file(text, spk, path, speed=speed)
             pcm, sr = sf.read(path, dtype="float32")
             if pcm.ndim > 1:
                 pcm = pcm.mean(axis=1).astype(np.float32)
