@@ -6,6 +6,7 @@ Run:  ~/jarvis/.venv-tts/bin/python -m jarvis.tts.tts_worker
 """
 from __future__ import annotations
 
+import os
 import sys
 
 import numpy as np
@@ -58,7 +59,12 @@ def serve(synth, in_stream, out_stream) -> None:
 
 
 def main() -> None:
-    serve(make_melo_synth(), sys.stdin.buffer, sys.stdout.buffer)
+    # MeloTTS / tqdm / transformers print to stdout, which would corrupt the
+    # binary IPC frames. Dup the real stdout for IPC, then point fd 1 at stderr
+    # so all library noise goes to stderr instead of the IPC channel.
+    ipc_out = os.fdopen(os.dup(sys.stdout.fileno()), "wb")
+    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    serve(make_melo_synth(), sys.stdin.buffer, ipc_out)
 
 
 if __name__ == "__main__":

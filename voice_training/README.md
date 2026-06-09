@@ -27,3 +27,19 @@ Personal/local voice cloning ONLY — no redistribution of audio or the model.
 ## Fallbacks
 - Separation: demucs-mlx (`uv pip install demucs-mlx`) if BS-Roformer/CoreML fails.
 - Denoise: resemble-enhance is optional/fragile (Colab); noisereduce is the default.
+
+## MeloTTS voice worker (`.venv-tts`, macOS — validated on M4 Pro)
+MeloTTS runs in an isolated `.venv-tts` (it pins old torch/transformers). macOS is
+case-insensitive, so `mecab-python3` (the `MeCab` package, used by MeloTTS's Japanese
+module) and `python-mecab-ko` (the `mecab` package, used by Korean g2pkk) map to the
+SAME directory and cannot coexist. We build Korean-only:
+```bash
+python3.11 -m venv .venv-tts
+.venv-tts/bin/pip install "git+https://github.com/myshell-ai/MeloTTS.git" \
+    soundfile==0.13.1 python-mecab-ko
+.venv-tts/bin/pip uninstall -y mecab-python3            # collides with python-mecab-ko
+.venv-tts/bin/python voice_training/patch_melotts.py    # Japanese import -> optional (Korean-only)
+```
+The TTS worker (`jarvis/tts/tts_worker.py`) redirects MeloTTS/tqdm noise to stderr so it
+never corrupts the binary IPC stdout. Smoke test (from the main venv): `MeloTTSKR().warm()`
+then `synth("안녕하세요")` returns 44100 Hz float32 (~6.7 s for a short sentence).
