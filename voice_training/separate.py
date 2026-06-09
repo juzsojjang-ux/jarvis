@@ -7,6 +7,7 @@ Always gate with check_env() first (verify CoreMLExecutionProvider).
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -37,4 +38,10 @@ def pick_vocal_stem(output_files: list[str]) -> str:
 
 
 def separate_vocals(separator, in_wav) -> str:
-    return pick_vocal_stem(separator.separate(str(in_wav)))
+    # audio-separator returns output BASENAMES written to separator.output_dir,
+    # not full paths — resolve against output_dir so downstream sf.read() works.
+    stem = pick_vocal_stem(separator.separate(str(in_wav)))
+    if os.path.isabs(stem):
+        return stem
+    out_dir = getattr(separator, "output_dir", None) or "."
+    return os.path.join(str(out_dir), stem)
