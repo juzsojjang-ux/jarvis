@@ -33,9 +33,13 @@ voice = [
     "soundfile==0.13.1",
     "noisereduce==3.0.3",
     "faiss-cpu>=1.7.2",
-    "mlx-rvc",
-    "audio-separator==0.44.2",
+    "audio-separator[cpu]==0.44.2",  # [cpu] pulls onnxruntime (CoreMLExecutionProvider on arm64)
 ]
+# RVC inference CLI (`mlx-rvc`) is NOT on PyPI. Install it separately only when
+# wiring a TRAINED model (downstream of Colab training):
+#   uv pip install git+https://github.com/lextoumbourou/mlx-rvc
+# (or the PyTorch-MPS macOS fork NevilPatel01/RVC-WebUI-MacOS). RVCConversion
+# shells out to the `mlx-rvc` CLI, so it need not be importable in this venv.
 # [training] — dataset prep for the Colab RVC training notebook (M2 spec 8.4).
 training = ["yt-dlp", "demucs"]
 

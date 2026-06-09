@@ -20,8 +20,7 @@ Provides-Extra: voice
 Requires-Dist: soundfile==0.13.1; extra == "voice"
 Requires-Dist: noisereduce==3.0.3; extra == "voice"
 Requires-Dist: faiss-cpu>=1.7.2; extra == "voice"
-Requires-Dist: mlx-rvc; extra == "voice"
-Requires-Dist: audio-separator==0.44.2; extra == "voice"
+Requires-Dist: audio-separator[cpu]==0.44.2; extra == "voice"
 Provides-Extra: training
 Requires-Dist: yt-dlp; extra == "training"
 Requires-Dist: demucs; extra == "training"

@@ -22,5 +22,4 @@ demucs
 soundfile==0.13.1
 noisereduce==3.0.3
 faiss-cpu>=1.7.2
-mlx-rvc
-audio-separator==0.44.2
+audio-separator[cpu]==0.44.2
