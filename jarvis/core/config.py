@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     keyring_service: str = "jarvis"
     keyring_user: str = "anthropic_api_key"
 
+    # --- M2 voice backends ---
+    tts_backend: str = "say"          # "say" (macOS say, M1 backend) | "melotts" (M2)
+    vc_backend: str = "null"          # "null" (identity, M1 backend) | "rvc" (M2)
+    tts_worker_python: str = "~/jarvis/.venv-tts/bin/python"
+    rvc_model_path: str = "~/jarvis/voice_models/jarvis.pth"
+    rvc_index_path: str = "~/jarvis/voice_models/jarvis.index"
+    rvc_sample_rate: int = 40000
+    rvc_index_rate: float = 0.75
+    rvc_f0_up: int = 0
+
     @property
     def api_key(self) -> str:
         key = keyring.get_password(self.keyring_service, self.keyring_user)
