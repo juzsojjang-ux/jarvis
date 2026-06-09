@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+
+import numpy as np
+
+from ..audio.util import resample
+from .events import State
+
+
+class Orchestrator:
+    """Wires Activator -> capture -> STT -> Brain -> SentenceChunker -> TTS -> VC ->
+    playback. Barge-in cancels the in-flight Brain pipeline Task (CancelledError
+    suppressed) and aborts playback."""
+
+    def __init__(self, *, settings, activator, capture, stt, brain, chunker, tts, vc, playback):
+        self.settings = settings
+        self.activator = activator
+        self.capture = capture
+        self.stt = stt
+        self.brain = brain
+        self.chunker = chunker
+        self.tts = tts
+        self.vc = vc
+        self.playback = playback
+        self.state = State.IDLE
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._task: asyncio.Task | None = None
+
+    # ----- PTT callbacks (invoked from the pynput listener thread) -----
+    def _press(self) -> None:
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._on_press)
+
+    def _release(self) -> None:
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._on_release)
+
+    def _on_press(self) -> None:
+        # Barge-in: a press while a pipeline is running cancels it before re-capturing.
+        if self._task is not None and not self._task.done():
+            asyncio.create_task(self._cancel_pipeline())
+        self.state = State.CAPTURING
+        self.capture.start()
+
+    def _on_release(self) -> None:
+        pcm = self.capture.stop()
+        self.state = State.TRANSCRIBING
+        self._task = asyncio.create_task(self._pipeline(pcm))
+
+    # ----- pipeline -----
+    async def _cancel_pipeline(self) -> None:
+        task = self._task
+        self._task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self.playback.abort()
+        self.state = State.IDLE
+
+    async def _pipeline(self, pcm: np.ndarray) -> None:
+        text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, self.settings.language)
+        if not text.strip():
+            self.state = State.IDLE
+            return
+        self.state = State.THINKING
+        async for delta in self.brain.respond(text):
+            for sentence in self.chunker.feed(delta):
+                await self._speak(sentence)
+        tail = self.chunker.flush()
+        if tail:
+            await self._speak(tail)
+        self.state = State.IDLE
+
+    async def _speak(self, sentence: str) -> None:
+        self.state = State.SPEAKING
+        audio = await self.tts.synth(sentence)                    # at tts.sample_rate
+        converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
+        out = resample(converted, self.vc.sample_rate, self.settings.playback_rate)
+        self.playback.feed(out)
+
+    # ----- run loop -----
+    async def run(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self.playback.start()
+        self.activator.start(self._press, self._release)
+        await asyncio.Event().wait()  # run until process is killed
