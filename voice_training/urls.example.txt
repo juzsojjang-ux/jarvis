@@ -1,0 +1,3 @@
+# One source URL per line. '#' = comment. Personal/local training only.
+# Share this exact list for approval BEFORE bulk download (fetch.print_share_list).
+# https://www.youtube.com/watch?v=EXAMPLE_JARVIS_VOICE_CLIP
