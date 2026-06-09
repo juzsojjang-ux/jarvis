@@ -14,6 +14,15 @@ def test_build_command_exact():
         "--index-rate", "0.75", "--f0-method", "rmvpe", "--pitch", "0"]
 
 
+def test_build_command_without_index():
+    # index is optional: --index is omitted entirely when none is resolved
+    vc = RVCConversion("m.pth", None, sample_rate=40000,
+                       index_rate=0.75, f0_up=0, f0_method="rmvpe")
+    assert vc._build_command("in.wav", "out.wav") == [
+        "mlx-rvc", "convert", "in.wav", "out.wav", "--model", "m.pth",
+        "--index-rate", "0.75", "--f0-method", "rmvpe", "--pitch", "0"]
+
+
 FAKE_RVC = (
     "import sys, numpy as np, soundfile as sf\n"
     "out_wav = sys.argv[3]\n"            # convert <in> <out> ...

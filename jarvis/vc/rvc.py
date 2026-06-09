@@ -21,11 +21,13 @@ RVC_INGEST_RATE = 40000
 
 
 class RVCConversion:
-    def __init__(self, model_path: str, index_path: str, sample_rate: int = 40000,
+    def __init__(self, model_path: str, index_path: str | None = None,
+                 sample_rate: int = 40000,
                  f0_method: str = "rmvpe", index_rate: float = 0.75,
                  f0_up: int = 0, rvc_cmd: list[str] | None = None):
         self.model_path = str(model_path)
-        self.index_path = str(index_path)
+        # Index is OPTIONAL: RVC converts on the .pth alone (index improves similarity).
+        self.index_path = str(index_path) if index_path else None
         self.sample_rate = sample_rate
         self.f0_method = f0_method
         self.index_rate = index_rate
@@ -33,10 +35,12 @@ class RVCConversion:
         self._rvc_cmd = rvc_cmd or ["mlx-rvc"]
 
     def _build_command(self, in_wav: str, out_wav: str) -> list[str]:
-        return [*self._rvc_cmd, "convert", in_wav, out_wav,
-                "--model", self.model_path, "--index", self.index_path,
-                "--index-rate", str(self.index_rate),
+        cmd = [*self._rvc_cmd, "convert", in_wav, out_wav, "--model", self.model_path]
+        if self.index_path:
+            cmd += ["--index", self.index_path]
+        cmd += ["--index-rate", str(self.index_rate),
                 "--f0-method", self.f0_method, "--pitch", str(self.f0_up)]
+        return cmd
 
     def warm(self) -> None:
         self.convert(np.zeros(int(0.5 * RVC_INGEST_RATE), dtype=np.float32), RVC_INGEST_RATE)

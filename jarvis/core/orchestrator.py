@@ -6,15 +6,18 @@ import contextlib
 import numpy as np
 
 from ..audio.util import resample
+from ..hud.level import audio_level
 from .events import State
 
 
 class Orchestrator:
     """Wires Activator -> capture -> STT -> Brain -> SentenceChunker -> TTS -> VC ->
     playback. Barge-in cancels the in-flight Brain pipeline Task (CancelledError
-    suppressed) and aborts playback."""
+    suppressed) and aborts playback. ``hud`` (optional OrbServer) receives best-effort
+    {state, level} publishes so the on-screen orb reacts to the conversation."""
 
-    def __init__(self, *, settings, activator, capture, stt, brain, chunker, tts, vc, playback):
+    def __init__(self, *, settings, activator, capture, stt, brain, chunker, tts, vc,
+                 playback, hud=None):
         self.settings = settings
         self.activator = activator
         self.capture = capture
@@ -24,6 +27,7 @@ class Orchestrator:
         self.tts = tts
         self.vc = vc
         self.playback = playback
+        self.hud = hud
         self.state = State.IDLE
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
@@ -48,11 +52,20 @@ class Orchestrator:
             bg.add_done_callback(self._bg_tasks.discard)
         self.state = State.CAPTURING
         self.capture.start()
+        self._publish("listening")
 
     def _on_release(self) -> None:
         pcm = self.capture.stop()
         self.state = State.TRANSCRIBING
         self._task = asyncio.create_task(self._pipeline(pcm))
+
+    def _publish(self, state: str, level: float = 0.0) -> None:
+        # Best-effort: the orb HUD must never break the voice pipeline.
+        if self.hud is not None:
+            try:
+                self.hud.publish(state, level)
+            except Exception:
+                pass
 
     # ----- pipeline -----
     async def _cancel_pipeline(self) -> None:
@@ -70,8 +83,10 @@ class Orchestrator:
         text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, self.settings.language)
         if not text.strip():
             self.state = State.IDLE
+            self._publish("idle")
             return
         self.state = State.THINKING
+        self._publish("thinking")
         async for delta in self.brain.respond(text):
             for sentence in self.chunker.feed(delta):
                 await self._speak(sentence)
@@ -79,12 +94,14 @@ class Orchestrator:
         if tail:
             await self._speak(tail)
         self.state = State.IDLE
+        self._publish("idle")
 
     async def _speak(self, sentence: str) -> None:
         self.state = State.SPEAKING
         audio = await self.tts.synth(sentence)                    # at tts.sample_rate
         converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
         out = resample(converted, self.vc.sample_rate, self.settings.playback_rate)
+        self._publish("speaking", audio_level(out))
         self.playback.feed(out)
 
     # ----- run loop -----

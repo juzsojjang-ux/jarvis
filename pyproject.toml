@@ -42,6 +42,12 @@ voice = [
 # shells out to the `mlx-rvc` CLI, so it need not be importable in this venv.
 # [training] — dataset prep for the Colab RVC training notebook (M2 spec 8.4).
 training = ["yt-dlp", "demucs"]
+# [hud] — native macOS overlay window for the JARVIS HUD (transparent WKWebView).
+# Without it the HUD still runs; use hud_open_browser=True or open the URL manually.
+hud = ["pyobjc-framework-Cocoa>=10.1", "pyobjc-framework-WebKit>=10.1"]
+# XTTS-v2 voice clone runtime lives in an ISOLATED .venv-xtts (pins torch/transformers),
+# never the main venv. Bootstrap: voice_training/setup_xtts.sh. For reference only:
+#   coqui-tts[codec] torch torchaudio torchcodec "transformers>=4.40,<5"
 
 [tool.setuptools.packages.find]
 include = ["jarvis*"]

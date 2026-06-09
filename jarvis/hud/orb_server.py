@@ -1,0 +1,153 @@
+"""Dependency-free localhost server for the JARVIS orb HUD.
+
+Serves orb.html on ``/`` and a Server-Sent-Events stream on ``/events``. The
+orchestrator calls ``OrbServer.publish(state, level)`` on every state change; each
+connected browser receives it via the native EventSource API and animates the orb.
+Stdlib only (http.server + threads) so it adds no install footprint and never blocks
+the asyncio pipeline. All publishing is best-effort: the HUD must never break voice.
+"""
+from __future__ import annotations
+
+import json
+import queue
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ORB_HTML = Path(__file__).resolve().parent / "orb.html"
+_VALID_STATES = ("idle", "listening", "thinking", "speaking")
+
+
+class OrbHub:
+    """Fan-out of {state, level} events to connected SSE clients (thread-safe)."""
+
+    def __init__(self) -> None:
+        self._clients: set[queue.Queue] = set()
+        self._lock = threading.Lock()
+        self._last = {"state": "idle", "level": 0.0}
+
+    def subscribe(self) -> queue.Queue:
+        q: queue.Queue = queue.Queue(maxsize=64)
+        with self._lock:
+            self._clients.add(q)
+        q.put(dict(self._last))  # replay current state immediately on connect
+        return q
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        with self._lock:
+            self._clients.discard(q)
+
+    def publish(self, state: str, level: float = 0.0) -> dict:
+        if state not in _VALID_STATES:
+            state = "idle"
+        evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4)}
+        self._last = evt
+        with self._lock:
+            clients = list(self._clients)
+        for q in clients:
+            try:
+                q.put_nowait(dict(evt))
+            except queue.Full:
+                pass
+        return evt
+
+    def client_count(self) -> int:
+        with self._lock:
+            return len(self._clients)
+
+
+def _make_handler(hub: OrbHub):
+    class OrbHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args) -> None:  # silence default stderr spam
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802 (stdlib name)
+            path = self.path.split("?", 1)[0]
+            if path.startswith("/events"):
+                self._serve_events()
+            elif path in ("/", "/index.html", "/orb.html"):
+                self._serve_html()
+            elif path == "/health":
+                self._serve_bytes(b"ok", "text/plain; charset=utf-8")
+            elif path == "/favicon.ico":
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self.send_error(404)
+
+        def _serve_html(self) -> None:
+            try:
+                body = ORB_HTML.read_bytes()
+            except OSError:
+                self.send_error(500)
+                return
+            self._serve_bytes(body, "text/html; charset=utf-8")
+
+        def _serve_bytes(self, body: bytes, ctype: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _serve_events(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            q = hub.subscribe()
+            try:
+                while True:
+                    try:
+                        evt = q.get(timeout=15)
+                        chunk = f"data: {json.dumps(evt)}\n\n".encode()
+                    except queue.Empty:
+                        chunk = b": keep-alive\n\n"  # SSE comment ping
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                hub.unsubscribe(q)
+
+    return OrbHandler
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+class OrbServer:
+    """Background HTTP/SSE server for the orb. start() is non-blocking; publish() is
+    safe to call from any thread (the orchestrator calls it from the asyncio loop)."""
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 8787) -> None:
+        self.host = host
+        self.port = port
+        self.hub = OrbHub()
+        self._httpd: _Server | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def url(self) -> str:
+        return f"http://{self.host}:{self.port}/"
+
+    def start(self) -> None:
+        self._httpd = _Server((self.host, self.port), _make_handler(self.hub))
+        self.port = self._httpd.server_address[1]  # reflect the real port (handles port=0)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+
+    def publish(self, state: str, level: float = 0.0) -> None:
+        self.hub.publish(state, level)
+
+    def stop(self) -> None:
+        if self._httpd is not None:
+            self._httpd.shutdown()
+            self._httpd.server_close()
+            self._httpd = None

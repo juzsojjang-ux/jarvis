@@ -22,6 +22,10 @@ jarvis/core/__init__.py
 jarvis/core/config.py
 jarvis/core/events.py
 jarvis/core/orchestrator.py
+jarvis/hud/__init__.py
+jarvis/hud/level.py
+jarvis/hud/orb_server.py
+jarvis/hud/overlay_mac.py
 jarvis/stt/__init__.py
 jarvis/stt/base.py
 jarvis/stt/mlx_whisper.py
@@ -32,6 +36,7 @@ jarvis/tools/registry.py
 jarvis/tools/builtin/__init__.py
 jarvis/tools/builtin/local_tools.py
 jarvis/tools/builtin/time_weather.py
+jarvis/tools/builtin/voice_status.py
 jarvis/tools/builtin/web_search.py
 jarvis/tts/__init__.py
 jarvis/tts/base.py
@@ -44,7 +49,9 @@ jarvis/vc/__init__.py
 jarvis/vc/base.py
 jarvis/vc/factory.py
 jarvis/vc/null_vc.py
+jarvis/vc/resolve.py
 jarvis/vc/rvc.py
+jarvis/vc/rvc_infer_cli.py
 tests/test_brain.py
 tests/test_capture.py
 tests/test_config.py

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>JARVIS</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #bg { position: fixed; inset: 0; opacity: 0; transition: opacity .4s;
+        background: radial-gradient(ellipse at center, #0c1a26 0%, #060d16 60%, #02060c 100%); }
+  canvas { position: fixed; inset: 0; display: block; }
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <canvas id="hud"></canvas>
+<script>
+// JARVIS ring HUD — composed to match the reference plate. Pure Canvas2D (offline),
+// transparent background for the native macOS overlay. Reactive to {state, level}.
+const cv = document.getElementById("hud"), ctx = cv.getContext("2d");
+const BR="#9ee8ff", MD="#4fb4dd", DP="#235a78", GD="#ecba4f", GD_D="#a8761f", TX="#e6f6ff";
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+"px"; cv.style.height=H+"px";
+  ctx.setTransform(DPR,0,0,DPR,0,0); }
+addEventListener("resize",resize); resize();
+
+const PRES={idle:0.0,listening:0.6,thinking:0.78,speaking:1.0};
+const LABEL={idle:"STANDBY",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
+let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true;
+function apply(s,l){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false; }
+try{ const es=new EventSource("/events"); es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level);}; }catch(_){}
+
+const TAU=Math.PI*2, TOP=-Math.PI/2;
+function ringC(r,w,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;
+  ctx.beginPath(); ctx.arc(0,0,r,0,TAU); ctx.stroke(); }
+function arcC(r,w,a0,a1,col,a,cap){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;
+  ctx.lineCap=cap||"butt"; ctx.beginPath(); ctx.arc(0,0,r,a0,a1); ctx.stroke(); }
+function ticksC(r,len,n,col,a,wid,off){ ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=wid||1;
+  for(let i=0;i<n;i++){ const t=(off||0)+i/n*TAU; ctx.beginPath();
+    ctx.moveTo(Math.cos(t)*r,Math.sin(t)*r); ctx.lineTo(Math.cos(t)*(r+len),Math.sin(t)*(r+len)); ctx.stroke(); } }
+function segBand(r,w,segs,gap,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col; ctx.lineCap="butt";
+  const step=TAU/segs; for(let i=0;i<segs;i++){ const s=i*step; ctx.beginPath(); ctx.arc(0,0,r,s+gap,s+step-gap); ctx.stroke(); } }
+// detached "⌐" bracket: a short fat arc with a radial end-tick at each end
+function bracket(r,w,c,span,col,a,tick){ const a0=c-span/2,a1=c+span/2;
+  arcC(r,w,a0,a1,col,a); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=Math.max(1,w*0.25);
+  for(const e of [a0,a1]){ ctx.beginPath(); ctx.moveTo(Math.cos(e)*(r-w/2),Math.sin(e)*(r-w/2));
+    ctx.lineTo(Math.cos(e)*(r-w/2-(tick||w)),Math.sin(e)*(r-w/2-(tick||w))); ctx.stroke(); } }
+
+function frame(){
+  const t=performance.now()/1000;
+  if(demo||performance.now()-lastEvent>8000){ state="speaking"; targetLevel=0.32+0.4*Math.abs(Math.sin(t*2.1)); }
+  level+=(targetLevel-level)*0.12; presence+=((PRES[state]??0)-presence)*0.07;
+  document.getElementById("bg").style.opacity = demo?0:"";
+  ctx.clearRect(0,0,W,H);
+  if(presence<0.01){ requestAnimationFrame(frame); return; }
+  ctx.save(); ctx.translate(W/2,H/2);
+  const R=Math.min(W,H)*(0.215+0.01*level), P=presence, lv=level;   // smaller than before
+  ctx.lineCap="butt"; ctx.shadowColor=BR; ctx.shadowBlur=12*P*(0.6+lv);
+
+  // outer fine tick scale (slow drift) + thin guide
+  ctx.save(); ctx.rotate(t*0.04);
+  ringC(R*1.34,1,DP,0.45*P); ticksC(R*1.34,5,140,MD,0.30*P,1);
+  ticksC(R*1.34,11,28,BR,0.45*P,1.3); ctx.restore();
+
+  // detached cyan brackets (signature HUD accents) — fixed composition
+  bracket(R*1.18,7,TOP+0.95,0.42,BR,0.8*P,8);     // upper-right
+  bracket(R*1.18,7,TOP+2.4,0.34,BR,0.7*P,7);      // lower-right
+  bracket(R*1.18,5,TOP-1.15,0.26,MD,0.6*P,6);     // upper-left
+  ctx.save(); ctx.rotate(-t*0.10); segBand(R*1.10,3,22,0.05,MD,0.5*P); ctx.restore();
+
+  // top index cluster: ticks + 5 dots (two gold), like the reference
+  ticksC(R*0.985,7,90,BR,0.0,1);
+  ctx.save(); ctx.rotate(TOP+0.18);
+  for(let i=0;i<7;i++){ const a=-0.16+i*0.053; ctx.globalAlpha=0.7*P; ctx.strokeStyle=BR; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*1.0,Math.sin(a)*R*1.0); ctx.lineTo(Math.cos(a)*R*1.07,Math.sin(a)*R*1.07); ctx.stroke(); }
+  ctx.restore();
+  for(let i=0;i<5;i++){ const a=TOP-0.20+i*0.10; ctx.globalAlpha=0.9*P;
+    ctx.fillStyle=(i===1||i===3)?GD:BR; ctx.beginPath(); ctx.arc(Math.cos(a)*R*1.18,Math.sin(a)*R*1.18,2.4,0,TAU); ctx.fill(); }
+
+  // MAIN fat band with depth (bright face + inner highlight + outer shadow), small gaps
+  const rB=R*0.98, w=R*0.135;
+  segBand(rB,w,3,0.16,MD,0.92*P);
+  ringC(rB-w*0.42,1.4,BR,0.85*P);                 // inner highlight edge
+  ringC(rB+w*0.42,1.4,DP,0.8*P);                  // outer shadow edge
+  ticksC(rB+w*0.5,5,72,BR,0.35*P,1);              // tick scale on the band
+
+  // GOLD accent on the left — thick arc (grows with voice) + gold bracket further out
+  ctx.shadowColor=GD; ctx.shadowBlur=14*P*(0.5+lv);
+  const gC=Math.PI, gSpan=0.55+0.7*lv;
+  arcC(rB,w*0.92,gC-gSpan/2,gC+gSpan/2,GD,0.95*P,"round");
+  bracket(R*1.18,6,Math.PI,0.16,GD,0.85*P,7);
+  ctx.shadowColor=BR; ctx.shadowBlur=10*P*(0.6+lv);
+
+  // inner ring + sparse ticks (counter-rotate)
+  ctx.save(); ctx.rotate(-t*0.16);
+  ringC(R*0.74,1,DP,0.7*P); ticksC(R*0.74,5,40,MD,0.45*P,1); ctx.restore();
+
+  // voice-reactive inner ring — softly undulates with the voice
+  ctx.globalAlpha=(0.22+0.35*lv)*P; ctx.strokeStyle=BR; ctx.lineWidth=1.3; ctx.beginPath();
+  const N=160; for(let i=0;i<=N;i++){ const a=i/N*TAU;
+    const wob=1+lv*0.022*Math.sin(a*4+t*5)+lv*0.012*Math.sin(a*9-t*4); const rr=R*0.56*wob;
+    const x=Math.cos(a)*rr,y=Math.sin(a)*rr; i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke();
+
+  // center readout
+  ctx.shadowBlur=8*P; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.globalAlpha=P; ctx.fillStyle=TX;
+  ctx.font=`600 ${Math.round(R*0.165)}px "SF Mono","Menlo",monospace`;
+  ctx.fillText("J.A.R.V.I.S", 0, -R*0.02);
+  ctx.globalAlpha=0.75*P; ctx.fillStyle=state==="speaking"?GD:BR;
+  ctx.font=`500 ${Math.round(R*0.066)}px "SF Mono","Menlo",monospace`;
+  ctx.fillText((LABEL[state]||"ONLINE").split("").join(" "), 0, R*0.15);
+
+  ctx.restore(); requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

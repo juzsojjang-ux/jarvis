@@ -14,6 +14,10 @@ keyring==25.5.0
 pytest==8.3.3
 ruff==0.7.4
 
+[hud]
+pyobjc-framework-Cocoa>=10.1
+pyobjc-framework-WebKit>=10.1
+
 [training]
 yt-dlp
 demucs
