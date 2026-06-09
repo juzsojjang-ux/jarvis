@@ -24,9 +24,12 @@ print("   melo src ok @", t.sample_rate)
 PY
 
 echo "==> [2/2] RVC convert (pitch -12, index_rate 0.9, similarity-first)"
+# NOTE: macOS ships bash 3.2 — empty-array expansion under `set -u` is fatal there,
+# so the optional index flag uses the ${arr[@]+...} guard.
 IDX_ARGS=()
 [ -n "${JARVIS_RVC_INDEX_PATH:-}" ] && IDX_ARGS=(--index "$JARVIS_RVC_INDEX_PATH")
 .venv-rvc/bin/python jarvis/vc/rvc_infer_cli.py convert /tmp/melo_src.wav "$OUT" \
-  --model "$PTH" "${IDX_ARGS[@]}" --index-rate 0.9 --f0-method rmvpe --pitch -12
+  --model "$PTH" ${IDX_ARGS[@]+"${IDX_ARGS[@]}"} \
+  --index-rate 0.9 --f0-method rmvpe --pitch -12
 echo "DONE -> $OUT"
 ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$OUT" 2>/dev/null | xargs -I{} echo "duration {}s"
