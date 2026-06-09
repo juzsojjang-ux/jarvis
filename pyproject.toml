@@ -1,0 +1,54 @@
+# JARVIS Korean voice assistant — local, macOS Apple Silicon (M4 Pro 24GB).
+# TWO-VENV LAYOUT (do NOT mix):
+#   main venv  -> .venv       : everything in this pyproject
+#   tts  venv  -> .venv-tts   : MeloTTS + python-mecab-ko + pinned torch (M2 only; never imported here)
+# Bootstrap main venv:
+#   python3.11 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "anthropic[mcp]==0.107.1",
+    "mcp==1.27.1",
+    "mlx-whisper==0.4.3",
+    "mlx==0.30.0",
+    "sounddevice==0.5.5",
+    "pynput==1.7.7",
+    "numpy==2.1.3",
+    "soxr==0.5.0.post1",
+    "pydantic>=2.11.0,<3",
+    "pydantic-settings>=2.6.1,<3",
+    "keyring==25.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.3", "ruff==0.7.4"]
+# [voice] (M2 install: pip install -e ".[voice]") — RVC voice path + audio cleanup.
+voice = [
+    "soundfile==0.13.1",
+    "noisereduce==3.0.3",
+    "faiss-cpu>=1.7.2",
+    "mlx-rvc",
+    "audio-separator==0.44.2",
+]
+# [training] — dataset prep for the Colab RVC training notebook (M2 spec 8.4).
+training = ["yt-dlp", "demucs"]
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
