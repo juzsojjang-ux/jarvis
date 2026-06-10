@@ -126,3 +126,19 @@ def test_announce_error_does_not_kill_engine():
         clock=lambda: 0.0, cooldown_s=0.0, tick_s=0.01)
     _run(eng)
     assert calls == ["briefing", "greet_back"]    # 한 건 실패 후에도 다음 건 전달
+
+
+def test_cooldown_override_allows_back_to_back():
+    spoken = []
+
+    async def announce(prompt):
+        spoken.append(prompt)
+
+    eng = ProactiveEngine(
+        [_Mon([[_ann("timer_done", 1, 0.0, prompt="달걀")], [],
+               [_ann("timer_done", 1, 0.0, prompt="라면")]])],
+        announce=announce, can_speak=lambda: True,
+        clock=lambda: 0.0, cooldown_s=999.0, tick_s=0.01,
+        cooldown_overrides={"timer_done": 0.0})
+    _run(eng)
+    assert spoken == ["달걀", "라면"]

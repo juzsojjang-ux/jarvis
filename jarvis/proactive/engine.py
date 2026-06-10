@@ -13,7 +13,8 @@ from .events import Announcement
 class ProactiveEngine:
     def __init__(self, monitors, *, announce, can_speak,
                  clock=time.monotonic, cooldown_s: float = 600.0,
-                 tick_s: float = 1.0):
+                 tick_s: float = 1.0,
+                 cooldown_overrides: dict[str, float] | None = None):
         self._monitors = list(monitors)
         self._announce = announce          # async (prompt) -> None
         self._can_speak = can_speak        # () -> bool
@@ -23,6 +24,8 @@ class ProactiveEngine:
         self._clock = clock
         self._cooldown_s = cooldown_s
         self._tick_s = tick_s
+        # kind별 쿨다운 예외 — 타이머처럼 연속 발생이 정상인 종류는 0으로.
+        self._cooldown_overrides = dict(cooldown_overrides or {})
         self._pending: list[Announcement] = []
         self._last_spoken: dict[str, float] = {}
         self._next_poll: dict[int, float] = {}
@@ -64,7 +67,8 @@ class ProactiveEngine:
         now = self._clock()
         self._pending = [a for a in self._pending if not a.expired(now)]
         ready = [a for a in self._pending
-                 if now - self._last_spoken.get(a.kind, -1e12) >= self._cooldown_s]
+                 if now - self._last_spoken.get(a.kind, -1e12)
+                 >= self._cooldown_overrides.get(a.kind, self._cooldown_s)]
         if not ready:
             return None
         best = min(ready, key=lambda a: (a.priority, a.created_at))
