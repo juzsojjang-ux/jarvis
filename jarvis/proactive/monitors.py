@@ -1,6 +1,6 @@
 """능동 알림 감시자들. 각 poll()은 '전이가 일어난 순간'에만 Announcement를
-돌려준다(반복 스팸 금지). subprocess는 주입형 runner — 엔진이
-to_thread에서 부르므로 여기선 동기로 단순하게 쓴다."""
+돌려준다(반복 스팸 금지). 외부 접근(subprocess/AppleScript/Quartz)은 전부 주입형 —
+엔진이 to_thread에서 부르므로 여기선 동기로 단순하게 쓴다."""
 from __future__ import annotations
 
 import re
@@ -9,8 +9,11 @@ import time
 from datetime import date, datetime
 
 from .events import Announcement
+from .sources import fetch_events, fetch_reminders
 
+_FIVE_MIN = 300.0
 _TEN_MIN = 600.0
+_ONE_HOUR = 3600.0
 
 
 class BatteryMonitor:
@@ -50,7 +53,7 @@ class BatteryMonitor:
         if self._prev_ac is not None and on_ac != self._prev_ac:
             if on_ac:
                 out.append(Announcement("charger_on", f"전원이 연결됐다 (배터리 {pct}%)",
-                                        3, now, now + 300))
+                                        3, now, now + _FIVE_MIN))
                 self._warned.clear()              # 충전 시작: 경고 카운터 리셋
             self._full_announced = False
         if on_ac and pct >= 100 and not self._full_announced:
@@ -120,7 +123,7 @@ class SessionMonitor:
                 self._last_greet = now             # 브리핑이 인사를 겸한다
             elif unlocked_now and now - self._last_greet >= self._greet_cooldown_s:
                 out.append(Announcement("greet_back", "주인님이 자리로 돌아왔다 — 짧게 맞이하라",
-                                        4, now, now + 300))
+                                        4, now, now + _FIVE_MIN))
                 self._last_greet = now
         self._prev_locked = locked
         return out
@@ -150,4 +153,64 @@ class LateNightMonitor:
         now = self._clock()
         return [Announcement("late_night",
                              "새벽 2시가 넘었는데 주인님이 아직 깨어 있다 — 정중하지만 "
-                             "위트 있게 취침을 권하라", 4, now, now + 3600)]
+                             "위트 있게 취침을 권하라", 4, now, now + _ONE_HOUR)]
+
+
+class _DueMonitor:
+    """임박 항목 감시 공통: fetch가 (id, 제목, 남은초)를 주면 lead 이내 항목을
+    id당 1회 알린다. 항목이 사라지면 셋에서 정리해, 같은 id가 새 due로
+    재등장하면 다시 알릴 수 있다."""
+
+    interval_s = 60.0
+
+    def __init__(self, *, kind: str, what: str, lead_s: float, fetch,
+                 clock=time.monotonic):
+        self._kind = kind
+        self._what = what
+        self._lead_s = lead_s
+        self._fetch = fetch
+        self._clock = clock
+        self._announced: set[str] = set()
+
+    def poll(self) -> list[Announcement]:
+        items = self._fetch(int(self._lead_s * 2))
+        now = self._clock()
+        live_ids = {i for i, _, _ in items}
+        self._announced &= live_ids               # 사라진 항목은 셋에서 정리
+        out: list[Announcement] = []
+        for ident, title, secs in items:
+            if secs <= self._lead_s and ident not in self._announced:
+                mins = max(1, secs // 60)
+                out.append(Announcement(
+                    self._kind, f"{mins}분 뒤 {self._what}: {title}", 1,
+                    now, now + secs))
+                self._announced.add(ident)
+        return out
+
+
+class RemindersMonitor(_DueMonitor):
+    def __init__(self, *, lead_s: float, fetch=fetch_reminders, clock=time.monotonic):
+        super().__init__(kind="reminder_due", what="미리알림", lead_s=lead_s,
+                         fetch=fetch, clock=clock)
+
+
+class CalendarMonitor(_DueMonitor):
+    interval_s = 300.0
+
+    def __init__(self, *, lead_s: float, fetch=fetch_events, clock=time.monotonic):
+        super().__init__(kind="event_soon", what="일정 시작", lead_s=lead_s,
+                         fetch=fetch, clock=clock)
+
+
+def build_monitors(settings) -> list:
+    """설정으로 감시자 세트를 조립한다(엔진/배선에서 호출)."""
+    mons: list = [
+        BatteryMonitor(levels=settings.battery_warn_levels),
+        SessionMonitor(greet_cooldown_s=settings.greet_cooldown_h * 3600,
+                       briefing_expire_s=settings.briefing_expire_h * 3600),
+        RemindersMonitor(lead_s=settings.reminder_lead_min * 60),
+        CalendarMonitor(lead_s=settings.event_lead_min * 60),
+    ]
+    if settings.proactive_late_night:
+        mons.append(LateNightMonitor())
+    return mons

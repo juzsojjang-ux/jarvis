@@ -1,7 +1,14 @@
 from datetime import date, datetime
 from types import SimpleNamespace
 
-from jarvis.proactive.monitors import BatteryMonitor, LateNightMonitor, SessionMonitor
+from jarvis.proactive.monitors import (
+    BatteryMonitor,
+    CalendarMonitor,
+    LateNightMonitor,
+    RemindersMonitor,
+    SessionMonitor,
+    build_monitors,
+)
 
 
 def _pmset_runner(text_out):
@@ -137,3 +144,52 @@ def test_late_night_quiet_outside_window():
                            now_fn=lambda: datetime(2026, 6, 11, 23, 30),
                            today_fn=lambda: fs.day)
     assert mon.poll() == []
+
+
+# ---------------------------------------------------------------------------
+# RemindersMonitor / CalendarMonitor / build_monitors 테스트
+# ---------------------------------------------------------------------------
+
+def test_reminder_due_within_lead_announced_once():
+    items = {"v": [("id-1", "회의 자료", 540)]}        # 9분 후 due
+    mon = RemindersMonitor(lead_s=600, fetch=lambda w, runner=None: items["v"])
+    out = mon.poll()
+    assert len(out) == 1 and out[0].kind == "reminder_due" and "회의 자료" in out[0].prompt
+    assert mon.poll() == []                            # 같은 id 재알림 금지
+    items["v"] = [("id-1", "회의 자료", 400), ("id-2", "약", 7200)]
+    assert mon.poll() == []                            # id-2는 lead 밖
+
+
+def test_reminder_set_prunes_vanished_ids():
+    items = {"v": [("id-1", "회의 자료", 540)]}
+    mon = RemindersMonitor(lead_s=600, fetch=lambda w, runner=None: items["v"])
+    mon.poll()                                         # id-1 알림 소모
+    items["v"] = []                                    # 완료/삭제되어 사라짐
+    mon.poll()
+    items["v"] = [("id-1", "회의 자료", 300)]           # 같은 id가 재등장(새 due)
+    assert len(mon.poll()) == 1                        # 다시 알릴 수 있어야 한다
+
+
+def test_calendar_event_soon_announced_once():
+    mon = CalendarMonitor(lead_s=600, fetch=lambda w, runner=None: [("u1", "팀 미팅", 300)])
+    out = mon.poll()
+    assert out[0].kind == "event_soon" and "팀 미팅" in out[0].prompt
+    assert mon.poll() == []
+
+
+def test_build_monitors_respects_late_night_flag():
+    class _S:  # Settings 흉내 — 필요한 필드만
+        battery_warn_levels = [20, 10, 5]
+        reminder_lead_min = 10
+        event_lead_min = 10
+        greet_cooldown_h = 4.0
+        briefing_expire_h = 2.0
+        proactive_late_night = False
+
+    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    assert "LateNightMonitor" not in kinds
+    assert {"BatteryMonitor", "SessionMonitor", "RemindersMonitor",
+            "CalendarMonitor"} <= set(kinds)
+    _S.proactive_late_night = True
+    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    assert "LateNightMonitor" in kinds
