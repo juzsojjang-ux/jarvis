@@ -298,6 +298,8 @@ class Orchestrator:
                 await self._finish_speaking("")
             else:
                 out = await self.brain.translate(text, "Korean")
+                self.state = State.SPEAKING
+                self._publish("speaking", 0.4, out)  # 한국어 통역도 오브·자막 반응
                 await asyncio.to_thread(
                     interpret_speak_korean, out, self.settings.interpret_ko_voice)
         except Exception as exc:  # noqa: BLE001 - 통역 한 줄 실패가 모드를 깨면 안 된다
