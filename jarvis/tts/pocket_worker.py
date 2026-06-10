@@ -19,6 +19,31 @@ import numpy as np
 from jarvis.tts.tts_worker import serve  # generic ipc serve loop
 
 SAMPLE_RATE = 24000
+# Pocket TTS warns "Chunk has N tokens (max 50)" and may skip words when a comma-less
+# clause exceeds its per-chunk budget. ~50 tokens ≈ 35-40 EN words; 24 words is safe.
+_MAX_WORDS = 24
+
+
+def split_for_pocket(text: str, max_words: int = _MAX_WORDS) -> list[str]:
+    """Split text into pieces short enough for Pocket TTS — preferring clause breaks
+    (comma/semicolon/colon/period), with a hard word cap for comma-less run-ons."""
+    text = text.strip()
+    if not text:
+        return []
+    words = text.split()
+    if len(words) <= max_words:
+        return [text]
+    out: list[str] = []
+    buf: list[str] = []
+    for w in words:
+        buf.append(w)
+        clause_end = w.endswith((",", ";", ":", ".", "!", "?"))
+        if (len(buf) >= max_words and clause_end) or len(buf) >= max_words + 8:
+            out.append(" ".join(buf))
+            buf = []
+    if buf:
+        out.append(" ".join(buf))
+    return out
 
 
 def make_pocket_synth():
@@ -29,11 +54,20 @@ def make_pocket_synth():
         "JARVIS_POCKET_REF", os.path.expanduser("~/jarvis/voice_models/jarvis_ref.wav"))
     model = TTSModel.load_model()
     voice_state = model.get_state_for_audio_prompt(ref)  # clone once at startup
+    gap = np.zeros(int(0.06 * SAMPLE_RATE), dtype=np.float32)  # 60ms between pieces
 
     def synth(text: str):
-        audio = model.generate_audio(voice_state, text)
-        pcm = audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio)
-        pcm = np.asarray(pcm, dtype=np.float32).reshape(-1)
+        pieces = split_for_pocket(text)
+        if not pieces:
+            return np.zeros(0, dtype=np.float32), SAMPLE_RATE
+        parts: list[np.ndarray] = []
+        for i, piece in enumerate(pieces):
+            audio = model.generate_audio(voice_state, piece)
+            a = audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio)
+            parts.append(np.asarray(a, dtype=np.float32).reshape(-1))
+            if i < len(pieces) - 1:
+                parts.append(gap)
+        pcm = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
         if pcm.size:
             peak = float(np.max(np.abs(pcm)))
             if peak > 1e-5:
