@@ -64,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     a = _parse(sys.argv[1:] if argv is None else argv)
     device = os.environ.get("JARVIS_RVC_DEVICE", "mps")
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    # faiss-cpu's OpenMP threads segfault in `index.search` after torch (hubert) has
+    # initialised its own OMP runtime on macOS arm64 — single-threading faiss fixes it
+    # (verified 2026-06-10; without an index the path never crashed).
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
     return subprocess.run(_build_rvc_python_cmd(a, device)).returncode
 
 
