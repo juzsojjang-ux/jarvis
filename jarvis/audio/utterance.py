@@ -3,17 +3,6 @@ from collections import deque
 import numpy as np
 
 
-class _Utterance(np.ndarray):
-    """np.ndarray 서브클래스 — `result or prev` 패턴에서 bool 평가가 필요해
-    __bool__을 True로 고정. 배열 연산은 부모 클래스에 그대로 위임한다."""
-
-    def __new__(cls, arr: np.ndarray) -> "_Utterance":
-        return np.asarray(arr, dtype=np.float32).view(cls)
-
-    def __bool__(self) -> bool:  # `feed(...) or out` 가 ValueError 없이 동작하도록
-        return True
-
-
 class UtteranceDetector:
     """프레임 단위 VAD 확률을 받아 완결된 발화 PCM을 돌려주는 순수 상태기계.
     threshold 이상이면 발화 시작(직전 pre-roll 포함), silence_ms 동안 조용하면
@@ -42,7 +31,7 @@ class UtteranceDetector:
         self._silent = 0
         self._in_speech = False
 
-    def _finish(self) -> "_Utterance | None":
+    def _finish(self) -> "np.ndarray | None":
         buf, speech = self._buf, self._speech_frames
         self._buf = []
         self._speech_frames = 0
@@ -50,9 +39,9 @@ class UtteranceDetector:
         self._in_speech = False
         if speech < self._min_frames:
             return None
-        return _Utterance(np.concatenate(buf))
+        return np.concatenate(buf).astype(np.float32)
 
-    def feed(self, prob: float, frame: np.ndarray) -> "_Utterance | None":
+    def feed(self, prob: float, frame: np.ndarray) -> "np.ndarray | None":
         if not self._in_speech:
             self._pre.append(frame)
             if prob >= self._thr:
