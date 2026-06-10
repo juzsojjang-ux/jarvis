@@ -31,10 +31,12 @@ set endD to nowD + {window}
 tell application "Calendar"
     repeat with c in calendars
         try
-            repeat with e in (events of c whose start date is greater than nowD \xac
+            repeat with e in (events of c whose start date is greater than nowD ¬
                               and start date is less than endD)
-                set secs to ((start date of e) - nowD) as integer
-                set out to out & (uid of e) & "|" & (summary of e) & "|" & secs & linefeed
+                try
+                    set secs to ((start date of e) - nowD) as integer
+                    set out to out & (uid of e) & "|" & (summary of e) & "|" & secs & linefeed
+                end try
             end repeat
         end try
     end repeat
