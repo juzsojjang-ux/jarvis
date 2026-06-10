@@ -50,6 +50,9 @@ _GUIDANCE_KO = (
     "사용자 메시지가 '[SYSTEM EVENT]'로 시작하면 누가 물은 게 아니라 네가 먼저 알리는 "
     "것이다(배터리·일정·브리핑·인사): 한두 문장으로 짧게 위트 있게 알리고, 뭘 도울지 "
     "되묻지 마라. 브리핑 이벤트면 날씨·미리알림·캘린더 도구를 먼저 호출해 요약하라. "
+    "대화 중 주인님의 지속적인 개인 정보(선호·약속·이름·반복 습관)를 자연스럽게 "
+    "알게 되면 다음에 유용하니 묻지 말고 remember 도구로 조용히 저장하라. 잡담· "
+    "일시적 맥락·민감정보는 저장하지 마라. "
 )
 _GUIDANCE_EN = (
     "You are JARVIS, Tony Stark's refined British AI butler. The user may speak Korean, "
@@ -76,6 +79,10 @@ _GUIDANCE_EN = (
     "proactively informing sir (battery, schedule, briefing, greeting): deliver it "
     "in one or two short witty sentences, never ask what he needs. For a briefing "
     "event, call the weather/reminders/calendar tools first, then summarise. "
+    "When you naturally learn a durable personal fact about sir during the chat "
+    "(a preference, a commitment, a name, a recurring habit) that would help you "
+    "later, quietly call the remember tool — do not ask. Never store small talk, "
+    "transient context, or sensitive data. "
     "After your spoken English reply, append on a new line exactly '[KO] ' followed by a "
     "natural Korean translation of what you said, for on-screen subtitles — render 'sir' "
     "as '주인님' and keep the same witty tone in Korean."
@@ -310,6 +317,28 @@ class SubscriptionBrain:
         if not in_ko and pending:
             yield pending
         self.last_subtitle = _strip_sources(self.last_subtitle)
+
+    async def translate(self, text: str, target_lang: str) -> str:
+        """도구 없는 1회 번역 질의. 번역문만 돌려준다(설명·따옴표 없음)."""
+        self._ensure_sdk()
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        opts = self._options_cls(
+            system_prompt=(f"Translate the given sentence into {target_lang}. "
+                           "Output ONLY the translation — no explanation, quotes, "
+                           "or notes."),
+            allowed_tools=[],
+            setting_sources=[],
+            max_turns=1,
+            env=env,
+        )
+        out: list[str] = []
+        async with self._client_cls(options=opts) as client:
+            await client.query(text)
+            async for msg in client.receive_response():
+                for block in getattr(msg, "content", []) or []:
+                    if getattr(block, "type", "") == "text":
+                        out.append(getattr(block, "text", ""))
+        return "".join(out).strip()
 
     async def warm(self) -> None:
         # Connect AND run one throwaway query so the agent + in-process MCP tools are

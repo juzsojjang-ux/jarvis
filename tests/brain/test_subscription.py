@@ -215,3 +215,47 @@ def test_subscription_model_passed_when_set():
         client = await b._ensure_client()
         assert client.options.kw["model"] == "claude-opus-4-8"
     asyncio.run(run())
+
+
+def test_translate_uses_translation_only_options():
+    import asyncio
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    captured = {}
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    class _FakeClient:
+        def __init__(self, options=None):
+            captured["options_obj"] = options
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def query(self, text):
+            captured["query"] = text
+
+        async def receive_response(self):
+            class _Blk:
+                type = "text"
+                text = "Hello, sir."
+
+            class _Msg:
+                content = [_Blk()]
+            yield _Msg()
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096,
+                              client_cls=_FakeClient, options_cls=_FakeOptions)
+    out = asyncio.run(brain.translate("안녕하세요", "English"))
+    assert out == "Hello, sir."
+    assert captured["query"] == "안녕하세요"
+    assert captured["allowed_tools"] == []
+    assert captured["max_turns"] == 1
+    assert "English" in captured["system_prompt"]
