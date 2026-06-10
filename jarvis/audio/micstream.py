@@ -14,7 +14,9 @@ class MicStream:
     silero VAD 윈도우와 일치. 구독자는 PortAudio 콜백 스레드에서 불리므로
     append 수준으로 가벼워야 한다.
     start/stop/ensure_running은 단일 호출자(오케스트레이터 asyncio 루프) 가정 —
-    잠금 없이 _stream을 만지므로 다중 호출자 금지."""
+    잠금 없이 _stream을 만지므로 다중 호출자 금지.
+    ensure_running()은 start() 호출 이후 ~ stop() 호출 이전 구간에서만 장치를
+    여닫는다. start() 전 또는 stop() 후엔 아무것도 하지 않는다(테스트·웨이크OFF 보호)."""
 
     def __init__(self, sample_rate: int = 16000, blocksize: int = 512):
         self.sample_rate = sample_rate
@@ -23,6 +25,7 @@ class MicStream:
         self._lock = threading.Lock()
         self._stream: sd.InputStream | None = None
         self._retry_at = 0.0
+        self._want_running = False
 
     def subscribe(self, cb: Callable[[np.ndarray], None]) -> None:
         with self._lock:
@@ -46,6 +49,7 @@ class MicStream:
                 pass
 
     def start(self) -> None:
+        self._want_running = True
         if self._stream is not None:
             return
         self._stream = sd.InputStream(
@@ -55,6 +59,7 @@ class MicStream:
         self._stream.start()
 
     def stop(self) -> None:
+        self._want_running = False
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
@@ -62,6 +67,8 @@ class MicStream:
 
     def ensure_running(self) -> None:
         """장치 변경(이어폰 연결 등)으로 죽은 스트림을 2초 백오프로 재시작."""
+        if not self._want_running:
+            return  # start() 전/stop() 후엔 장치를 절대 열지 않는다(테스트·웨이크OFF 보호)
         if self._stream is not None and self._stream.active:
             return
         now = time.monotonic()

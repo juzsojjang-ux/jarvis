@@ -47,3 +47,9 @@ def test_double_subscribe_is_idempotent():
     ms.subscribe(got.append)
     ms._callback(_chunk(), 512, None, None)
     assert len(got) == 1
+
+
+def test_ensure_running_is_noop_before_start():
+    ms = MicStream()
+    ms.ensure_running()                      # start() 전엔 실제 장치를 열면 안 된다
+    assert ms._stream is None
