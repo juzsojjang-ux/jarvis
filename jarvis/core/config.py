@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     wake_pre_roll_ms: int = 320         # 발화 직전 보존 구간 — "자비스" 첫 음절 잘림 방지
     vad_model_path: str = "~/jarvis/voice_models/silero_vad.onnx"
 
+    # --- M4 능동적 자비스 (2단계) ---
+    # 먼저 말 거는 자비스: 브리핑/배터리/미리알림·일정/인사. 대화 중엔 보류.
+    proactive_enabled: bool = True
+    battery_warn_levels: list[int] = [20, 10, 5]  # 하향 돌파마다 1회 경고
+    reminder_lead_min: int = 10        # 미리알림 due 몇 분 전에 알릴지
+    event_lead_min: int = 10           # 캘린더 일정 시작 몇 분 전에 알릴지
+    greet_cooldown_h: float = 4.0      # 복귀 인사 최소 간격
+    briefing_expire_h: float = 2.0     # 묵은 브리핑 폐기
+    proactive_cooldown_min: int = 10   # 같은 종류 알림 최소 간격
+    proactive_late_night: bool = False  # 새벽 2시 "주무시죠" 한마디(기본 꺼짐)
+
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"

@@ -27,3 +27,14 @@ def test_wake_word_defaults():
     assert s.wake_min_speech_ms == 300
     assert s.wake_pre_roll_ms == 320
     assert s.vad_model_path.endswith("silero_vad.onnx")
+
+
+def test_proactive_defaults():
+    s = Settings()
+    assert s.proactive_enabled is True
+    assert s.battery_warn_levels == [20, 10, 5]
+    assert s.reminder_lead_min == 10 and s.event_lead_min == 10
+    assert s.greet_cooldown_h == 4.0
+    assert s.briefing_expire_h == 2.0
+    assert s.proactive_cooldown_min == 10
+    assert s.proactive_late_night is False
