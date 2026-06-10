@@ -23,3 +23,31 @@ def test_text_empty_when_file_absent(tmp_path):
     m = MemoryStore(tmp_path / "none.md")
     m.load()
     assert m.text() == ""
+
+
+def test_remember_skips_duplicate(tmp_path):
+    from jarvis.brain.memory import MemoryStore
+    m = MemoryStore(tmp_path / "mem.md")
+    m.load()
+    m.remember("주인님은 매운 음식을 못 먹는다")
+    m.remember("주인님은 매운 음식을 못 먹는다")
+    m.remember("주인님은  매운 음식을 못먹는다!!")
+    assert m.text().count("매운 음식") == 1
+
+
+def test_remember_substring_duplicate(tmp_path):
+    from jarvis.brain.memory import MemoryStore
+    m = MemoryStore(tmp_path / "mem.md")
+    m.load()
+    m.remember("커피는 아메리카노")
+    m.remember("커피는 아메리카노만 마신다")
+    assert m.text().count("아메리카노") == 1
+
+
+def test_remember_distinct_kept(tmp_path):
+    from jarvis.brain.memory import MemoryStore
+    m = MemoryStore(tmp_path / "mem.md")
+    m.load()
+    m.remember("이름은 이성재")
+    m.remember("생일은 3월")
+    assert "이성재" in m.text() and "3월" in m.text()
