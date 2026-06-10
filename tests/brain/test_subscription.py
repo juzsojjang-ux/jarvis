@@ -18,6 +18,11 @@ class FakeStreamEvent:
                       if text is not None else {"type": type_})
 
 
+class FakeToolStart(FakeStreamEvent):
+    def __init__(self, kind="tool_use"):
+        self.event = {"type": "content_block_start", "content_block": {"type": kind}}
+
+
 class FakeOther:
     pass
 
@@ -83,6 +88,27 @@ def test_streams_partial_deltas_and_skips_final_duplicate():
     asyncio.run(run())
 
 
+def test_tool_use_emits_filler_before_search_then_answer():
+    async def run():
+        b = _brain()
+        out, _ = await _talk(b, [
+            FakeToolStart("server_tool_use"),   # web search begins
+            FakeStreamEvent("최근 결과는"),       # answer streams after
+            FakeStreamEvent(" 이렇습니다."),
+        ])
+        assert out[0] == SubscriptionBrain.TOOL_FILLER  # immediate spoken ack
+        assert "".join(out[1:]) == "최근 결과는 이렇습니다."
+    asyncio.run(run())
+
+
+def test_no_filler_when_no_tool_used():
+    async def run():
+        b = _brain()
+        out, _ = await _talk(b, [FakeStreamEvent("안녕하세요")])
+        assert SubscriptionBrain.TOOL_FILLER not in out
+    asyncio.run(run())
+
+
 def test_falls_back_to_assistant_message_without_partials():
     async def run():
         b = _brain()
@@ -106,7 +132,9 @@ def test_options_isolated_streaming_and_key_stripped(monkeypatch):
         b = _brain()
         client = await b._ensure_client()
         kw = client.options.kw
-        assert kw["allowed_tools"] == ["WebSearch", "WebFetch"]
+        assert "WebSearch" in kw["allowed_tools"]
+        assert "mcp__jarvis__open_app" in kw["allowed_tools"]
+        assert "jarvis" in kw["mcp_servers"]
         assert "Bash" in kw["disallowed_tools"] and "Write" in kw["disallowed_tools"]
         assert kw["setting_sources"] == [] and kw["include_partial_messages"] is True
         assert "ANTHROPIC_API_KEY" not in kw["env"]

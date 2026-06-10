@@ -28,7 +28,9 @@ _GUIDANCE = (
     "너는 자비스, 음성으로 답하는 한국어 집사다. 반드시 한두 문장으로 짧게, "
     "목록·번호·마크다운·별표 같은 기호 없이 사람이 말하듯 자연스럽게 답하라. "
     "사고 과정·머리말·맺음말 없이 핵심만 먼저 말하라. 내용이 길어질 것 같으면 "
-    "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라."
+    "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라. "
+    "시간·날씨·앱 실행·볼륨 조절·기억은 네게 주어진 도구로 직접 처리하고, 최신 정보는 "
+    "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라."
 )
 
 
@@ -81,15 +83,17 @@ class SubscriptionBrain:
 
     def _options(self) -> Any:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        # JARVIS capabilities: read-only web tools (current events) + safe in-process
+        # action tools (time/weather/open-app/volume/remember). Bash/file-edit stay
+        # forbidden — a spoken sentence can never run a command or touch the disk.
+        from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES, build_jarvis_mcp_server
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt(),
-            # READ-ONLY web tools only: lets JARVIS answer current-events questions
-            # ("최근 F1 결과") while Bash/file-edit tools stay forbidden — a spoken
-            # sentence can never run a command or touch the disk.
-            allowed_tools=["WebSearch", "WebFetch"],
+            allowed_tools=["WebSearch", "WebFetch", *JARVIS_TOOL_NAMES],
             disallowed_tools=["Bash", "Edit", "Write", "NotebookEdit"],
+            mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
             setting_sources=[],    # isolate from the host Claude Code project
-            max_turns=6,           # allow a search round-trip before answering
+            max_turns=4,           # allow a tool round-trip; cap over-searching
             env=env,
             include_partial_messages=True,   # stream text deltas -> speak early
         )
@@ -106,6 +110,10 @@ class SubscriptionBrain:
             self._client = client
         return self._client
 
+    # Spoken the instant a web search starts, so there's no dead air while the search
+    # + synthesis run (the slow part of a current-events answer).
+    TOOL_FILLER = "잠시만요, 확인하겠습니다."
+
     @staticmethod
     def _delta_text(event: Any) -> str:
         """Extract a text delta from a raw StreamEvent (anything else -> '')."""
@@ -116,12 +124,29 @@ class SubscriptionBrain:
                 return delta.get("text") or ""
         return ""
 
+    @staticmethod
+    def _is_tool_start(event: Any) -> bool:
+        # Filler only for the SLOW web tools; instant local actions (open_app, volume)
+        # don't need a "잠시만요".
+        raw = getattr(event, "event", None) or {}
+        if raw.get("type") == "content_block_start":
+            b = raw.get("content_block") or {}
+            if b.get("type") == "server_tool_use":
+                return True
+            if b.get("type") == "tool_use":
+                return b.get("name", "") in ("WebSearch", "WebFetch")
+        return False
+
     async def respond(self, user_text: str) -> AsyncIterator[str]:
         client = await self._ensure_client()
         await client.query(user_text)
         streamed = False
+        filler_sent = False
         async for msg in client.receive_response():
             if self._stream_event is not None and isinstance(msg, self._stream_event):
+                if not filler_sent and self._is_tool_start(msg):
+                    filler_sent = True
+                    yield self.TOOL_FILLER
                 text = self._delta_text(msg)
                 if text:
                     streamed = True
