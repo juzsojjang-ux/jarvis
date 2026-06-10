@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     # Brain backend: "subscription" (Claude Pro/Max login via claude-agent-sdk — NO API
     # key, no per-token bill) or "api" (Anthropic API key + local tool loop).
     brain_backend: str = "subscription"
-    subscription_model: str = ""        # "" = Claude Code's default plan model
+    # Sonnet = fastest time-to-first-token for a voice turn (measured 1.3s vs 2.8s on the
+    # plan default) with good Korean. Override via JARVIS_SUBSCRIPTION_MODEL.
+    subscription_model: str = "claude-sonnet-4-6"
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
     ptt_key: str = "alt_r"

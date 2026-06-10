@@ -21,11 +21,14 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-# Kept in sync with jarvis.brain.claude._GUIDANCE, but defined locally so this backend
-# imports without pulling in the anthropic API client.
+# Voice-optimized guidance. The model previously answered questions with markdown
+# bullet lists, which (a) read awful through TTS and (b) made answers long/slow — so we
+# force short, spoken-style replies with NO markdown.
 _GUIDANCE = (
-    "너는 자비스, 음성으로 답하는 한국어 집사다. 최종적으로 말할 한국어 답변만 출력하라. "
-    "사고 과정, 머리말, 맺음말, '음' 같은 군더더기 없이 핵심부터 간결하게 답하라."
+    "너는 자비스, 음성으로 답하는 한국어 집사다. 반드시 한두 문장으로 짧게, "
+    "목록·번호·마크다운·별표 같은 기호 없이 사람이 말하듯 자연스럽게 답하라. "
+    "사고 과정·머리말·맺음말 없이 핵심만 먼저 말하라. 내용이 길어질 것 같으면 "
+    "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라."
 )
 
 
