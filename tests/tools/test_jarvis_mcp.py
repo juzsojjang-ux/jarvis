@@ -166,3 +166,71 @@ def test_timer_tools_registered():
     from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
     for n in ("set_timer", "cancel_timer", "list_timers"):
         assert f"mcp__jarvis__{n}" in JARVIS_TOOL_NAMES
+
+
+def _recording_runner(stdout="", returncode=0):
+    from types import SimpleNamespace
+    calls = []
+
+    def runner(cmd, capture_output=True, text=True, timeout=None, input=None):
+        calls.append(cmd)
+        return SimpleNamespace(stdout=stdout, returncode=returncode)
+
+    runner.calls = calls
+    return runner
+
+
+def test_toggle_dark_mode():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    r = _recording_runner()
+    out = system_toggle_action("dark_mode", "toggle", runner=r)
+    assert "다크" in out
+    assert any("dark mode" in " ".join(c) for c in r.calls)
+
+
+def test_toggle_wifi_resolves_device():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    ports = "Hardware Port: Wi-Fi\nDevice: en1\nEthernet Address: aa\n"
+    r = _recording_runner(stdout=ports)
+    out = system_toggle_action("wifi", "off", runner=r)
+    assert "껐" in out
+    assert ["networksetup", "-setairportpower", "en1", "off"] in r.calls
+
+
+def test_toggle_wifi_needs_explicit_state():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    out = system_toggle_action("wifi", "toggle", runner=_recording_runner())
+    assert "켜기" in out or "끄기" in out
+
+
+def test_toggle_bluetooth_missing_blueutil():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+
+    def no_blueutil(cmd, capture_output=True, text=True, timeout=None, input=None):
+        raise FileNotFoundError("blueutil")
+
+    out = system_toggle_action("bluetooth", "on", runner=no_blueutil)
+    assert "blueutil" in out
+
+
+def test_toggle_brightness_presses_key_4x():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    r = _recording_runner()
+    system_toggle_action("brightness_up", "on", runner=r)
+    assert len([c for c in r.calls if "key code 144" in " ".join(c)]) == 4
+
+
+def test_toggle_sleep_and_display_off():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    r = _recording_runner()
+    assert "절전" in system_toggle_action("sleep", "on", runner=r)
+    assert ["pmset", "sleepnow"] in r.calls
+    r2 = _recording_runner()
+    assert "화면" in system_toggle_action("display_off", "on", runner=r2)
+    assert ["pmset", "displaysleepnow"] in r2.calls
+
+
+def test_toggle_unknown_target_lists_supported():
+    from jarvis.tools.jarvis_mcp import system_toggle_action
+    out = system_toggle_action("프린터", "on", runner=_recording_runner())
+    assert "다크모드" in out

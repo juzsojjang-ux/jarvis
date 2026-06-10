@@ -215,6 +215,70 @@ def control_mac_action(script: str, runner=subprocess.run) -> str:
     return out or "완료했습니다."
 
 
+_BRIGHT_KEYS = {"brightness_up": 144, "brightness_down": 145}
+_ON_WORDS = ("on", "true", "1", "켜", "켜줘", "켜기")
+_OFF_WORDS = ("off", "false", "0", "꺼", "꺼줘", "끄기")
+
+
+def _wifi_device(runner=subprocess.run) -> str:
+    """Wi-Fi 인터페이스명 탐지 — 기기마다 en0이 아닐 수 있다(USB 어댑터 등)."""
+    res = runner(["networksetup", "-listallhardwareports"], capture_output=True,
+                 text=True, timeout=10)
+    take_next = False
+    for line in (getattr(res, "stdout", "") or "").splitlines():
+        if "Wi-Fi" in line or "AirPort" in line:
+            take_next = True
+        elif take_next and line.startswith("Device:"):
+            return line.split(":", 1)[1].strip()
+    return "en0"
+
+
+def system_toggle_action(target: str, state: str = "toggle", runner=subprocess.run) -> str:
+    target = (target or "").strip().lower()
+    state = (state or "toggle").strip().lower()
+    on = any(w in state for w in _ON_WORDS)
+    off = any(w in state for w in _OFF_WORDS)
+    try:
+        if target in ("dark_mode", "darkmode", "다크모드"):
+            value = "not dark mode" if not (on or off) else ("true" if on else "false")
+            _osa("tell application \"System Events\" to tell appearance preferences "
+                 f"to set dark mode to {value}", runner)
+            word = "전환했" if not (on or off) else ("켰" if on else "껐")
+            return f"다크 모드를 {word}습니다."
+        if target in ("wifi", "wi-fi", "와이파이"):
+            if not (on or off):
+                return "와이파이는 켜기/끄기로 말씀해 주세요."
+            dev = _wifi_device(runner)
+            runner(["networksetup", "-setairportpower", dev, "on" if on else "off"],
+                   capture_output=True, text=True, timeout=10)
+            return f"와이파이를 {'켰' if on else '껐'}습니다."
+        if target in ("bluetooth", "블루투스"):
+            if not (on or off):
+                return "블루투스는 켜기/끄기로 말씀해 주세요."
+            runner(["blueutil", "-p", "1" if on else "0"],
+                   capture_output=True, text=True, timeout=10)
+            return f"블루투스를 {'켰' if on else '껐'}습니다."
+        if target in _BRIGHT_KEYS:
+            for _ in range(4):  # 호출당 4단계(약 25%) — 더 원하면 다시 부탁받는다
+                _osa(f'tell application "System Events" to key code {_BRIGHT_KEYS[target]}',
+                     runner)
+            return "밝기를 조절했습니다."
+        if target in ("display_off", "화면끄기"):
+            runner(["pmset", "displaysleepnow"], capture_output=True, text=True, timeout=10)
+            return "화면을 껐습니다."
+        if target == "sleep" or "절전" in target:
+            runner(["pmset", "sleepnow"], capture_output=True, text=True, timeout=10)
+            return "절전 모드로 들어갑니다, 주인님."
+    except FileNotFoundError as exc:
+        return (f"{exc.args[0] if exc.args else '필요한 명령'}이 설치되어 있지 않습니다. "
+                "블루투스 제어는 'brew install blueutil'이 필요합니다.")
+    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다(두뇌가 말로 전달)
+        return "시스템 설정 변경에 실패했습니다."
+    return ("지원하는 항목: 다크모드, 와이파이, 블루투스, 밝기(brightness_up/down), "
+            "화면끄기(display_off), 절전(sleep). 방해금지는 단축어 앱에서 만들어 "
+            "run_shortcut으로 실행할 수 있습니다.")
+
+
 # ---- SDK tool wrappers ----------------------------------------------------
 @tool("get_time", "현재 한국 날짜와 시간을 알려준다.", {})
 async def _get_time(_args):
@@ -304,6 +368,17 @@ async def _control_mac(args):
     return _text(control_mac_action(str((args or {}).get("applescript", ""))))
 
 
+@tool("system_toggle",
+      "맥 시스템 설정 전환: dark_mode/wifi/bluetooth/brightness_up/brightness_down/"
+      "display_off/sleep. state는 on/off/toggle. 방해금지(DND)는 직접 지원하지 않음 — "
+      "사용자가 단축어를 만들면 run_shortcut으로 가능하다고 안내하라.",
+      {"type": "object", "properties": {"target": {"type": "string"},
+       "state": {"type": "string"}}, "required": ["target"]})
+async def _system_toggle(args):
+    a = args or {}
+    return _text(system_toggle_action(str(a.get("target", "")), str(a.get("state", "toggle"))))
+
+
 @tool("set_timer", "타이머를 맞춘다(분/초/라벨). 완료되면 자비스가 음성으로 알린다.",
       {"type": "object", "properties": {"minutes": {"type": "number"},
        "seconds": {"type": "number"}, "label": {"type": "string"}}})
@@ -339,8 +414,8 @@ def build_jarvis_mcp_server(memory: Any = None):
 
     tools = [_get_time, _get_weather, _open_app, _set_volume, _music, _add_reminder,
              _create_note, _battery, _get_reminders, _get_calendar_events,
-             _mute, _lock, _quit_app, _control_mac, _set_timer, _cancel_timer,
-             _list_timers, _remember]
+             _mute, _lock, _quit_app, _control_mac, _system_toggle,
+             _set_timer, _cancel_timer, _list_timers, _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
 
@@ -348,7 +423,7 @@ def build_jarvis_mcp_server(memory: Any = None):
 JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "get_time", "get_weather", "open_app", "set_volume", "music_control",
     "add_reminder", "create_note", "battery_status", "get_reminders", "get_calendar_events",
-    "toggle_mute", "lock_screen", "quit_app", "control_mac",
+    "toggle_mute", "lock_screen", "quit_app", "control_mac", "system_toggle",
     "set_timer", "cancel_timer", "list_timers",
     "remember",
 )]
