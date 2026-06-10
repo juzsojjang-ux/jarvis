@@ -7,8 +7,10 @@ from jarvis.proactive.monitors import (
     LateNightMonitor,
     RemindersMonitor,
     SessionMonitor,
+    TimerMonitor,
     build_monitors,
 )
+from jarvis.proactive.timers import TimerBoard
 
 
 def _pmset_runner(text_out):
@@ -193,3 +195,35 @@ def test_build_monitors_respects_late_night_flag():
     _S.proactive_late_night = True
     kinds = [type(m).__name__ for m in build_monitors(_S())]
     assert "LateNightMonitor" in kinds
+
+
+# ---------------------------------------------------------------------------
+# TimerMonitor 테스트
+# ---------------------------------------------------------------------------
+
+def test_timer_monitor_announces_due_once():
+    t = {"v": 0.0}
+    board = TimerBoard(clock=lambda: t["v"])
+    mon = TimerMonitor(board, clock=lambda: t["v"])
+    board.add(5, "달걀")
+    assert mon.poll() == []
+    t["v"] = 6.0
+    out = mon.poll()
+    assert len(out) == 1 and out[0].kind == "timer_done" and "달걀" in out[0].prompt
+    assert out[0].priority == 1 and out[0].expires_at == 6.0 + 120
+    assert mon.poll() == []
+
+
+def test_build_monitors_includes_timer_when_board_given():
+    class _S:
+        battery_warn_levels = [20, 10, 5]
+        reminder_lead_min = 10
+        event_lead_min = 10
+        greet_cooldown_h = 4.0
+        briefing_expire_h = 2.0
+        proactive_late_night = False
+
+    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    assert "TimerMonitor" not in kinds
+    kinds = [type(m).__name__ for m in build_monitors(_S(), timers=TimerBoard())]
+    assert "TimerMonitor" in kinds

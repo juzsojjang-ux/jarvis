@@ -202,7 +202,22 @@ class CalendarMonitor(_DueMonitor):
                          fetch=fetch, clock=clock)
 
 
-def build_monitors(settings) -> list:
+class TimerMonitor:
+    """TimerBoard 만기 수확 — 타이머는 초 단위 체감이라 1초 폴링."""
+
+    interval_s = 1.0
+
+    def __init__(self, board, clock=time.monotonic):
+        self._board = board
+        self._clock = clock
+
+    def poll(self) -> list[Announcement]:
+        now = self._clock()
+        return [Announcement("timer_done", f"타이머 종료: {lb}", 1, now, now + 120)
+                for lb in self._board.pop_due()]
+
+
+def build_monitors(settings, timers=None) -> list:
     """설정으로 감시자 세트를 조립한다(엔진/배선에서 호출)."""
     mons: list = [
         BatteryMonitor(levels=settings.battery_warn_levels),
@@ -211,6 +226,8 @@ def build_monitors(settings) -> list:
         RemindersMonitor(lead_s=settings.reminder_lead_min * 60),
         CalendarMonitor(lead_s=settings.event_lead_min * 60),
     ]
+    if timers is not None:
+        mons.append(TimerMonitor(timers))
     if settings.proactive_late_night:
         mons.append(LateNightMonitor())
     return mons
