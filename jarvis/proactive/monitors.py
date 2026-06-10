@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from datetime import date, datetime
 
 from .events import Announcement
 
@@ -71,3 +72,82 @@ class BatteryMonitor:
             self._full_announced = False
         self._prev_pct, self._prev_ac = pct, on_ac
         return out
+
+
+def _screen_locked() -> bool:
+    """macOS 화면 잠금 여부 — Quartz 세션 사전. 메인 venv에서 import 확인됨."""
+    import Quartz  # 지연 import: 테스트는 locked_fn 주입으로 우회
+
+    d = Quartz.CGSessionCopyCurrentDictionary()
+    return bool(d and d.get("CGSSessionScreenIsLocked", 0))
+
+
+class SessionMonitor:
+    """잠금/해제 전이 감지. 그날 첫 해제(기동 시 이미 해제 포함)=briefing,
+    이후 해제는 쿨다운 지난 경우 greet_back. 브리핑이 인사를 겸한다."""
+
+    interval_s = 5.0
+
+    def __init__(self, *, locked_fn=_screen_locked, clock=time.monotonic,
+                 today_fn=date.today, greet_cooldown_s=4 * 3600.0,
+                 briefing_expire_s=7200.0):
+        self._locked_fn = locked_fn
+        self._clock = clock
+        self._today = today_fn
+        self._greet_cooldown_s = greet_cooldown_s
+        self._briefing_expire_s = briefing_expire_s
+        self._prev_locked: bool | None = None
+        self._briefed_on: date | None = None
+        self._last_greet = -1e12
+
+    def _briefing(self, now: float) -> Announcement:
+        self._briefed_on = self._today()
+        return Announcement(
+            "briefing",
+            "오늘의 아침 브리핑을 하라 — get_weather, get_reminders, "
+            "get_calendar_events 도구로 날씨·미리알림·오늘 일정을 모아 짧게 보고",
+            2, now, now + self._briefing_expire_s)
+
+    def poll(self) -> list[Announcement]:
+        locked = bool(self._locked_fn())
+        now = self._clock()
+        out: list[Announcement] = []
+        first = self._prev_locked is None
+        unlocked_now = (self._prev_locked is True and not locked)
+        if (first and not locked) or unlocked_now:
+            if self._briefed_on != self._today():
+                out.append(self._briefing(now))
+                self._last_greet = now             # 브리핑이 인사를 겸한다
+            elif unlocked_now and now - self._last_greet >= self._greet_cooldown_s:
+                out.append(Announcement("greet_back", "주인님이 자리로 돌아왔다 — 짧게 맞이하라",
+                                        4, now, now + 300))
+                self._last_greet = now
+        self._prev_locked = locked
+        return out
+
+
+class LateNightMonitor:
+    """02~05시 사이에 화면이 깨어 있으면 하루 1회, 영화처럼 한마디."""
+
+    interval_s = 300.0
+
+    def __init__(self, *, locked_fn=_screen_locked, clock=time.monotonic,
+                 now_fn=datetime.now, today_fn=date.today):
+        self._locked_fn = locked_fn
+        self._clock = clock
+        self._now = now_fn
+        self._today = today_fn
+        self._nudged_on: date | None = None
+
+    def poll(self) -> list[Announcement]:
+        if self._nudged_on == self._today():
+            return []
+        if self._locked_fn():
+            return []
+        if not (2 <= self._now().hour < 5):
+            return []
+        self._nudged_on = self._today()
+        now = self._clock()
+        return [Announcement("late_night",
+                             "새벽 2시가 넘었는데 주인님이 아직 깨어 있다 — 정중하지만 "
+                             "위트 있게 취침을 권하라", 4, now, now + 3600)]
