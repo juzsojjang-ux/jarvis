@@ -9,6 +9,7 @@ from ..audio.util import resample
 from ..audio.wake import match_wake
 from ..hud.level import audio_level, chunk_levels
 from .events import State
+from .interpret import detect_lang, interpret_speak_korean
 
 _HUD_HOP_S = 0.1  # orb level update cadence (10 Hz)
 
@@ -34,6 +35,7 @@ class Orchestrator:
         self.micstream = micstream
         self.wake = wake
         self.proactive = None  # ProactiveEngine — 배선(__main__)에서 주입, run()이 시작
+        self.interpret_mode = False  # "통역 모드" — 두뇌 우회, 한↔영 통역만
         self.state = State.IDLE
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
@@ -125,8 +127,8 @@ class Orchestrator:
 
     async def _pipeline(self, pcm: np.ndarray) -> None:
         try:
-            text = await asyncio.to_thread(
-                self.stt.transcribe, pcm, 16000, self.settings.language)
+            lang = None if self.interpret_mode else self.settings.language
+            text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, lang)
             await self._pipeline_text(text)
         except Exception as exc:  # noqa: BLE001 - 한 턴의 실패가 상태를 가두면 안 된다
             print(f"[파이프라인] 오류(IDLE 복귀): {exc}")
@@ -135,6 +137,13 @@ class Orchestrator:
     async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
         if not text.strip():
             self._to_idle()
+            return
+        cmd = self._interpret_command(text)
+        if cmd is not None:
+            await self._toggle_interpret(cmd)
+            return
+        if self.interpret_mode:
+            await self._interpret_turn(text)
             return
         self.state = State.THINKING
         self._publish("thinking")
@@ -252,6 +261,51 @@ class Orchestrator:
         await asyncio.sleep(max(0.0, self._follow_up_until - loop.time()))
         # 창이 연장(새 답변)되지 않았고 여전히 한가할 때만 STANDBY로 복귀.
         if self.state == State.IDLE and loop.time() >= self._follow_up_until:
+            self._publish("idle")
+
+    # ----- 통역 모드 -----
+    _INTERP_ON = ("켜", "시작", "on")
+    _INTERP_OFF = ("꺼", "끄", "종료", "off", "그만")
+
+    def _interpret_command(self, text: str) -> str | None:
+        if "통역" not in text:
+            return None
+        if any(w in text for w in self._INTERP_OFF):
+            return "off"
+        if any(w in text for w in self._INTERP_ON):
+            return "on"
+        return None
+
+    async def _toggle_interpret(self, cmd: str) -> None:
+        self.interpret_mode = (cmd == "on")
+        en, ko = (("Interpreter mode on, sir.", "통역 모드를 켰습니다.")
+                  if self.interpret_mode
+                  else ("Interpreter mode off, sir.", "통역 모드를 껐습니다."))
+        await self._play_phrase(en, ko)
+        await self._finish_speaking("")
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
+
+    async def _interpret_turn(self, text: str) -> None:
+        try:
+            src = detect_lang(text)
+            if src == "ko":
+                out = await self.brain.translate(text, "English")
+                await self._speak(out)
+                await self._finish_speaking("")
+            else:
+                out = await self.brain.translate(text, "Korean")
+                await asyncio.to_thread(
+                    interpret_speak_korean, out, self.settings.interpret_ko_voice)
+        except Exception as exc:  # noqa: BLE001 - 통역 한 줄 실패가 모드를 깨면 안 된다
+            print(f"[통역] 오류: {exc}")
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
             self._publish("idle")
 
     # ----- 능동 알림 (ProactiveEngine이 호출) -----

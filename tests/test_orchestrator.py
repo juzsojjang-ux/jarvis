@@ -387,3 +387,80 @@ def test_can_announce_reflects_state():
     assert orch._can_announce()
     orch.state = State.THINKING
     assert not orch._can_announce()
+
+
+class _XlateBrain:
+    async def respond(self, user_text):
+        raise AssertionError("respond called in interpret mode")
+        yield
+
+    async def translate(self, text, target):
+        return f"<{target}:{text}>"
+
+
+def _interp(orch):
+    orch.brain = _XlateBrain()
+    orch.interpret_mode = True
+
+
+def test_interpret_command_toggles_on_off():
+    orch, pb = _make()
+
+    async def run():
+        await orch._pipeline_text("통역 모드 켜줘")
+        on = orch.interpret_mode
+        await orch._pipeline_text("통역 모드 꺼줘")
+        return on, orch.interpret_mode
+
+    on, off = asyncio.run(run())
+    assert on is True and off is False
+    assert len(pb.feeds) >= 1
+
+
+def test_interpret_korean_input_speaks_english():
+    orch, pb = _make()
+    _interp(orch)
+
+    async def run():
+        await orch._pipeline_text("안녕하세요")
+    asyncio.run(run())
+    assert len(pb.feeds) >= 1
+    assert orch.state == State.IDLE
+
+
+def test_interpret_english_input_speaks_korean(monkeypatch):
+    orch, pb = _make()
+    _interp(orch)
+    spoken_ko = []
+
+    def fake_say(text, voice="Yuna", runner=None):
+        spoken_ko.append((text, voice))
+
+    monkeypatch.setattr("jarvis.core.orchestrator.interpret_speak_korean", fake_say)
+
+    async def run():
+        await orch._pipeline_text("hello there")
+    asyncio.run(run())
+    assert spoken_ko and "hello there" in spoken_ko[0][0]
+    assert pb.feeds == []
+
+
+def test_interpret_translate_failure_recovers():
+    orch, pb = _make()
+
+    class _BoomXlate:
+        async def respond(self, user_text):
+            raise AssertionError
+            yield
+
+        async def translate(self, text, target):
+            raise RuntimeError("api down")
+
+    orch.brain = _BoomXlate()
+    orch.interpret_mode = True
+
+    async def run():
+        await orch._pipeline_text("안녕")
+    asyncio.run(run())
+    assert orch.state == State.IDLE
+    assert orch.interpret_mode is True
