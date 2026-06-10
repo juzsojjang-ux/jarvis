@@ -55,3 +55,18 @@ def test_build_orchestrator_registers_builtin_tools(monkeypatch):
 def test_build_orchestrator_injects_voice_confirm(monkeypatch):
     orch = _build_api(monkeypatch)
     assert callable(orch.brain._confirm)
+
+
+def test_build_orchestrator_wires_micstream_and_wake():
+    from pathlib import Path
+    orch = _build()
+    assert orch.micstream is not None
+    assert orch.capture._mic is orch.micstream     # 캡처가 같은 스트림을 공유
+    if Path("~/jarvis/voice_models/silero_vad.onnx").expanduser().exists():
+        assert orch.wake is not None               # 모델이 있으면 웨이크 가동
+
+
+def test_wake_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("JARVIS_WAKE_ENABLED", "false")
+    orch = _build()
+    assert orch.wake is None

@@ -13,6 +13,7 @@ from .activation.ptt import PushToTalk
 from .audio.capture import MicCapture
 from .audio.micstream import MicStream
 from .audio.playback import Playback
+from .audio.wake import build_wake
 from .brain.factory import make_brain
 from .brain.memory import MemoryStore
 from .brain.persona import load_persona
@@ -57,6 +58,7 @@ async def build_orchestrator(
     playback = Playback(sample_rate=settings.playback_rate)
     chunker = SentenceChunker()
     hud = OrbServer(settings.hud_host, settings.hud_port) if settings.hud_enabled else None
+    wake = build_wake(settings, micstream) if settings.wake_enabled else None
 
     # Real voice confirmation for gated (irreversible) tools.
     confirmer = VoiceConfirm(
@@ -100,6 +102,8 @@ async def build_orchestrator(
         vc=vc,
         playback=playback,
         hud=hud,
+        micstream=micstream,
+        wake=wake,
     )
 
 
@@ -136,7 +140,11 @@ async def _amain() -> None:
                     webbrowser.open(orch.hud.url)
             except OSError as exc:  # port busy etc. — HUD is optional, keep going
                 print(f"[HUD] HUD 비활성화(서버 시작 실패): {exc}")
-        print("자비스 준비 완료. 오른쪽 옵션 키를 누른 채 말씀하세요. (Ctrl+C로 종료)")
+        if orch.wake is not None:
+            print('자비스 준비 완료. "자비스"라고 부르거나, 오른쪽 옵션 키를 누른 채 '
+                  "말씀하세요. (Ctrl+C로 종료)")
+        else:
+            print("자비스 준비 완료. 오른쪽 옵션 키를 누른 채 말씀하세요. (Ctrl+C로 종료)")
         try:
             await orch.run()
         finally:
