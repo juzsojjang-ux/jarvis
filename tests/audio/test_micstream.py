@@ -53,3 +53,11 @@ def test_ensure_running_is_noop_before_start():
     ms = MicStream()
     ms.ensure_running()                      # start() 전엔 실제 장치를 열면 안 된다
     assert ms._stream is None
+
+
+def test_ensure_running_is_noop_after_stop():
+    ms = MicStream()
+    ms._want_running = True          # start()를 흉내(실장치 금지) 후 stop으로 해제
+    ms.stop()
+    ms.ensure_running()
+    assert ms._stream is None

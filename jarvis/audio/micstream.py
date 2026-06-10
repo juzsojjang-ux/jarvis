@@ -60,6 +60,12 @@ class MicStream:
 
     def stop(self) -> None:
         self._want_running = False
+        self._retry_at = 0.0      # 백오프 잔존이 다음 세션 복구를 늦추지 않게
+        self._close_stream()
+
+    def _close_stream(self) -> None:
+        # _want_running은 건드리지 않는다 — ensure_running 복구 경로가 게이트를
+        # 유지한 채 스트림만 갈아끼울 수 있어야 한다.
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
@@ -76,7 +82,11 @@ class MicStream:
             return
         self._retry_at = now + 2.0
         try:
-            self.stop()
-            self.start()
+            self._close_stream()
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate, blocksize=self._blocksize,
+                channels=1, dtype="float32", callback=self._callback,
+            )
+            self._stream.start()
         except Exception:  # noqa: BLE001 - 다음 폴링에서 재시도
             self._stream = None

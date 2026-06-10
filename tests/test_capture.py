@@ -34,6 +34,7 @@ def test_chunks_after_stop_are_ignored():
     cap.start()
     cap.stop()
     ms._callback(np.full((4, 1), 0.5, dtype=np.float32), 4, None, None)
+    assert len(cap._frames) == 0     # stop 후 콜백은 무시(두 번째 start의 clear에 가려지면 안 됨)
     cap.start()
     assert cap.stop().shape == (0,)
 
