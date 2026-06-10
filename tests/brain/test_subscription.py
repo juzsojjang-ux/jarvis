@@ -1,7 +1,7 @@
 import asyncio
 import types
 
-from jarvis.brain.subscription import _GUIDANCE, SubscriptionBrain
+from jarvis.brain.subscription import _GUIDANCE, SubscriptionBrain, _strip_sources
 
 
 class FakeText:
@@ -116,17 +116,27 @@ def test_ko_marker_splits_speech_and_subtitle():
     asyncio.run(run())
 
 
-def test_deep_trigger_reconnects_with_extended_thinking():
+def test_deep_trigger_switches_to_deep_model_and_thinking():
     async def run():
-        b = _brain()
-        assert b._deep_tokens("안녕") == 0
-        assert b._deep_tokens("최대 사고로 진행해") == 12000
-        await _talk(b, [FakeAssistant("a")])     # normal turn, thinking 0
+        s = types.SimpleNamespace(subscription_model="claude-sonnet-4-6",
+                                  deep_model="claude-opus-4-8")
+        b = _brain(s)
+        assert b._turn_config("안녕") == ("claude-sonnet-4-6", 0)
+        assert b._turn_config("최대 사고로 진행해") == ("claude-opus-4-8", 12000)
+        await _talk(b, [FakeAssistant("a")])      # normal -> sonnet, thinking 0
         assert FakeClient.instances == 1
-        c = await b._ensure_client(b._deep_tokens("최대 사고로 진행해 줘"))
-        assert FakeClient.instances == 2          # reconnected for deep thinking
+        model, thinking = b._turn_config("최대 사고로 진행해 줘")
+        c = await b._ensure_client(thinking, model)
+        assert FakeClient.instances == 2          # reconnected (opus + thinking)
         assert c.options.kw["max_thinking_tokens"] == 12000
+        assert c.options.kw["model"] == "claude-opus-4-8"
     asyncio.run(run())
+
+
+def test_subtitle_strips_sources_and_urls():
+    cleaned = _strip_sources("서울은 맑습니다 (출처: weather.com) https://x.com/y 입니다 [3]")
+    assert "http" not in cleaned and "출처" not in cleaned and "[3]" not in cleaned
+    assert "서울은 맑습니다" in cleaned
 
 
 def test_no_filler_when_no_tool_used():

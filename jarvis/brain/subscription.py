@@ -18,8 +18,22 @@ fall back to paid API billing); the agent is isolated from the host Claude Code 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator
 from typing import Any
+
+# Safety net: strip URLs and source/citation tails the model might still leak into the
+# subtitle ("(출처: ...)", "[1]", "https://...") so they don't show on screen.
+_URL_RE = re.compile(r"https?://\S+|www\.\S+")
+_CITE_RE = re.compile(r"\s*[\(\[][^)\]]*(?:출처|source|ref|http)[^)\]]*[\)\]]", re.IGNORECASE)
+_REFNUM_RE = re.compile(r"\s*\[\d+\]")
+
+
+def _strip_sources(text: str) -> str:
+    text = _URL_RE.sub("", text)
+    text = _CITE_RE.sub("", text)
+    text = _REFNUM_RE.sub("", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 # Voice-optimized guidance. Short, spoken-style, NO markdown (lists read awful via TTS
 # and make answers slow). The user may speak Korean either way; reply_language controls
@@ -44,6 +58,8 @@ _GUIDANCE_EN = (
     "Use your tools directly for time, weather, opening apps, volume, "
     "and memory, and web search for current info; when a tool applies, act first and "
     "state the result briefly — don't ask. "
+    "NEVER read out or include source names, website names, URLs, or citations — give "
+    "only the answer itself, both in speech and in the subtitle. "
     "After your spoken English reply, append on a new line exactly '[KO] ' followed by a "
     "natural Korean translation of what you said, for on-screen subtitles."
 )
@@ -74,7 +90,7 @@ class SubscriptionBrain:
         self._assistant_message = assistant_message
         self._stream_event = stream_event
         self._client: Any = None
-        self._client_thinking = 0  # max_thinking_tokens the live client was connected with
+        self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
 
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
@@ -84,6 +100,13 @@ class SubscriptionBrain:
     def _deep_tokens(self, user_text: str) -> int:
         low = user_text.lower()
         return 12000 if any(k in user_text or k in low for k in self._DEEP_TRIGGERS) else 0
+
+    def _turn_config(self, user_text: str) -> tuple[str, int]:
+        """(model, thinking_tokens) for this turn: fast Sonnet normally, deep Opus +
+        extended thinking when the user asks JARVIS to think hard."""
+        if self._deep_tokens(user_text):
+            return (getattr(self._settings, "deep_model", "") or "claude-opus-4-8", 12000)
+        return (getattr(self._settings, "subscription_model", "") or "", 0)
 
     def _ensure_sdk(self) -> None:
         if self._client_cls and self._options_cls and self._assistant_message:
@@ -112,7 +135,7 @@ class SubscriptionBrain:
         tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + guidance
         return f"{self._persona}\n\n{tail}"
 
-    def _options(self, thinking_tokens: int = 0) -> Any:
+    def _options(self, thinking_tokens: int = 0, model: str = "") -> Any:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         # JARVIS capabilities: read-only web tools (current events) + safe in-process
         # action tools (time/weather/open-app/volume/remember). Bash/file-edit stay
@@ -131,25 +154,27 @@ class SubscriptionBrain:
             env=env,
             include_partial_messages=True,   # stream text deltas -> speak early
         )
-        model = getattr(self._settings, "subscription_model", "") or ""
         if model:
             kw["model"] = model
         return self._options_cls(**kw)
 
-    async def _ensure_client(self, thinking_tokens: int = 0) -> Any:
+    async def _ensure_client(self, thinking_tokens: int = 0, model: str | None = None) -> Any:
         self._ensure_sdk()
-        # Reconnect if the thinking budget changed (deep-think turn vs normal).
-        if self._client is not None and self._client_thinking != thinking_tokens:
+        if model is None:
+            model = getattr(self._settings, "subscription_model", "") or ""
+        key = (thinking_tokens, model)
+        # Reconnect if model or thinking budget changed (deep-think turn vs normal).
+        if self._client is not None and self._client_key != key:
             try:
                 await self._client.disconnect()
             except Exception:  # noqa: BLE001
                 pass
             self._client = None
         if self._client is None:
-            client = self._client_cls(options=self._options(thinking_tokens))
+            client = self._client_cls(options=self._options(thinking_tokens, model))
             await client.connect()
             self._client = client
-            self._client_thinking = thinking_tokens
+            self._client_key = key
         return self._client
 
     # Spoken the instant a web search starts, so there's no dead air while the search
@@ -187,7 +212,8 @@ class SubscriptionBrain:
     KO_MARK = "[KO]"
 
     async def respond(self, user_text: str) -> AsyncIterator[str]:
-        client = await self._ensure_client(self._deep_tokens(user_text))
+        model, thinking = self._turn_config(user_text)
+        client = await self._ensure_client(thinking, model)
         await client.query(user_text)
         # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
         # shows it under SPEAKING while the English audio plays. Only the English (before
@@ -232,11 +258,18 @@ class SubscriptionBrain:
                     yield spoken
         if not in_ko and pending:
             yield pending
-        self.last_subtitle = self.last_subtitle.strip()
+        self.last_subtitle = _strip_sources(self.last_subtitle)
 
     async def warm(self) -> None:
-        # Connect the persistent session now so the first turn pays no CLI start-up.
-        await self._ensure_client()
+        # Connect AND run one throwaway query so the agent + in-process MCP tools are
+        # fully initialised at startup — otherwise the FIRST real turn eats that ~10s.
+        client = await self._ensure_client()
+        try:
+            await client.query("hi")
+            async for _ in client.receive_response():
+                pass
+        except Exception:  # noqa: BLE001 - warmup is best-effort
+            pass
 
     async def close(self) -> None:
         if self._client is not None:
