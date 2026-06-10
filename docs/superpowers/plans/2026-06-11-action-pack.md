@@ -824,14 +824,179 @@ import에 `from .proactive.timers import DEFAULT_BOARD` 추가. `build_orchestra
 
 ---
 
-### Task 9: 전체 검증 (라이브는 컨트롤러)
+### Task 9: 풀 Claude Code 능력 개방 + 음성 확인 게이트
+
+사용자 요구: "이 능력들만 되게 설정하지 말고 클로드 코드로 할 수 있는 건 다 되게". 두뇌가 Bash·파일 읽기/쓰기/수정·Glob/Grep 등 전체 도구를 쓰되, 파괴적 도구는 음성으로 확인받는다. claude-agent-sdk 0.2.x의 `can_use_tool` 콜백(`async (tool_name, input, ToolPermissionContext) -> PermissionResultAllow|PermissionResultDeny`)에 기존 `VoiceConfirm.confirm(prompt)->bool`을 연결한다.
+
+**Files:**
+- Modify: `jarvis/brain/subscription.py`
+- Modify: `jarvis/brain/factory.py`
+- Create: `tests/brain/test_can_use_tool.py`
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+```python
+# tests/brain/test_can_use_tool.py
+import asyncio
+
+from jarvis.brain.subscription import SubscriptionBrain
+from jarvis.core.config import Settings
+
+
+def _brain(confirm=None):
+    return SubscriptionBrain(Settings(), None, "p" * 4096, confirm=confirm)
+
+
+def _ctx():
+    from claude_agent_sdk import ToolPermissionContext
+    return ToolPermissionContext(tool_use_id="t1")
+
+
+def _decide(brain, tool, inp):
+    return asyncio.run(brain._can_use_tool(tool, inp, _ctx()))
+
+
+def test_readonly_tools_auto_allowed():
+    brain = _brain(confirm=None)              # confirm 없어도 읽기셋은 허용
+    for tool in ("Read", "Glob", "Grep", "TodoWrite", "WebSearch", "WebFetch"):
+        assert _decide(brain, tool, {}).behavior == "allow"
+
+
+def test_destructive_tool_denied_without_confirm():
+    brain = _brain(confirm=None)              # confirm 미주입 → 차단이 기본
+    assert _decide(brain, "Bash", {"command": "rm -rf x"}).behavior == "deny"
+    assert _decide(brain, "Write", {"file_path": "/x"}).behavior == "deny"
+
+
+def test_destructive_tool_allowed_on_yes():
+    asked = []
+
+    async def confirm(prompt):
+        asked.append(prompt)
+        return True
+
+    brain = _brain(confirm=confirm)
+    res = _decide(brain, "Bash", {"command": "ls ~/Desktop"})
+    assert res.behavior == "allow"
+    assert "ls ~/Desktop" in asked[0]         # 명령이 음성 프롬프트에 들어간다
+
+
+def test_destructive_tool_denied_on_no():
+    async def confirm(prompt):
+        return False
+
+    brain = _brain(confirm=confirm)
+    res = _decide(brain, "Write", {"file_path": "/Users/x/note.txt"})
+    assert res.behavior == "deny"
+    assert "note.txt" in res.message or "취소" in res.message
+
+
+def test_factory_injects_confirm():
+    from jarvis.brain.factory import make_brain
+    calls = []
+
+    async def confirm(prompt):
+        calls.append(prompt)
+        return True
+
+    brain = make_brain(Settings(), None, "p" * 4096, confirm=confirm)
+    asyncio.run(brain._can_use_tool("Bash", {"command": "echo hi"}, _ctx()))
+    assert calls                              # 주입된 confirm이 실제로 호출됨
+```
+
+- [ ] **Step 2: 실패 확인** — `.venv/bin/python -m pytest tests/brain/test_can_use_tool.py -v` → AttributeError `_can_use_tool` / TypeError confirm
+
+- [ ] **Step 3: 구현**
+
+3a. subscription.py — `__init__` 시그니처에 `confirm: Any = None`을 키워드 인자로 추가(`stream_event` 뒤), 본문에 `self._confirm = confirm` 저장.
+
+3b. subscription.py 상단 클래스 영역에 안전셋 상수 + 콜백 추가:
+
+```python
+    # 읽기 전용·무해 — 음성 확인 없이 자동 허용.
+    _SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "TodoWrite", "WebSearch",
+                             "WebFetch", "NotebookRead"})
+
+    def _confirm_prompt(self, tool: str, inp: dict) -> str:
+        if tool == "Bash":
+            cmd = str(inp.get("command", ""))[:80]
+            return f"명령을 실행할까요? {cmd}"
+        if tool in ("Write", "Edit", "NotebookEdit"):
+            path = inp.get("file_path") or inp.get("notebook_path") or "파일"
+            return f"{path} 파일을 수정할까요?"
+        return f"{tool} 작업을 실행할까요?"
+
+    async def _can_use_tool(self, tool_name, tool_input, context):
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+
+        base = tool_name.split("__")[-1]  # mcp__jarvis__x → x
+        if tool_name in self._SAFE_TOOLS or base in self._SAFE_TOOLS \
+                or tool_name.startswith("mcp__jarvis__"):
+            return PermissionResultAllow()
+        if self._confirm is None:
+            # 확인 수단이 없으면 파괴적 도구는 막는다(잘못 들은 음성이 rm 실행 금지).
+            return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
+        ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))
+        if ok:
+            return PermissionResultAllow()
+        return PermissionResultDeny(message=f"{base} 작업을 취소했습니다.")
+```
+
+3c. subscription.py `_options()` — 전체 도구 개방으로 교체:
+
+```python
+        from pathlib import Path
+
+        from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES, build_jarvis_mcp_server
+        kw: dict[str, Any] = dict(
+            system_prompt=self._system_prompt(),
+            # 전체 도구 사용 가능 — 읽기셋은 자동, Bash/파일수정은 _can_use_tool이
+            # 음성으로 확인. allowed_tools는 '확인 없이 바로'인 자동 허용 목록.
+            allowed_tools=["WebSearch", "WebFetch", "Read", "Glob", "Grep",
+                           "TodoWrite", *JARVIS_TOOL_NAMES],
+            can_use_tool=self._can_use_tool,
+            mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
+            setting_sources=[],    # isolate from the host Claude Code project
+            cwd=str(Path.home()),  # 파일 작업 기준 디렉터리 = 홈
+            max_turns=20,          # 멀티스텝 작업(파일 만들고 확인 등) 헤드룸
+            max_thinking_tokens=thinking_tokens,
+            env=env,
+            include_partial_messages=True,
+        )
+```
+
+(`disallowed_tools` 줄은 삭제 — 이제 게이트가 막는다. 기존 주석도 갱신.)
+
+3d. subscription.py 지침(_GUIDANCE_EN, [SYSTEM EVENT] 문장 근처)에 한 문장 추가:
+
+```python
+    "You have full tool access (bash, file read/write/edit, search); destructive "
+    "steps are voice-confirmed by the system, so just use them when needed. Prefer "
+    "the dedicated jarvis tools for simple actions (volume, music, timers) over bash. "
+```
+
+3e. factory.py — subscription 분기에서 confirm 전달:
+
+```python
+    if backend == "subscription":
+        from jarvis.brain.subscription import SubscriptionBrain
+        return SubscriptionBrain(settings, memory, persona_text, confirm=confirm)
+```
+
+- [ ] **Step 4: 통과 확인** — `tests/brain/test_can_use_tool.py` 5 PASS + `tests/brain/` 전체 + `tests/test_main_wiring.py`(confirm 주입 경로) PASS, ruff clean
+- [ ] **Step 5: Commit** — `feat(brain): 풀 도구 개방 + 음성 확인 게이트(can_use_tool)` (+푸터)
+
+---
+
+### Task 10: 전체 검증 (라이브는 컨트롤러)
 
 - [ ] **Step 1:** `.venv/bin/python -m pytest -q` 전체 PASS, `.venv/bin/ruff check jarvis tests` clean
-- [ ] **Step 2 (컨트롤러):** 재시작 후 라이브 체크: ① "10초 타이머" → 완료 음성 알림 ② "다크모드 토글" ③ "클립보드 읽어줘" ④ "단축어 목록" ⑤ "음악에서 ~ 틀어줘" ⑥ 타이머 2개 연달아 → 둘 다 알림
+- [ ] **Step 2 (컨트롤러):** 재시작 후 라이브 체크: ① "10초 타이머" → 완료 음성 알림 ② "다크모드 토글" ③ "클립보드 읽어줘" ④ "단축어 목록" ⑤ "음악에서 ~ 틀어줘" ⑥ 타이머 2개 연달아 → 둘 다 알림 ⑦ "바탕화면에 메모 파일 만들어줘" → Write 음성 확인 후 생성 ⑧ "다운로드 폴더에 뭐 있어?" → Bash 음성 확인 또는 Glob 자동
 - [ ] **Step 3 (컨트롤러):** 메모리 업데이트
 
 ## 셀프리뷰 결과
 
 - **스펙 커버리지**: 타이머(T1 보드/T3 모니터/T4 도구/T8 배선+쿨다운 면제, ttl 120·prio 1·1초 폴링) ✓ / system_toggle 6종+wifi 장치 탐지+blueutil 안내+DND 우회 문구(T5) ✓ / 클립보드 4000자 컷(T6) ✓ / 단축어 30s 타임아웃+실패 안내(T6) ✓ / play_music 라이브러리 한정 명시+이스케이프(T7) ✓ / 도구 raise 금지(전부 안내 문자열) ✓ / 설정 추가 없음 ✓.
-- **타입 일치**: `TimerBoard.add(seconds, label) -> (id, label)` T1↔T4 / `cancel(label)->str`·`listing()->[(라벨,초)]`·`pop_due()->[라벨]` T1↔T3·T4 / `build_monitors(settings, timers=None)` T3↔T8 / `cooldown_overrides` T2↔T8 / `_recording_runner(... input=None)` 시그니처 T5↔T6 공유 ✓.
+- **타입 일치**: `TimerBoard.add(seconds, label) -> (id, label)` T1↔T4 / `cancel(label)->str`·`listing()->[(라벨,초)]`·`pop_due()->[라벨]` T1↔T3·T4 / `build_monitors(settings, timers=None)` T3↔T8 / `cooldown_overrides` T2↔T8 / `_recording_runner(... input=None)` 시그니처 T5↔T6 공유 ✓. `can_use_tool(tool_name, input, ctx)->PermissionResultAllow|Deny`(SDK 0.2.x 실측) T9 / `confirm(prompt)->bool` 기존 VoiceConfirm 시그니처 재사용 ✓.
+- **풀 능력(F)**: T9가 can_use_tool로 전체 도구 개방 + 읽기셋 자동·파괴셋 음성확인·confirm 미주입 시 차단, factory confirm 주입, 지침 1문장, cwd=홈, max_turns 20 ✓.
 - **플레이스홀더 없음**: 전 스텝 완결 코드.

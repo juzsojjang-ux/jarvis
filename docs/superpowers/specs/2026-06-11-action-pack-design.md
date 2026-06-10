@@ -96,6 +96,28 @@ TimerMonitor(interval 1s) → 만기 → Announcement("timer_done", prio 1)
   안내 문자열 반환(도구는 절대 raise하지 않음 — 두뇌가 말로 전달).
 - TimerBoard는 락으로 보호, 모니터 쪽 예외는 엔진 격리가 흡수(기존).
 
+## F. 풀 Claude Code 능력 개방 (사용자 추가 요구: "이 능력들만 되게 설정하지 말고 클로드 코드로 할 수 있는 건 다 되게")
+
+개별 도구 화이트리스트를 넘어, 두뇌가 Claude Code의 모든 도구(Bash, 파일
+읽기/쓰기/수정, Glob/Grep 등)를 쓸 수 있게 한다. 안전장치는 **음성 확인
+게이트**: claude-agent-sdk의 `can_use_tool` 권한 콜백(설치 버전 0.2.x에서
+시그니처 확정: `async (tool_name, input, ToolPermissionContext) ->
+PermissionResultAllow|Deny`)에 기존 `VoiceConfirm.confirm(prompt)->bool`을
+연결한다.
+
+- `_options()` 변경: `disallowed_tools` 제거, `allowed_tools`(자동 허용)=
+  WebSearch/WebFetch/JARVIS_TOOL_NAMES/Read/Glob/Grep/TodoWrite,
+  `can_use_tool=self._can_use_tool`, `cwd=str(Path.home())`,
+  `max_turns` 20(장기 작업 헤드룸).
+- `_can_use_tool`: 읽기 전용 안전셋(Read/Glob/Grep/TodoWrite/WebSearch/
+  WebFetch)은 즉시 허용. 그 외(Bash/Write/Edit/NotebookEdit/기타)는 도구별
+  요약(Bash→명령 80자, Write·Edit→파일 경로)을 음성으로 물어 "네"면 Allow,
+  "아니/불명확/confirm 미주입"이면 Deny(차단이 기본 — 잘못 들은 음성이
+  파괴 행위를 시키는 일은 없어야 한다).
+- SubscriptionBrain이 confirm 콜백을 받도록 factory 경유 주입(현재 미주입).
+- 지침 1문장: 전체 도구 사용 가능, 파괴적 단계는 음성 확인됨, 단순 동작은
+  전용 jarvis 도구 우선(볼륨에 Bash osascript 쓰지 말 것).
+
 ## 테스트
 
 - TimerBoard: add/cancel/listing/pop_due(가짜 시계, 중복 라벨, 만기 순서).
@@ -107,3 +129,7 @@ TimerMonitor(interval 1s) → 만기 → Announcement("timer_done", prio 1)
   JARVIS_TOOL_NAMES 등록.
 - 라이브: "5분... 아니 10초 타이머" → 완료 음성, "다크모드 켜줘",
   "클립보드 읽어줘", "단축어 목록", "음악에서 ~ 틀어줘".
+- 풀 능력(F): `_can_use_tool` 단위 — 읽기셋 자동 허용, Bash/Write는
+  confirm("네")→Allow·confirm("아니")→Deny·confirm 미주입→Deny(가짜 confirm
+  주입). 라이브: "바탕화면에 메모 파일 만들어줘"(Write 음성확인) /
+  "다운로드 폴더에 뭐 있어?"(Bash 음성확인 또는 Glob 자동).
