@@ -98,3 +98,46 @@ def test_window_remainder_carries_over():
 
     asyncio.run(run())
     assert len(got) == 1
+
+
+def test_gate_close_transition_discards_in_flight_speech():
+    mic, wl = _listener()
+    got = []
+
+    async def run():
+        gate = {"open": True}
+        wl.start(got.append, lambda: gate["open"])
+        mic.cb(_speech())                # 발화 중간에
+        await asyncio.sleep(0.02)
+        gate["open"] = False             # 게이트가 닫힘(자비스가 말 시작 등)
+        await asyncio.sleep(0.02)
+        gate["open"] = True              # 다시 열려도
+        mic.cb(_silence())               # 침묵만 — 이전 발화가 살아나면 안 된다
+        await asyncio.sleep(0.05)
+        wl.stop()
+
+    asyncio.run(run())
+    assert got == []
+
+
+def test_callback_error_does_not_kill_loop():
+    mic, wl = _listener()
+    calls = []
+
+    def boom_then_ok(utt):
+        calls.append(utt)
+        if len(calls) == 1:
+            raise RuntimeError("downstream bug")
+
+    async def run():
+        wl.start(boom_then_ok, lambda: True)
+        mic.cb(_speech())
+        mic.cb(_silence())
+        await asyncio.sleep(0.05)        # 첫 발화가 예외를 던져도
+        mic.cb(_speech())
+        mic.cb(_silence())
+        await asyncio.sleep(0.05)        # 두 번째 발화가 여전히 배달돼야 한다
+        wl.stop()
+
+    asyncio.run(run())
+    assert len(calls) == 2

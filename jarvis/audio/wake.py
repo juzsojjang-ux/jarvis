@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -52,6 +51,8 @@ class WakeListener:
 
     def start(self, on_utterance: Callable[[np.ndarray], None],
               gate: Callable[[], bool]) -> None:
+        if self._task is not None and not self._task.done():
+            return  # 이미 듣는 중 — 중복 구독/고아 태스크 방지
         self._on_utterance = on_utterance
         self._gate = gate
         self._mic.subscribe(self._on_chunk)
@@ -79,7 +80,10 @@ class WakeListener:
         self._vad.reset()
 
     def _process(self) -> list[np.ndarray]:
-        data = np.concatenate([self._carry, self._drain_pending()])
+        drained = self._drain_pending()
+        if len(drained) == 0 and len(self._carry) == 0:
+            return []
+        data = np.concatenate([self._carry, drained])
         n = (len(data) // self._window) * self._window
         self._carry = data[n:]
         out: list[np.ndarray] = []
@@ -91,7 +95,7 @@ class WakeListener:
         return out
 
     async def _loop(self) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             while True:
                 self._mic.ensure_running()
                 if not self._gate():
@@ -104,8 +108,13 @@ class WakeListener:
                 else:
                     self._was_open = True
                     for utt in self._process():
-                        self._on_utterance(utt)
+                        try:
+                            self._on_utterance(utt)
+                        except Exception as exc:  # noqa: BLE001 - 루프는 죽지 않는다
+                            print(f"[웨이크워드] on_utterance 오류(루프 유지): {exc}")
                 await asyncio.sleep(self._poll_s)
+        except asyncio.CancelledError:
+            pass
 
 
 def build_wake(settings, micstream) -> WakeListener | None:
