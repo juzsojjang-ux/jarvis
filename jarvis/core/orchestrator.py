@@ -264,6 +264,7 @@ class Orchestrator:
         if not self._can_announce():
             return
         self.state = State.THINKING
+        self._publish("thinking")  # 상태와 HUD는 한 쌍 — 게이트 선점과 동시에 표시
         self._task = asyncio.create_task(self._handle_announce(prompt))
 
     async def _handle_announce(self, prompt: str) -> None:

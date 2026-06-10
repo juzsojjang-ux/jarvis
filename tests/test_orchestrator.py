@@ -339,7 +339,16 @@ def test_announce_speaks_without_ack_filler():
         return asyncio.get_running_loop().time() < orch._follow_up_until
 
     in_window = asyncio.run(run())
-    assert len(pb.feeds) == 2             # 답변 두 문장만(필러 없음 — ack 포함 경로는 3+)
+    assert len(pb.feeds) >= 1                 # 본문은 나간다
+    # 같은 가짜 두뇌로 ack 포함 경로(_pipeline)와 비교해 필러 한 개가 빠졌는지 확인
+    orch2, pb2 = _make()
+    orch2.wake = object()
+
+    async def run2():
+        await orch2._pipeline(np.zeros(16000, dtype=np.float32))
+
+    asyncio.run(run2())
+    assert len(pb2.feeds) == len(pb.feeds) + 1  # ack 필러 정확히 1개 차이
     assert orch.state == State.IDLE
     assert in_window                      # 알림 후에도 되묻기 창이 열린다
 
