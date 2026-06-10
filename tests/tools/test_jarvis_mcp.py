@@ -278,3 +278,51 @@ def test_list_shortcuts():
     r = _recording_runner(stdout="퇴근\n방해금지\n")
     out = list_shortcuts_action(runner=r)
     assert "2개" in out and "퇴근" in out
+
+
+def test_play_music_track_success():
+    from types import SimpleNamespace
+
+    from jarvis.tools.jarvis_mcp import play_music_action
+    calls = []
+
+    def runner(cmd, capture_output=True, text=True, timeout=None, input=None):
+        calls.append(cmd)
+        script = cmd[-1]
+        if "first track" in script:
+            return SimpleNamespace(stdout="", returncode=0)
+        return SimpleNamespace(stdout="Money Trees — Kendrick Lamar", returncode=0)
+
+    out = play_music_action("머니 트리", kind="track", runner=runner)
+    assert "재생" in out
+
+
+def test_play_music_any_falls_through_and_fails():
+    from types import SimpleNamespace
+
+    from jarvis.tools.jarvis_mcp import play_music_action
+
+    def runner(cmd, capture_output=True, text=True, timeout=None, input=None):
+        return SimpleNamespace(stdout="", returncode=1)
+
+    out = play_music_action("없는곡", runner=runner)
+    assert "찾지 못했습니다" in out and "카탈로그" in out
+
+
+def test_play_music_escapes_quotes():
+    from types import SimpleNamespace
+
+    from jarvis.tools.jarvis_mcp import play_music_action
+    seen = []
+
+    def runner(cmd, capture_output=True, text=True, timeout=None, input=None):
+        seen.append(cmd[-1])
+        return SimpleNamespace(stdout="", returncode=0)
+
+    play_music_action('악"곡', kind="track", runner=runner)
+    assert '\\"' in seen[0]
+
+
+def test_play_music_registered():
+    from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
+    assert "mcp__jarvis__play_music" in JARVIS_TOOL_NAMES

@@ -248,6 +248,32 @@ def list_shortcuts_action(runner=subprocess.run) -> str:
     return f"단축어 {len(names)}개: {head}{more}"
 
 
+_MUSIC_FIND = {
+    "track": 'play (first track of library playlist 1 whose name contains "{q}")',
+    "artist": 'play (first track of library playlist 1 whose artist contains "{q}")',
+    "album": 'play (first track of library playlist 1 whose album contains "{q}")',
+    "playlist": 'play (first user playlist whose name contains "{q}")',
+}
+
+
+def play_music_action(query: str, kind: str = "any", runner=subprocess.run) -> str:
+    q = (query or "").strip().replace('"', '\\"')
+    if not q:
+        return "무엇을 틀까요?"
+    order = [kind] if kind in _MUSIC_FIND else ["track", "artist", "playlist"]
+    for k in order:
+        body = _MUSIC_FIND[k].replace("{q}", q)
+        res = runner(["osascript", "-e", f'tell application "Music" to {body}'],
+                     capture_output=True, text=True, timeout=15)
+        if getattr(res, "returncode", 1) == 0:
+            now = _osa('tell application "Music" to if player state is playing then '
+                       'return (name of current track) & " — " & (artist of current track)',
+                       runner)
+            return f"재생합니다: {now}" if now else "재생을 시작했습니다."
+    return (f"라이브러리에서 '{query}'를 찾지 못했습니다. "
+            "(애플뮤직 카탈로그 검색은 지원하지 않습니다 — 라이브러리에 있는 것만)")
+
+
 def control_mac_action(script: str, runner=subprocess.run) -> str:
     script = (script or "").strip()
     if not script:
@@ -342,6 +368,15 @@ async def _open_app(args):
       {"type": "object", "properties": {"level": {"type": "integer"}}, "required": ["level"]})
 async def _set_volume(args):
     return _text(set_volume_action((args or {}).get("level", 50)))
+
+
+@tool("play_music", "음악 라이브러리에서 곡/아티스트/플레이리스트를 찾아 재생한다. "
+      "kind: track|artist|album|playlist|any. 라이브러리 한정(카탈로그 검색 불가).",
+      {"type": "object", "properties": {"query": {"type": "string"},
+       "kind": {"type": "string"}}, "required": ["query"]})
+async def _play_music(args):
+    a = args or {}
+    return _text(play_music_action(str(a.get("query", "")), str(a.get("kind", "any"))))
 
 
 @tool("music_control", "음악을 재생/멈춤/다음/이전 하거나 지금 곡을 알려준다.",
@@ -476,8 +511,8 @@ def build_jarvis_mcp_server(memory: Any = None):
             memory.remember(note)
         return _text(f"기억했습니다: {note}")
 
-    tools = [_get_time, _get_weather, _open_app, _set_volume, _music, _add_reminder,
-             _create_note, _battery, _get_reminders, _get_calendar_events,
+    tools = [_get_time, _get_weather, _open_app, _set_volume, _play_music, _music,
+             _add_reminder, _create_note, _battery, _get_reminders, _get_calendar_events,
              _mute, _lock, _quit_app, _control_mac, _system_toggle,
              _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
              _set_timer, _cancel_timer, _list_timers, _remember]
@@ -486,7 +521,7 @@ def build_jarvis_mcp_server(memory: Any = None):
 
 # Allow-list names the brain passes to ClaudeAgentOptions.allowed_tools.
 JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
-    "get_time", "get_weather", "open_app", "set_volume", "music_control",
+    "get_time", "get_weather", "open_app", "set_volume", "play_music", "music_control",
     "add_reminder", "create_note", "battery_status", "get_reminders", "get_calendar_events",
     "toggle_mute", "lock_screen", "quit_app", "control_mac", "system_toggle",
     "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
