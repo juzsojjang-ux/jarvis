@@ -41,6 +41,8 @@ class MemoryStore:
             existing = self._norm(line.lstrip("- ").strip())
             if not existing:
                 continue
-            if n == existing or n in existing or existing in n:
+            # 새 사실이 기존 사실과 같거나, 기존 사실 안에 이미 포함돼 있으면 중복.
+            # (existing in n은 제외 — 짧은 기존 기억이 더 구체적인 새 사실을 삼키지 않게.)
+            if n == existing or n in existing:
                 return True
         return False

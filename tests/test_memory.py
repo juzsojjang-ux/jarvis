@@ -35,13 +35,34 @@ def test_remember_skips_duplicate(tmp_path):
     assert m.text().count("매운 음식") == 1
 
 
-def test_remember_substring_duplicate(tmp_path):
+def test_remember_longer_refinement_kept(tmp_path):
+    # 더 구체적인 사실은 짧은 기존 기억에 삼켜지지 않는다(데이터 손실 방지).
     from jarvis.brain.memory import MemoryStore
     m = MemoryStore(tmp_path / "mem.md")
     m.load()
     m.remember("커피는 아메리카노")
+    m.remember("커피는 아메리카노만 마신다")    # 더 구체적 → 유지
+    assert m.text().count("아메리카노") == 2
+
+
+def test_remember_subset_dropped(tmp_path):
+    # 기존보다 좁은(포함되는) 새 사실은 중복으로 본다.
+    from jarvis.brain.memory import MemoryStore
+    m = MemoryStore(tmp_path / "mem.md")
+    m.load()
     m.remember("커피는 아메리카노만 마신다")
+    m.remember("아메리카노")                    # 기존에 포함 → 스킵
     assert m.text().count("아메리카노") == 1
+
+
+def test_remember_short_memory_does_not_swallow_new_fact(tmp_path):
+    # 짧은 기존 기억이 그 단어를 포함하는 다른 사실을 막으면 안 된다.
+    from jarvis.brain.memory import MemoryStore
+    m = MemoryStore(tmp_path / "mem.md")
+    m.load()
+    m.remember("커피")
+    m.remember("커피숍을 운영한다")             # 별개 사실 → 유지
+    assert "커피숍" in m.text()
 
 
 def test_remember_distinct_kept(tmp_path):
