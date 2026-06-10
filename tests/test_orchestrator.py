@@ -85,6 +85,26 @@ def test_pipeline_feeds_playback_at_48k_float32():
     assert orch.state == State.IDLE
 
 
+def test_speak_skips_empty_sentence():
+    # empty/whitespace must NOT reach TTS/VC (it crashes RVC -> silent dead turn)
+    orch, pb = _make()
+    asyncio.run(orch._speak("   "))
+    assert pb.feeds == []
+
+
+def test_speak_falls_back_to_base_voice_when_vc_fails():
+    class _BoomVC:
+        sample_rate = 22050
+
+        def convert(self, pcm, in_rate):
+            raise RuntimeError("rvc boom")
+
+    orch, pb = _make()
+    orch.vc = _BoomVC()
+    asyncio.run(orch._speak("안녕하세요"))
+    assert len(pb.feeds) == 1 and pb.feeds[0].dtype == np.float32  # heard, not silent
+
+
 def test_barge_in_cancels_brain_task_and_aborts_playback():
     orch, pb = _make()
 

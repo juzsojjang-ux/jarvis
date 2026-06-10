@@ -30,7 +30,7 @@ class FakeTTS:
     sample_rate = 44100
 
     async def synth(self, text):
-        return np.zeros(int(0.1 * self.sample_rate), dtype=np.float32)
+        return np.full(int(0.1 * self.sample_rate), 0.1, dtype=np.float32)  # non-silent
 
 
 class FakePlayback:

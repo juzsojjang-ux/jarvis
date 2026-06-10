@@ -83,9 +83,13 @@ class SubscriptionBrain:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt(),
-            allowed_tools=[],      # conversational: never run Bash/file tools from speech
+            # READ-ONLY web tools only: lets JARVIS answer current-events questions
+            # ("최근 F1 결과") while Bash/file-edit tools stay forbidden — a spoken
+            # sentence can never run a command or touch the disk.
+            allowed_tools=["WebSearch", "WebFetch"],
+            disallowed_tools=["Bash", "Edit", "Write", "NotebookEdit"],
             setting_sources=[],    # isolate from the host Claude Code project
-            max_turns=1,
+            max_turns=6,           # allow a search round-trip before answering
             env=env,
             include_partial_messages=True,   # stream text deltas -> speak early
         )

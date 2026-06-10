@@ -120,10 +120,25 @@ class Orchestrator:
         self._publish("idle")
 
     async def _speak(self, sentence: str) -> None:
+        # Empty/whitespace chunks make MeloTTS emit empty audio, which crashes RVC
+        # (zero-size reduction) and killed the whole turn with no sound — skip them.
+        if not sentence.strip():
+            return
         self.state = State.SPEAKING
-        audio = await self.tts.synth(sentence)                    # at tts.sample_rate
-        converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
-        out = resample(converted, self.vc.sample_rate, self.settings.playback_rate)
+        try:
+            audio = await self.tts.synth(sentence)                # at tts.sample_rate
+        except Exception:  # noqa: BLE001 - one bad sentence must not kill the answer
+            return
+        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if arr.size == 0 or float(np.max(np.abs(arr))) < 1e-4:  # empty/silent crashes RVC
+            return
+        audio = arr
+        try:
+            converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
+            out = resample(converted, self.vc.sample_rate, self.settings.playback_rate)
+        except Exception:  # noqa: BLE001 - RVC failed: speak base voice, never go silent
+            out = resample(np.asarray(audio, dtype=np.float32).reshape(-1),
+                           self.tts.sample_rate, self.settings.playback_rate)
         # Queue per-hop levels; the pump publishes them at playback cadence so the orb
         # moves WITH the voice (not one static value per sentence).
         for lv in chunk_levels(out, self.settings.playback_rate, _HUD_HOP_S):

@@ -106,8 +106,9 @@ def test_options_isolated_streaming_and_key_stripped(monkeypatch):
         b = _brain()
         client = await b._ensure_client()
         kw = client.options.kw
-        assert kw["allowed_tools"] == [] and kw["setting_sources"] == []
-        assert kw["max_turns"] == 1 and kw["include_partial_messages"] is True
+        assert kw["allowed_tools"] == ["WebSearch", "WebFetch"]
+        assert "Bash" in kw["disallowed_tools"] and "Write" in kw["disallowed_tools"]
+        assert kw["setting_sources"] == [] and kw["include_partial_messages"] is True
         assert "ANTHROPIC_API_KEY" not in kw["env"]
     asyncio.run(run())
 
