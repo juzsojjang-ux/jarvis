@@ -24,6 +24,12 @@ class UtteranceDetector:
         self._silent = 0
         self._in_speech = False
 
+    @property
+    def in_speech(self) -> bool:
+        """발화 진행 중 여부 — WakeListener가 무음 프레임의 VAD 호출을 건너뛸지
+        판단할 때 쓴다(발화 중엔 은닉상태 연속성을 위해 항상 실측해야 한다)."""
+        return self._in_speech
+
     def reset(self) -> None:
         self._pre.clear()
         self._buf = []
@@ -40,7 +46,7 @@ class UtteranceDetector:
         # _pre는 발화 진입 시 비웠다 — 여기서 또 비울 필요 없다(진입 후 _pre에 쓰지 않는 불변식).
         if speech < self._min_frames:
             return None
-        return np.concatenate(buf).astype(np.float32)
+        return np.concatenate(buf).astype(np.float32, copy=False)
 
     def feed(self, prob: float, frame: np.ndarray) -> np.ndarray | None:
         if not self._in_speech:

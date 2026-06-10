@@ -23,4 +23,7 @@ def test_wake_word_defaults():
     assert 0.0 < s.wake_vad_threshold < 1.0
     assert s.wake_silence_ms >= 300
     assert s.wake_max_utterance_s == 30.0
+    assert s.wake_echo_cooldown_s == 0.5
+    assert s.wake_min_speech_ms == 300
+    assert s.wake_pre_roll_ms == 320
     assert s.vad_model_path.endswith("silero_vad.onnx")

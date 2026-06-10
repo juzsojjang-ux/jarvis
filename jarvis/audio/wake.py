@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 _PUNCT = " \t,.!?~…·-—\"'""'';:"
+_EMPTY = np.zeros(0, dtype=np.float32)  # 30ms 폴링마다 빈 배열을 새로 만들지 않는다
 
 
 def match_wake(text: str, wake_words: list[str]) -> tuple[bool, str]:
@@ -32,6 +33,10 @@ class WakeListener:
     -> on_utterance(pcm). gate()가 False(IDLE 아님/에코 쿨다운)면 부분 버퍼를
     버린다 — 자비스 자신의 목소리나 PTT 녹음을 발화로 오인하지 않기 위해서다."""
 
+    # 이보다 작은 피크는 확실한 무음 — ONNX 호출을 건너뛴다(대기 배터리 절감).
+    # silero가 진짜 무음에 주는 확률(~0.001)보다 훨씬 보수적인 문턱.
+    _SILENCE_PEAK = 0.003
+
     def __init__(self, micstream, vad, detector, *, window: int = 512,
                  poll_s: float = 0.03):
         self._mic = micstream
@@ -41,9 +46,8 @@ class WakeListener:
         self._poll_s = poll_s
         self._pending: deque[np.ndarray] = deque()
         self._lock = threading.Lock()
-        self._carry = np.zeros(0, dtype=np.float32)
+        self._carry = _EMPTY
         self._task: asyncio.Task | None = None
-        self._was_open = False
 
     def _on_chunk(self, chunk: np.ndarray) -> None:  # PortAudio 콜백 스레드
         with self._lock:
@@ -67,7 +71,10 @@ class WakeListener:
     def _drain_pending(self) -> np.ndarray:
         with self._lock:
             if not self._pending:
-                return np.zeros(0, dtype=np.float32)
+                return _EMPTY
+            if len(self._pending) == 1:
+                chunk = self._pending.popleft()
+                return chunk
             chunks = list(self._pending)
             self._pending.clear()
         return np.concatenate(chunks)
@@ -75,7 +82,7 @@ class WakeListener:
     def _reset(self) -> None:
         with self._lock:
             self._pending.clear()
-        self._carry = np.zeros(0, dtype=np.float32)
+        self._carry = _EMPTY
         self._det.reset()
         self._vad.reset()
 
@@ -83,13 +90,19 @@ class WakeListener:
         drained = self._drain_pending()
         if len(drained) == 0 and len(self._carry) == 0:
             return []
-        data = np.concatenate([self._carry, drained])
+        data = drained if len(self._carry) == 0 else np.concatenate([self._carry, drained])
         n = (len(data) // self._window) * self._window
         self._carry = data[n:]
         out: list[np.ndarray] = []
         for i in range(0, n, self._window):
             frame = data[i:i + self._window]
-            utt = self._det.feed(self._vad.prob(frame), frame)
+            # 무음 프레임은 ONNX를 태우지 않는다 — 발화 중엔 은닉상태 연속성을
+            # 위해 항상 실측한다.
+            if not self._det.in_speech and float(np.max(np.abs(frame))) < self._SILENCE_PEAK:
+                prob = 0.0
+            else:
+                prob = self._vad.prob(frame)
+            utt = self._det.feed(prob, frame)
             if utt is not None:
                 out.append(utt)
         return out
@@ -99,15 +112,17 @@ class WakeListener:
             while True:
                 self._mic.ensure_running()
                 if not self._gate():
-                    if self._was_open:
-                        self._reset()          # 전환: 상태기계·버퍼 전체 초기화
-                    else:
-                        self._drain_pending()  # 지속 닫힘: 새 오디오만 버린다
-                        self._carry = np.zeros(0, dtype=np.float32)
-                    self._was_open = False
+                    # 닫힘 동안 들은 것은 전부 버린다(에코·PTT 오인 방지).
+                    # _reset은 멱등·저비용이라 매 폴마다 불러도 된다.
+                    self._reset()
                 else:
-                    self._was_open = True
-                    for utt in self._process():
+                    try:
+                        utts = self._process()
+                    except Exception as exc:  # noqa: BLE001 - VAD 한 번의 오류로 영구 먹통 금지
+                        print(f"[웨이크워드] 처리 오류(루프 유지): {exc}")
+                        self._reset()
+                        utts = []
+                    for utt in utts:
                         try:
                             self._on_utterance(utt)
                         except Exception as exc:  # noqa: BLE001 - 루프는 죽지 않는다
@@ -132,6 +147,9 @@ def build_wake(settings, micstream) -> WakeListener | None:
     detector = UtteranceDetector(
         threshold=settings.wake_vad_threshold,
         silence_ms=settings.wake_silence_ms,
+        min_speech_ms=settings.wake_min_speech_ms,
         max_s=settings.wake_max_utterance_s,
+        pre_roll_ms=settings.wake_pre_roll_ms,
     )
-    return WakeListener(micstream, vad, detector)
+    # 윈도우 크기의 단일 출처는 VAD 모델(silero v5 = 512@16k)이다.
+    return WakeListener(micstream, vad, detector, window=SileroVAD.WINDOW)

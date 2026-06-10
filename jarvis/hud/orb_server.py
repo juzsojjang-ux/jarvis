@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
-_VALID_STATES = ("idle", "listening", "thinking", "speaking")
+_VALID_STATES = ("idle", "attentive", "listening", "thinking", "speaking")
 
 
 class OrbHub:

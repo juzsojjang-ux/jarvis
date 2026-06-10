@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import urllib.request
 from pathlib import Path
 
@@ -19,7 +20,10 @@ def ensure_silero_model(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".part")
     try:
-        urllib.request.urlretrieve(SILERO_URL, tmp)
+        # 타임아웃 필수: 첫 부팅이 먹통 네트워크(캡티브 포털 등)에서 OS TCP
+        # 타임아웃(수 분)만큼 멈추면 PTT까지 같이 인질로 잡힌다.
+        with urllib.request.urlopen(SILERO_URL, timeout=15) as resp, open(tmp, "wb") as f:
+            shutil.copyfileobj(resp, f)
         tmp.rename(path)
     except BaseException:
         tmp.unlink(missing_ok=True)  # 중단/실패 시 부분 파일 잔류 방지
@@ -48,7 +52,7 @@ class SileroVAD:
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def reset(self) -> None:
-        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._state.fill(0.0)  # 게이트 닫힘 동안 30ms마다 불리므로 재할당 대신 제자리 초기화
 
     def prob(self, frame: np.ndarray) -> float:
         x = np.asarray(frame, dtype=np.float32).reshape(1, -1)

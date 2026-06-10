@@ -5,10 +5,24 @@ from jarvis.audio.capture import MicCapture
 from jarvis.audio.micstream import MicStream
 
 
+class _NoDevMicStream(MicStream):
+    """실제 장치 금지 — capture.start()가 이제 닫힌 스트림을 여는(start) 의미라,
+    테스트에서 진짜 MicStream을 쓰면 마이크가 열리고 종료 시 SIGSEGV가 난다."""
+
+    def _open(self) -> None:
+        self.opened = getattr(self, "opened", 0) + 1  # 열기 '시도'만 기록
+
+
 def _cap():
-    ms = MicStream()
+    ms = _NoDevMicStream()
     cap = MicCapture(ms)
     return ms, cap
+
+
+def test_start_requests_stream_open():
+    ms, cap = _cap()
+    cap.start()
+    assert getattr(ms, "opened", 0) == 1  # PTT 전용 모드·음성확인이 여기에 의존한다
 
 
 def test_chunks_accumulate_only_while_active():

@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     wake_vad_threshold: float = 0.5   # silero 말소리 확률 문턱값
     wake_silence_ms: int = 800        # 이만큼 조용하면 발화 종료
     wake_max_utterance_s: float = 30.0  # 긴 대화를 통째로 변환하는 낭비 방지 캡
+    wake_echo_cooldown_s: float = 0.5   # 자비스 발화 직후 자기 잔향 무시(스피커 환경이면 ↑)
+    wake_min_speech_ms: int = 300       # 이보다 짧은 소리는 발화로 안 침
+    wake_pre_roll_ms: int = 320         # 발화 직전 보존 구간 — "자비스" 첫 음절 잘림 방지
     vad_model_path: str = "~/jarvis/voice_models/silero_vad.onnx"
 
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---

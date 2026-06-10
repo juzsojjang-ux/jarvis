@@ -42,7 +42,12 @@ class MicCapture:
         with self._lock:
             self._frames = []
             self._active = True
-        self._mic.ensure_running()
+        try:
+            # 닫혀 있으면 연다 — PTT 전용 모드·도구 음성확인 모두 여기로 들어온다.
+            # (웨이크 모드에선 스트림이 이미 열려 있어 no-op.)
+            self._mic.start()
+        except Exception as exc:  # noqa: BLE001 - 이번 캡처만 무음, 다음 시도에 재시도
+            print(f"[마이크] 입력 스트림 열기 실패: {exc}")
 
     def stop(self) -> np.ndarray:
         with self._lock:

@@ -141,3 +141,32 @@ def test_callback_error_does_not_kill_loop():
 
     asyncio.run(run())
     assert len(calls) == 2
+
+
+def test_vad_error_does_not_kill_loop():
+    # onnxruntime이 한 번 던져도 웨이크 루프는 살아서 다음 발화를 배달해야 한다.
+    mic, wl = _listener()
+    got = []
+    armed = {"boom": True}
+    real_prob = wl._vad.prob
+
+    def flaky_prob(frame):
+        if armed["boom"]:
+            armed["boom"] = False
+            raise RuntimeError("ort boom")
+        return real_prob(frame)
+
+    wl._vad.prob = flaky_prob
+
+    async def run():
+        wl.start(got.append, lambda: True)
+        mic.cb(_speech())
+        mic.cb(_silence())
+        await asyncio.sleep(0.05)        # 첫 배치는 VAD 오류로 버려질 수 있지만
+        mic.cb(_speech())
+        mic.cb(_silence())
+        await asyncio.sleep(0.05)        # 루프가 살아 있어 다음 발화는 배달된다
+        wl.stop()
+
+    asyncio.run(run())
+    assert len(got) >= 1

@@ -30,6 +30,12 @@ def test_subtitle_persists_then_clears_when_not_speaking():
     assert hub.publish("idle", 0.0)["text"] == ""                 # cleared off speaking
 
 
+def test_attentive_state_passes_through():
+    # follow-up 청취 표시 — 화이트리스트 누락으로 idle로 뭉개지면 기능이 통째로 죽는다
+    hub = OrbHub()
+    assert hub.publish("attentive", 0.2)["state"] == "attentive"
+
+
 def test_invalid_state_and_level_are_sanitised():
     hub = OrbHub()
     evt = hub.publish("bogus", 5.0)

@@ -205,6 +205,7 @@ def test_follow_up_accepts_command_without_wake_word():
 
 def test_pipeline_reopens_follow_up_window():
     orch, _ = _make()
+    orch.wake = object()                 # follow-up 창은 웨이크 리스너가 있을 때만 연다
 
     async def run():
         await orch._pipeline(np.zeros(16000, dtype=np.float32))
@@ -274,3 +275,54 @@ def test_brain_error_recovers_to_idle():
 
     asyncio.run(run())
     assert orch.state == State.IDLE
+
+
+class _FakeHud:
+    def __init__(self):
+        self.events = []
+
+    def publish(self, state, level=0.0, text=None):
+        self.events.append(state)
+
+
+def test_non_wake_discard_publishes_idle_to_hud():
+    # 잡담 폐기 후 publish를 빼먹으면 오브가 PROCESSING에 갇힌다(실제 발견 버그).
+    orch, pb = _make()
+    orch.hud = _FakeHud()
+    orch.stt = _WakeSTT("그냥 잡담이었어요")
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert pb.feeds == []
+    assert orch.hud.events[-1] == "idle"
+
+
+def test_ptt_only_answer_does_not_enter_attentive():
+    # 웨이크 리스너가 없으면 '듣는 중' 표시도, 죽은 follow-up 창도 열지 않는다.
+    orch, _ = _make()                    # wake=None (PTT 전용)
+    orch.hud = _FakeHud()
+
+    async def run():
+        await orch._pipeline(np.zeros(16000, dtype=np.float32))
+
+    asyncio.run(run())
+    assert orch._follow_up_until == 0.0
+    assert "attentive" not in orch.hud.events
+    assert orch.hud.events[-1] == "idle"
+
+
+def test_wake_cooldown_blocks_delivery():
+    # 폴링 게이트가 닫히기 직전 버퍼된 발화도 전달 시점 재판정에서 막혀야 한다.
+    orch, pb = _make()
+    orch.stt = _WakeSTT("자비스 안녕")
+
+    async def run():
+        orch._wake_blocked_until = asyncio.get_running_loop().time() + 5.0
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        assert orch._task is None
+
+    asyncio.run(run())
+    assert pb.feeds == []
