@@ -116,6 +116,19 @@ def test_ko_marker_splits_speech_and_subtitle():
     asyncio.run(run())
 
 
+def test_deep_trigger_reconnects_with_extended_thinking():
+    async def run():
+        b = _brain()
+        assert b._deep_tokens("안녕") == 0
+        assert b._deep_tokens("최대 사고로 진행해") == 12000
+        await _talk(b, [FakeAssistant("a")])     # normal turn, thinking 0
+        assert FakeClient.instances == 1
+        c = await b._ensure_client(b._deep_tokens("최대 사고로 진행해 줘"))
+        assert FakeClient.instances == 2          # reconnected for deep thinking
+        assert c.options.kw["max_thinking_tokens"] == 12000
+    asyncio.run(run())
+
+
 def test_no_filler_when_no_tool_used():
     async def run():
         b = _brain()

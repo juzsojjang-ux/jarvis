@@ -59,6 +59,11 @@ class Playback:
     def feed(self, pcm: np.ndarray) -> None:
         self._ring.write(pcm)
 
+    def pending(self) -> int:
+        """Samples still queued for playback (0 = finished) — lets the orchestrator hold
+        the SPEAKING state/subtitle until the audio actually ends."""
+        return self._ring.pending()
+
     def abort(self) -> None:
         self._ring.clear()
         if self._stream is not None:

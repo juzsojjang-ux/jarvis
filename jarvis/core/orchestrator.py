@@ -111,16 +111,29 @@ class Orchestrator:
         self.state = State.THINKING
         self._publish("thinking")
         async for delta in self.brain.respond(text):
-            # Korean subtitle accumulates on the brain as the reply streams — push it to
-            # the HUD so it shows under SPEAKING while the English audio plays.
-            sub = getattr(self.brain, "last_subtitle", "")
             for sentence in self.chunker.feed(delta):
-                await self._speak(sentence, subtitle=sub)
+                await self._speak(sentence)
         tail = self.chunker.flush()
         if tail:
-            await self._speak(tail, subtitle=getattr(self.brain, "last_subtitle", ""))
+            await self._speak(tail)
+        # The Korean subtitle is only complete once the whole reply has streamed (the
+        # '[KO]' part comes last). Publish it now and hold "speaking" until the queued
+        # audio actually finishes playing — otherwise the orb/subtitle vanish mid-sentence.
+        await self._finish_speaking(getattr(self.brain, "last_subtitle", "") or "")
         self.state = State.IDLE
         self._publish("idle")
+
+    async def _finish_speaking(self, subtitle: str) -> None:
+        if subtitle:
+            self._publish("speaking", 0.3, subtitle)  # show the subtitle under SPEAKING
+        # Wait out the audio: the speaking pump drains one queued level per hop (~the
+        # audio's length), and the playback ring must empty too.
+        for _ in range(int(30 / _HUD_HOP_S)):  # cap ~30s safety
+            pump_busy = self._spk_pump is not None and not self._spk_pump.done()
+            pending = self.playback.pending() if hasattr(self.playback, "pending") else 0
+            if not pump_busy and pending <= 0:
+                break
+            await asyncio.sleep(_HUD_HOP_S)
 
     async def _speak(self, sentence: str, subtitle: str | None = None) -> None:
         # Empty/whitespace chunks make MeloTTS emit empty audio, which crashes RVC

@@ -36,9 +36,12 @@ _GUIDANCE_EN = (
     "You are JARVIS, Tony Stark's refined British AI butler. The user may speak Korean, "
     "but you ALWAYS reply in ENGLISH. Keep it to one or two short, natural spoken "
     "sentences — no markdown, lists, numbering, or symbols, no preamble or sign-off. "
-    "Address the user as 'sir'. Use the signature JARVIS manner: dry, understated wit and "
-    "the occasional subtle, polite quip — clever, never goofy, and never at the expense "
-    "of being helpful. Use your tools directly for time, weather, opening apps, volume, "
+    "Address the user as 'sir'. Channel the signature JARVIS manner HARD: dry, deadpan "
+    "British wit — understated, razor-sharp, faintly sardonic. Land a wry quip or a "
+    "subtle teasing observation in nearly every reply (e.g. 'Right away, sir — try to "
+    "contain your excitement.'), but keep it brief, clever, never goofy or over-eager, "
+    "and never at the cost of actually helping. "
+    "Use your tools directly for time, weather, opening apps, volume, "
     "and memory, and web search for current info; when a tool applies, act first and "
     "state the result briefly — don't ask. "
     "After your spoken English reply, append on a new line exactly '[KO] ' followed by a "
@@ -71,7 +74,16 @@ class SubscriptionBrain:
         self._assistant_message = assistant_message
         self._stream_event = stream_event
         self._client: Any = None
+        self._client_thinking = 0  # max_thinking_tokens the live client was connected with
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
+
+    # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
+    _DEEP_TRIGGERS = ("최대 사고", "깊게 생각", "깊이 생각", "심층", "딥씽킹", "곰곰이",
+                      "max thinking", "think hard", "think deeply", "deep think")
+
+    def _deep_tokens(self, user_text: str) -> int:
+        low = user_text.lower()
+        return 12000 if any(k in user_text or k in low for k in self._DEEP_TRIGGERS) else 0
 
     def _ensure_sdk(self) -> None:
         if self._client_cls and self._options_cls and self._assistant_message:
@@ -100,7 +112,7 @@ class SubscriptionBrain:
         tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + guidance
         return f"{self._persona}\n\n{tail}"
 
-    def _options(self) -> Any:
+    def _options(self, thinking_tokens: int = 0) -> Any:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         # JARVIS capabilities: read-only web tools (current events) + safe in-process
         # action tools (time/weather/open-app/volume/remember). Bash/file-edit stay
@@ -113,7 +125,9 @@ class SubscriptionBrain:
             mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
             setting_sources=[],    # isolate from the host Claude Code project
             max_turns=4,           # allow a tool round-trip; cap over-searching
-            max_thinking_tokens=0,  # snappy voice replies — no extended thinking latency
+            # 0 = snappy voice replies; raised on demand when the user asks JARVIS to
+            # "think deeply" (extended thinking, slower but smarter — _deep_tokens).
+            max_thinking_tokens=thinking_tokens,
             env=env,
             include_partial_messages=True,   # stream text deltas -> speak early
         )
@@ -122,12 +136,20 @@ class SubscriptionBrain:
             kw["model"] = model
         return self._options_cls(**kw)
 
-    async def _ensure_client(self) -> Any:
+    async def _ensure_client(self, thinking_tokens: int = 0) -> Any:
         self._ensure_sdk()
+        # Reconnect if the thinking budget changed (deep-think turn vs normal).
+        if self._client is not None and self._client_thinking != thinking_tokens:
+            try:
+                await self._client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self._client = None
         if self._client is None:
-            client = self._client_cls(options=self._options())
+            client = self._client_cls(options=self._options(thinking_tokens))
             await client.connect()
             self._client = client
+            self._client_thinking = thinking_tokens
         return self._client
 
     # Spoken the instant a web search starts, so there's no dead air while the search
@@ -165,7 +187,7 @@ class SubscriptionBrain:
     KO_MARK = "[KO]"
 
     async def respond(self, user_text: str) -> AsyncIterator[str]:
-        client = await self._ensure_client()
+        client = await self._ensure_client(self._deep_tokens(user_text))
         await client.query(user_text)
         # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
         # shows it under SPEAKING while the English audio plays. Only the English (before
