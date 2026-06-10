@@ -277,6 +277,73 @@ def play_music_action(query: str, kind: str = "any", runner=subprocess.run) -> s
             "(애플뮤직 카탈로그 검색은 지원하지 않습니다 — 라이브러리에 있는 것만)")
 
 
+def _parse_pipe_lines(raw: str, limit: int) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for line in (raw or "").splitlines():
+        parts = line.split("|", 1)
+        if len(parts) == 2 and parts[0].strip():
+            out.append((parts[0].strip(), parts[1].strip()))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def messages_text(count: Any = 5, runner=subprocess.run) -> str:
+    try:
+        n = max(1, min(20, int(count)))
+    except (TypeError, ValueError):
+        n = 5
+    script = (
+        'set out to ""\n'
+        'tell application "Messages"\n'
+        '  set theChats to chats\n'
+        '  repeat with c in theChats\n'
+        '    try\n'
+        '      set m to last text message of c\n'
+        '      set out to out & (get name of c) & "|" & (get text of m) & linefeed\n'
+        '    end try\n'
+        '  end repeat\n'
+        'end tell\n'
+        'return out\n'
+    )
+    try:
+        res = runner(["osascript", "-e", script], capture_output=True, text=True,
+                     timeout=15)
+        items = _parse_pipe_lines(getattr(res, "stdout", "") or "", n)
+    except Exception:  # noqa: BLE001 - 권한·앱부재: 안내만
+        return "메시지를 읽지 못했습니다(권한을 확인해 주세요)."
+    if not items:
+        return "최근 메시지가 없습니다."
+    return "최근 메시지 " + " / ".join(f"{who}: {body}" for who, body in items)
+
+
+def mail_text(count: Any = 5, runner=subprocess.run) -> str:
+    try:
+        n = max(1, min(20, int(count)))
+    except (TypeError, ValueError):
+        n = 5
+    script = (
+        'set out to ""\n'
+        'tell application "Mail"\n'
+        '  set unread to (messages of inbox whose read status is false)\n'
+        '  repeat with m in unread\n'
+        '    set out to out & (sender of m) & "|" & (subject of m) & linefeed\n'
+        '  end repeat\n'
+        'end tell\n'
+        'return out\n'
+    )
+    try:
+        res = runner(["osascript", "-e", script], capture_output=True, text=True,
+                     timeout=15)
+        items = _parse_pipe_lines(getattr(res, "stdout", "") or "", n)
+    except Exception:  # noqa: BLE001
+        return "메일을 읽지 못했습니다(권한을 확인해 주세요)."
+    if not items:
+        return "안 읽은 메일이 없습니다."
+    return f"안 읽은 메일 {len(items)}건: " + " / ".join(
+        f"{who} — {subj}" for who, subj in items)
+
+
 def control_mac_action(script: str, runner=subprocess.run) -> str:
     script = (script or "").strip()
     if not script:
@@ -481,6 +548,18 @@ async def _list_shortcuts(_args):
     return _text(list_shortcuts_action())
 
 
+@tool("get_messages", "최근 받은 메시지를 읽는다(읽기 전용). 보내기는 하지 않는다.",
+      {"type": "object", "properties": {"count": {"type": "integer"}}})
+async def _get_messages(args):
+    return _text(messages_text((args or {}).get("count", 5)))
+
+
+@tool("get_unread_mail", "안 읽은 메일의 발신자·제목을 읽는다(읽기 전용).",
+      {"type": "object", "properties": {"count": {"type": "integer"}}})
+async def _get_unread_mail(args):
+    return _text(mail_text((args or {}).get("count", 5)))
+
+
 @tool("set_timer", "타이머를 맞춘다(분/초/라벨). 완료되면 자비스가 음성으로 알린다.",
       {"type": "object", "properties": {"minutes": {"type": "number"},
        "seconds": {"type": "number"}, "label": {"type": "string"}}})
@@ -518,7 +597,9 @@ def build_jarvis_mcp_server(memory: Any = None):
              _add_reminder, _create_note, _battery, _get_reminders, _get_calendar_events,
              _mute, _lock, _quit_app, _control_mac, _system_toggle,
              _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
-             _set_timer, _cancel_timer, _list_timers, _remember]
+             _set_timer, _cancel_timer, _list_timers,
+             _get_messages, _get_unread_mail,
+             _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
 
@@ -529,5 +610,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "toggle_mute", "lock_screen", "quit_app", "control_mac", "system_toggle",
     "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
     "set_timer", "cancel_timer", "list_timers",
+    "get_messages", "get_unread_mail",
     "remember",
 )]

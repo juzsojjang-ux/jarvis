@@ -336,3 +336,43 @@ def test_play_music_runner_exception_is_safe():
 
     out = play_music_action("아무거나", runner=boom)
     assert "찾지 못했습니다" in out          # raise 대신 안내 문자열
+
+
+def test_messages_text_lists_recent():
+    from jarvis.tools.jarvis_mcp import messages_text
+    r = _recording_runner(stdout="민지|도착했어\n부장님|회의 30분 뒤\n")
+    out = messages_text(2, runner=r)
+    assert "민지" in out and "도착했어" in out and "부장님" in out
+
+
+def test_messages_text_empty():
+    from jarvis.tools.jarvis_mcp import messages_text
+    assert "없습니다" in messages_text(5, runner=_recording_runner(stdout=""))
+
+
+def test_messages_text_runner_error_safe():
+    from jarvis.tools.jarvis_mcp import messages_text
+
+    def boom(cmd, capture_output=True, text=True, timeout=None, input=None):
+        raise RuntimeError("osascript fail")
+
+    out = messages_text(5, runner=boom)
+    assert "읽지" in out or "없습니다" in out
+
+
+def test_mail_text_lists_unread():
+    from jarvis.tools.jarvis_mcp import mail_text
+    r = _recording_runner(stdout="김부장|회의 일정\nAWS|결제 안내\n")
+    out = mail_text(2, runner=r)
+    assert "김부장" in out and "회의 일정" in out
+
+
+def test_mail_text_empty():
+    from jarvis.tools.jarvis_mcp import mail_text
+    assert "없습니다" in mail_text(5, runner=_recording_runner(stdout=""))
+
+
+def test_read_tools_registered():
+    from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
+    assert "mcp__jarvis__get_messages" in JARVIS_TOOL_NAMES
+    assert "mcp__jarvis__get_unread_mail" in JARVIS_TOOL_NAMES
