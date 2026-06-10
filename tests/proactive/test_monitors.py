@@ -34,7 +34,8 @@ def test_battery_warns_once_per_level_crossing():
 def test_charger_transitions():
     mon = BatteryMonitor(levels=[20, 10, 5])
     mon._runner = _pmset_runner(_batt(18))
-    mon.poll()                                    # 방전 중 18% (경고 1회 소모)
+    out = mon.poll()                              # 첫 폴링: 이미 20% 아래 → 즉시 경고
+    assert [a.kind for a in out] == ["battery_low"]
     mon._runner = _pmset_runner(_batt(18, charging=True))
     out = mon.poll()
     assert [a.kind for a in out] == ["charger_on"]
@@ -52,3 +53,11 @@ def test_battery_unreadable_is_silent():
     mon = BatteryMonitor(levels=[20, 10, 5])
     mon._runner = _pmset_runner("garbage")
     assert mon.poll() == []
+
+
+def test_boot_below_threshold_warns_immediately():
+    mon = BatteryMonitor(levels=[20, 10, 5])
+    mon._runner = _pmset_runner(_batt(4))
+    out = mon.poll()
+    kinds = [a.kind for a in out]
+    assert "battery_critical" in kinds            # 4%로 부팅해도 침묵하지 않는다

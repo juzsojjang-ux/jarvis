@@ -55,13 +55,16 @@ class BatteryMonitor:
         if on_ac and pct >= 100 and not self._full_announced:
             out.append(Announcement("charge_full", "배터리 완충(100%)", 3, now, now + _TEN_MIN))
             self._full_announced = True
-        if not on_ac and self._prev_pct is not None:
+        # 첫 폴링은 prev를 101로 간주 — 이미 임계치 아래로 부팅한 경우에도
+        # 해당 문턱 경고가 즉시 1회 나간다(4%로 부팅 → 영영 침묵하던 구멍).
+        effective_prev = self._prev_pct if self._prev_pct is not None else 101
+        if not on_ac:
             for lv in self._levels:
-                if self._prev_pct > lv >= pct and lv not in self._warned:
+                if effective_prev > lv >= pct and lv not in self._warned:
                     kind = "battery_critical" if lv <= 5 else "battery_low"
                     prio = 0 if lv <= 5 else 2
                     out.append(Announcement(
-                        kind, f"배터리가 {pct}%까지 떨어졌다(방전 중)", prio,
+                        kind, f"배터리가 {lv}% 문턱 아래로 떨어졌다(현재 {pct}%, 방전 중)", prio,
                         now, now + _TEN_MIN))
                     self._warned.add(lv)
         if not on_ac:
