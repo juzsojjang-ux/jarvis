@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -48,6 +49,9 @@ class WakeListener:
         self._lock = threading.Lock()
         self._carry = _EMPTY
         self._task: asyncio.Task | None = None
+        # JARVIS_WAKE_DEBUG=1: 레이어별 계측(청크 유입/피크/VAD 확률) — 현장 튜닝용.
+        self._debug = os.environ.get("JARVIS_WAKE_DEBUG", "") == "1"
+        self._dbg = {"polls": 0, "open": 0, "frames": 0, "onnx": 0, "peak": 0.0, "pmax": 0.0}
 
     def _on_chunk(self, chunk: np.ndarray) -> None:  # PortAudio 콜백 스레드
         with self._lock:
@@ -96,12 +100,19 @@ class WakeListener:
         out: list[np.ndarray] = []
         for i in range(0, n, self._window):
             frame = data[i:i + self._window]
+            peak = float(np.max(np.abs(frame)))
             # 무음 프레임은 ONNX를 태우지 않는다 — 발화 중엔 은닉상태 연속성을
             # 위해 항상 실측한다.
-            if not self._det.in_speech and float(np.max(np.abs(frame))) < self._SILENCE_PEAK:
+            if not self._det.in_speech and peak < self._SILENCE_PEAK:
                 prob = 0.0
             else:
                 prob = self._vad.prob(frame)
+                if self._debug:
+                    self._dbg["onnx"] += 1
+                    self._dbg["pmax"] = max(self._dbg["pmax"], prob)
+            if self._debug:
+                self._dbg["frames"] += 1
+                self._dbg["peak"] = max(self._dbg["peak"], peak)
             utt = self._det.feed(prob, frame)
             if utt is not None:
                 out.append(utt)
@@ -111,7 +122,8 @@ class WakeListener:
         try:
             while True:
                 self._mic.ensure_running()
-                if not self._gate():
+                gate_open = bool(self._gate())
+                if not gate_open:
                     # 닫힘 동안 들은 것은 전부 버린다(에코·PTT 오인 방지).
                     # _reset은 멱등·저비용이라 매 폴마다 불러도 된다.
                     self._reset()
@@ -123,10 +135,21 @@ class WakeListener:
                         self._reset()
                         utts = []
                     for utt in utts:
+                        if self._debug:
+                            print(f"[wake-dbg] 발화 감지: {len(utt)}샘플 ({len(utt)/16000:.1f}s)")
                         try:
                             self._on_utterance(utt)
                         except Exception as exc:  # noqa: BLE001 - 루프는 죽지 않는다
                             print(f"[웨이크워드] on_utterance 오류(루프 유지): {exc}")
+                if self._debug:
+                    d = self._dbg
+                    d["polls"] += 1
+                    d["open"] += 1 if gate_open else 0
+                    if d["polls"] % 66 == 0:  # ~2초마다 요약
+                        print(f"[wake-dbg] open={d['open']}/66 frames={d['frames']} "
+                              f"onnx={d['onnx']} peak={d['peak']:.4f} pmax={d['pmax']:.3f} "
+                              f"in_speech={self._det.in_speech}")
+                        d.update(open=0, frames=0, onnx=0, peak=0.0, pmax=0.0)
                 await asyncio.sleep(self._poll_s)
         except asyncio.CancelledError:
             pass

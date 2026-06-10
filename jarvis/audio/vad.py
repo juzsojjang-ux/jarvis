@@ -37,6 +37,10 @@ class SileroVAD:
     세그폴트한 전력이 있다(같은 프로세스에 mlx도 산다)."""
 
     WINDOW = 512
+    # v5 입력 규격: 직전 청크의 마지막 64샘플(컨텍스트)을 새 512샘플 앞에 붙인
+    # 576샘플을 먹인다. 동적 shape라 512만 넣어도 에러 없이 돌지만 확률이
+    # ~0.001로 망가진다(실측: 같은 음성 512만=0.001 vs 576=1.000).
+    CONTEXT = 64
 
     def __init__(self, model_path: Path, sample_rate: int = 16000):
         import onnxruntime as ort  # 모델 없는 테스트 환경에서 모듈 import는 가볍게
@@ -50,13 +54,19 @@ class SileroVAD:
         )
         self._sr = np.array(sample_rate, dtype=np.int64)
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._ctx = np.zeros(self.CONTEXT, dtype=np.float32)
 
     def reset(self) -> None:
-        self._state.fill(0.0)  # 게이트 닫힘 동안 30ms마다 불리므로 재할당 대신 제자리 초기화
+        # 게이트 닫힘 동안 30ms마다 불리므로 재할당 대신 제자리 초기화.
+        self._state.fill(0.0)
+        self._ctx.fill(0.0)
 
     def prob(self, frame: np.ndarray) -> float:
-        x = np.asarray(frame, dtype=np.float32).reshape(1, -1)
+        x = np.asarray(frame, dtype=np.float32).reshape(-1)
+        inp = np.concatenate([self._ctx, x]).reshape(1, -1)
         out, self._state = self._sess.run(
-            None, {"input": x, "state": self._state, "sr": self._sr}
+            None, {"input": inp, "state": self._state, "sr": self._sr}
         )
+        # copy: 호출자 버퍼의 뷰를 잡아두면 큰 원본 배열이 통째로 살아남는다.
+        self._ctx = x[-self.CONTEXT:].copy()
         return float(out[0, 0])
