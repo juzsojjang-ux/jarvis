@@ -25,9 +25,9 @@ def make_melo_synth():
     from melo.api import TTS
     model = TTS(language="KR", device="cpu")
     spk = model.hps.data.spk2id["KR"]
-    # JARVIS speaks with a calm, measured butler cadence — slightly slower than the
-    # MeloTTS default reads smoother after the RVC timbre conversion. Env-tunable.
-    speed = float(os.environ.get("JARVIS_MELO_SPEED", "0.95"))
+    # 1.0 = natural cadence. (0.95 was tried for a calmer butler tone but read as
+    # slurred/draggy after RVC conversion — user feedback 2026-06-10.) Env-tunable.
+    speed = float(os.environ.get("JARVIS_MELO_SPEED", "1.0"))
 
     def synth(text: str):
         fd, path = tempfile.mkstemp(suffix=".wav")
