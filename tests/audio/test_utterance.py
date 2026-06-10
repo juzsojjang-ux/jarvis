@@ -79,3 +79,25 @@ def test_reset_clears_partial_buffer():
         if r is not None:
             out = r
     assert out is None
+
+
+def test_second_utterance_after_natural_completion():
+    det = _det()
+    for f in _frames(5):
+        det.feed(0.9, f)
+    out1 = None
+    for f in _frames(3):
+        r = det.feed(0.1, f)
+        if r is not None:
+            out1 = r
+    assert out1 is not None
+
+    # 두 번째 발화: reset() 없이도 깨끗한 상태에서 다시 감지되어야 한다
+    for f in _frames(5):
+        det.feed(0.9, f)
+    out2 = None
+    for f in _frames(3):
+        r = det.feed(0.1, f)
+        if r is not None:
+            out2 = r
+    assert out2 is not None

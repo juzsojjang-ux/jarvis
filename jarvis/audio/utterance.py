@@ -13,7 +13,7 @@ class UtteranceDetector:
                  threshold: float = 0.5, silence_ms: int = 800,
                  min_speech_ms: int = 300, max_s: float = 30.0,
                  pre_roll_ms: int = 320):
-        self._thr = threshold
+        self._threshold = threshold
         frame_ms = frame_samples * 1000 / sample_rate
         self._silence_frames = max(1, round(silence_ms / frame_ms))
         self._min_frames = max(1, round(min_speech_ms / frame_ms))
@@ -31,20 +31,21 @@ class UtteranceDetector:
         self._silent = 0
         self._in_speech = False
 
-    def _finish(self) -> "np.ndarray | None":
+    def _finish(self) -> np.ndarray | None:
         buf, speech = self._buf, self._speech_frames
         self._buf = []
         self._speech_frames = 0
         self._silent = 0
         self._in_speech = False
+        # _pre는 발화 진입 시 비웠다 — 여기서 또 비울 필요 없다(진입 후 _pre에 쓰지 않는 불변식).
         if speech < self._min_frames:
             return None
         return np.concatenate(buf).astype(np.float32)
 
-    def feed(self, prob: float, frame: np.ndarray) -> "np.ndarray | None":
+    def feed(self, prob: float, frame: np.ndarray) -> np.ndarray | None:
         if not self._in_speech:
             self._pre.append(frame)
-            if prob >= self._thr:
+            if prob >= self._threshold:
                 self._in_speech = True
                 self._buf = list(self._pre)
                 self._pre.clear()
@@ -52,7 +53,7 @@ class UtteranceDetector:
                 self._silent = 0
             return None
         self._buf.append(frame)
-        if prob >= self._thr:
+        if prob >= self._threshold:
             self._speech_frames += 1
             self._silent = 0
         else:
