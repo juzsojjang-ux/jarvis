@@ -23,6 +23,7 @@ from .core.orchestrator import Orchestrator
 from .hud.orb_server import OrbServer
 from .proactive.engine import ProactiveEngine
 from .proactive.monitors import build_monitors
+from .proactive.timers import DEFAULT_BOARD
 from .stt.mlx_whisper import MLXWhisperSTT
 from .tools.builtin.local_tools import calc, make_remember_tool
 from .tools.builtin.time_weather import get_time, get_weather
@@ -109,10 +110,11 @@ async def build_orchestrator(
     )
     if settings.proactive_enabled:
         orch.proactive = ProactiveEngine(
-            build_monitors(settings),
+            build_monitors(settings, timers=DEFAULT_BOARD),
             announce=orch.announce,
             can_speak=orch._can_announce,
             cooldown_s=settings.proactive_cooldown_min * 60,
+            cooldown_overrides={"timer_done": 0.0},  # 연속 타이머는 정상 동작
         )
     return orch
 

@@ -82,3 +82,11 @@ def test_proactive_disabled_by_env(monkeypatch):
     monkeypatch.setenv("JARVIS_PROACTIVE_ENABLED", "false")
     orch = _build()
     assert orch.proactive is None
+
+
+def test_build_orchestrator_wires_timer_monitor():
+    orch = _build()
+    names = [type(m).__name__ for m in orch.proactive._monitors]
+    assert "TimerMonitor" in names
+    # 타이머는 연속 알림이 정상 — 쿨다운 면제 확인
+    assert orch.proactive._cooldown_overrides.get("timer_done") == 0.0
