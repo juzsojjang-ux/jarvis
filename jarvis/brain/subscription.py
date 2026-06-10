@@ -12,8 +12,10 @@ pipeline starts speaking the first sentence before the answer finishes.
 
 Hardening: ANTHROPIC_API_KEY is stripped from the child env (so it can never silently
 fall back to paid API billing); the agent is isolated from the host Claude Code project
-(`setting_sources=[]` → no CLAUDE.md/hooks/skills leak in) and conversational
-(`allowed_tools=[]`, `max_turns=1`) so a spoken sentence can't trigger Bash/file edits.
+(`setting_sources=[]` → no CLAUDE.md/hooks/skills leak in). JARVIS has FULL tool access
+(bash, file read/write/edit, search); read-only tools auto-allow, destructive tools
+(Bash/Write/Edit) are gated behind a live voice confirmation (can_use_tool →
+VoiceConfirm). A misheard command can't run unconfirmed.
 """
 from __future__ import annotations
 
@@ -130,10 +132,14 @@ class SubscriptionBrain:
     async def _can_use_tool(self, tool_name, tool_input, context):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
-        base = tool_name.split("__")[-1]  # mcp__jarvis__x → x
-        if tool_name in self._SAFE_TOOLS or base in self._SAFE_TOOLS \
-                or tool_name.startswith("mcp__jarvis__"):
+        # 자동 허용은 ① 우리 인프로세스 jarvis MCP 도구, 또는 ② '__' 없는
+        # 내장 읽기셋뿐이다. mcp__타사__Read 처럼 끝 segment만 읽기셋과 같아도
+        # 통과하던 우회를 막는다(향후 다른 MCP 서버가 붙어도 안전).
+        if tool_name.startswith("mcp__jarvis__"):
             return PermissionResultAllow()
+        if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
+            return PermissionResultAllow()
+        base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용
         if self._confirm is None:
             return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
         ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))

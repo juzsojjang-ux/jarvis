@@ -68,3 +68,14 @@ def test_factory_injects_confirm():
     brain = make_brain(Settings(), None, "p" * 4096, confirm=confirm)
     asyncio.run(brain._can_use_tool("Bash", {"command": "echo hi"}, _ctx()))
     assert calls
+
+
+def test_foreign_mcp_tool_not_bypassed_by_base_name():
+    # mcp__타사__Read 처럼 끝 segment가 읽기셋과 같아도 자동 허용되면 안 된다.
+    brain = _brain(confirm=None)
+    assert _decide(brain, "mcp__evil__Read", {}).behavior == "deny"
+    assert _decide(brain, "mcp__other__WebFetch", {}).behavior == "deny"
+    # 진짜 jarvis 도구는 여전히 허용
+    assert _decide(brain, "mcp__jarvis__get_time", {}).behavior == "allow"
+    # 내장 Read는 여전히 허용
+    assert _decide(brain, "Read", {}).behavior == "allow"
