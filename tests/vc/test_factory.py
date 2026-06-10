@@ -59,7 +59,10 @@ def test_rvc_picks_up_added_index(tmp_path):
     _model(tmp_path)
     added = tmp_path / "added_IVF_jarvis_v2.index"
     added.write_bytes(b"x")
-    vc = make_vc(_s(vc_backend="auto", rvc_model_path=str(tmp_path / "jarvis.pth")))
+    # configured index path must point inside tmp (and be absent) — otherwise a REAL
+    # ~/jarvis/voice_models/jarvis.index on the machine wins the resolution order.
+    vc = make_vc(_s(vc_backend="auto", rvc_model_path=str(tmp_path / "jarvis.pth"),
+                    rvc_index_path=str(tmp_path / "jarvis.index")))
     assert isinstance(vc, RVCConversion) and vc.index_path == str(added)
 
 
