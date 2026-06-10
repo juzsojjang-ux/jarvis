@@ -83,7 +83,8 @@ def test_streams_partial_deltas_and_skips_final_duplicate():
             FakeStreamEvent("하세요"),
             FakeAssistant("안녕하세요"),   # full text repeats — must NOT double-yield
         ])
-        assert out == ["안녕", "하세요"]
+        # marker-buffering may re-chunk, but the spoken text concatenation is exact
+        assert "".join(out) == "안녕하세요"
         assert client.queries == ["안녕"]
     asyncio.run(run())
 
@@ -98,6 +99,20 @@ def test_tool_use_emits_filler_before_search_then_answer():
         ])
         assert out[0] == SubscriptionBrain.TOOL_FILLER  # immediate spoken ack
         assert "".join(out[1:]) == "최근 결과는 이렇습니다."
+    asyncio.run(run())
+
+
+def test_ko_marker_splits_speech_and_subtitle():
+    async def run():
+        b = _brain()
+        out, _ = await _talk(b, [
+            FakeStreamEvent("Good evening, sir."),
+            FakeStreamEvent(" [KO] 안녕하세요, "),
+            FakeStreamEvent("성재님."),
+        ])
+        spoken = "".join(out)
+        assert "Good evening, sir." in spoken and "[KO]" not in spoken and "안녕" not in spoken
+        assert b.last_subtitle == "안녕하세요, 성재님."
     asyncio.run(run())
 
 

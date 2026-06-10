@@ -37,7 +37,9 @@ class Settings(BaseSettings):
     tts_backend: str = "pocket"
     reply_language: str = "en"        # JARVIS replies in this language (pocket = English-only)
     pocket_python: str = "~/jarvis/.venv-pocket/bin/python"
-    pocket_ref_path: str = "~/jarvis/voice_models/jarvis_ref.wav"
+    # Clean 16s continuous English JARVIS take — Pocket reproduces the sample's quality,
+    # so a single clean reference clones more consistently than a concatenation.
+    pocket_ref_path: str = "~/jarvis/voice_models/jarvis_en_ref.wav"
     xtts_python: str = "~/jarvis/.venv-xtts/bin/python"
     xtts_ref_path: str = "~/jarvis/voice_models/jarvis_ref.wav"
     xtts_device: str = "cpu"          # "cpu" (safe) | "mps" (faster, occasionally flaky)

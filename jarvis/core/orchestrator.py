@@ -79,11 +79,11 @@ class Orchestrator:
                 self._publish("listening", audio_level(tail))
                 await asyncio.sleep(_HUD_HOP_S)
 
-    def _publish(self, state: str, level: float = 0.0) -> None:
+    def _publish(self, state: str, level: float = 0.0, text: str | None = None) -> None:
         # Best-effort: the orb HUD must never break the voice pipeline.
         if self.hud is not None:
             try:
-                self.hud.publish(state, level)
+                self.hud.publish(state, level, text)
             except Exception:
                 pass
 
@@ -111,15 +111,18 @@ class Orchestrator:
         self.state = State.THINKING
         self._publish("thinking")
         async for delta in self.brain.respond(text):
+            # Korean subtitle accumulates on the brain as the reply streams — push it to
+            # the HUD so it shows under SPEAKING while the English audio plays.
+            sub = getattr(self.brain, "last_subtitle", "")
             for sentence in self.chunker.feed(delta):
-                await self._speak(sentence)
+                await self._speak(sentence, subtitle=sub)
         tail = self.chunker.flush()
         if tail:
-            await self._speak(tail)
+            await self._speak(tail, subtitle=getattr(self.brain, "last_subtitle", ""))
         self.state = State.IDLE
         self._publish("idle")
 
-    async def _speak(self, sentence: str) -> None:
+    async def _speak(self, sentence: str, subtitle: str | None = None) -> None:
         # Empty/whitespace chunks make MeloTTS emit empty audio, which crashes RVC
         # (zero-size reduction) and killed the whole turn with no sound — skip them.
         if not sentence.strip():
@@ -141,6 +144,8 @@ class Orchestrator:
                            self.tts.sample_rate, self.settings.playback_rate)
         # Queue per-hop levels; the pump publishes them at playback cadence so the orb
         # moves WITH the voice (not one static value per sentence).
+        # Subtitle (Korean) shows under SPEAKING; first speaking publish carries the text.
+        self._publish("speaking", audio_level(out), subtitle or None)
         for lv in chunk_levels(out, self.settings.playback_rate, _HUD_HOP_S):
             self._spk_levels.put_nowait(lv)
         if self._spk_pump is None or self._spk_pump.done():

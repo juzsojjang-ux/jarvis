@@ -9,11 +9,21 @@
   #bg { position: fixed; inset: 0; opacity: 0; transition: opacity .4s;
         background: radial-gradient(ellipse at center, #0c1a26 0%, #060d16 60%, #02060c 100%); }
   canvas { position: fixed; inset: 0; display: block; }
+  /* Korean subtitle of what JARVIS is saying — under the orb. */
+  #subtitle {
+    position: fixed; left: 50%; bottom: 9vh; transform: translateX(-50%);
+    max-width: 72vw; text-align: center; color: #eaf8ff; opacity: 0;
+    transition: opacity .25s; pointer-events: none;
+    font: 500 clamp(15px, 2.1vw, 26px)/1.5 -apple-system, "Apple SD Gothic Neo", sans-serif;
+    text-shadow: 0 1px 12px rgba(0,0,0,.85), 0 0 22px rgba(70,230,255,.35);
+    letter-spacing: .01em;
+  }
 </style>
 </head>
 <body>
   <div id="bg"></div>
   <canvas id="hud"></canvas>
+  <div id="subtitle"></div>
 <script>
 // JARVIS ring HUD — composed to match the reference plate. Pure Canvas2D (offline),
 // transparent background for the native macOS overlay. Reactive to {state, level}.
@@ -28,8 +38,10 @@ addEventListener("resize",resize); resize();
 const PRES={idle:0.0,listening:0.6,thinking:0.78,speaking:1.0};
 const LABEL={idle:"STANDBY",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
 let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true,spin=0,_pt=0;
-function apply(s,l){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false; }
-try{ const es=new EventSource("/events"); es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level);}; }catch(_){}
+const subEl=document.getElementById("subtitle");
+function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
+  if(text!==undefined){ subEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
+try{ const es=new EventSource("/events"); es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);}; }catch(_){}
 
 const TAU=Math.PI*2, TOP=-Math.PI/2;
 function ringC(r,w,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;

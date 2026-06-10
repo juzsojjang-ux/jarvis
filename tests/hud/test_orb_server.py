@@ -12,15 +12,22 @@ def test_subscribe_replays_current_state():
     hub = OrbHub()
     hub.publish("thinking", 0.4)
     q = hub.subscribe()
-    assert q.get_nowait() == {"state": "thinking", "level": 0.4}
+    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": ""}
 
 
 def test_publish_fans_out_to_clients():
     hub = OrbHub()
     q = hub.subscribe()
     q.get_nowait()  # drop the replayed idle
-    hub.publish("speaking", 0.7)
-    assert q.get_nowait() == {"state": "speaking", "level": 0.7}
+    hub.publish("speaking", 0.7, "안녕하세요")
+    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요"}
+
+
+def test_subtitle_persists_then_clears_when_not_speaking():
+    hub = OrbHub()
+    hub.publish("speaking", 0.5, "자막 텍스트")
+    assert hub.publish("speaking", 0.6)["text"] == "자막 텍스트"   # level pump keeps it
+    assert hub.publish("idle", 0.0)["text"] == ""                 # cleared off speaking
 
 
 def test_invalid_state_and_level_are_sanitised():

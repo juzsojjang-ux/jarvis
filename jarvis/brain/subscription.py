@@ -33,12 +33,16 @@ _GUIDANCE_KO = (
     "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라."
 )
 _GUIDANCE_EN = (
-    "You are JARVIS, a refined English-speaking butler AI. The user may speak Korean, "
-    "but you ALWAYS reply in ENGLISH. Answer in one or two short, natural spoken "
-    "sentences — no markdown, lists, numbering, or symbols, no preamble or sign-off, "
-    "just the point. Address the user as 'sir'. Use your tools directly for time, "
-    "weather, opening apps, volume, and memory, and web search for current information; "
-    "when a tool applies, act first and then state the result briefly — don't ask."
+    "You are JARVIS, Tony Stark's refined British AI butler. The user may speak Korean, "
+    "but you ALWAYS reply in ENGLISH. Keep it to one or two short, natural spoken "
+    "sentences — no markdown, lists, numbering, or symbols, no preamble or sign-off. "
+    "Address the user as 'sir'. Use the signature JARVIS manner: dry, understated wit and "
+    "the occasional subtle, polite quip — clever, never goofy, and never at the expense "
+    "of being helpful. Use your tools directly for time, weather, opening apps, volume, "
+    "and memory, and web search for current info; when a tool applies, act first and "
+    "state the result briefly — don't ask. "
+    "After your spoken English reply, append on a new line exactly '[KO] ' followed by a "
+    "natural Korean translation of what you said, for on-screen subtitles."
 )
 _GUIDANCE = _GUIDANCE_KO  # back-compat alias (tests/imports)
 
@@ -67,6 +71,7 @@ class SubscriptionBrain:
         self._assistant_message = assistant_message
         self._stream_event = stream_event
         self._client: Any = None
+        self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
 
     def _ensure_sdk(self) -> None:
         if self._client_cls and self._options_cls and self._assistant_message:
@@ -108,6 +113,7 @@ class SubscriptionBrain:
             mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
             setting_sources=[],    # isolate from the host Claude Code project
             max_turns=4,           # allow a tool round-trip; cap over-searching
+            max_thinking_tokens=0,  # snappy voice replies — no extended thinking latency
             env=env,
             include_partial_messages=True,   # stream text deltas -> speak early
         )
@@ -156,26 +162,55 @@ class SubscriptionBrain:
                 return b.get("name", "") in ("WebSearch", "WebFetch")
         return False
 
+    KO_MARK = "[KO]"
+
     async def respond(self, user_text: str) -> AsyncIterator[str]:
         client = await self._ensure_client()
         await client.query(user_text)
+        # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
+        # shows it under SPEAKING while the English audio plays. Only the English (before
+        # the marker) is ever yielded for speech.
+        self.last_subtitle = ""
         streamed = False
         filler_sent = False
+        in_ko = False
+        pending = ""  # buffer so a '[KO]' marker split across deltas is never spoken
+        keep = len(self.KO_MARK) - 1
         async for msg in client.receive_response():
             if self._stream_event is not None and isinstance(msg, self._stream_event):
                 if not filler_sent and self._is_tool_start(msg):
                     filler_sent = True
                     yield self._tool_filler()
                 text = self._delta_text(msg)
-                if text:
-                    streamed = True
-                    yield text
+                if not text:
+                    continue
+                streamed = True
+                if in_ko:
+                    self.last_subtitle += text
+                    continue
+                pending += text
+                mark = pending.find(self.KO_MARK)
+                if mark != -1:
+                    before, in_ko = pending[:mark], True
+                    self.last_subtitle = pending[mark + len(self.KO_MARK):]
+                    pending = ""
+                    if before:
+                        yield before
+                    continue
+                if len(pending) > keep:           # hold back a possible marker prefix
+                    emit, pending = pending[:-keep], pending[-keep:]
+                    if emit:
+                        yield emit
             elif isinstance(msg, self._assistant_message) and not streamed:
-                # fallback: partials unavailable -> yield the full blocks at the end
-                for block in getattr(msg, "content", None) or []:
-                    text = getattr(block, "text", None)
-                    if text:
-                        yield text
+                full = "".join(getattr(b, "text", "") or ""
+                               for b in (getattr(msg, "content", None) or []))
+                spoken, _, ko = full.partition(self.KO_MARK)
+                self.last_subtitle = ko.strip()
+                if spoken.strip():
+                    yield spoken
+        if not in_ko and pending:
+            yield pending
+        self.last_subtitle = self.last_subtitle.strip()
 
     async def warm(self) -> None:
         # Connect the persistent session now so the first turn pays no CLI start-up.

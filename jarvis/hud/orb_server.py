@@ -24,7 +24,8 @@ class OrbHub:
     def __init__(self) -> None:
         self._clients: set[queue.Queue] = set()
         self._lock = threading.Lock()
-        self._last = {"state": "idle", "level": 0.0}
+        self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
+        self._last = {"state": "idle", "level": 0.0, "text": ""}
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=64)
@@ -37,10 +38,16 @@ class OrbHub:
         with self._lock:
             self._clients.discard(q)
 
-    def publish(self, state: str, level: float = 0.0) -> dict:
+    def publish(self, state: str, level: float = 0.0, text: str | None = None) -> dict:
         if state not in _VALID_STATES:
             state = "idle"
-        evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4)}
+        # Subtitle lifecycle: set when given; cleared whenever JARVIS isn't speaking.
+        if text is not None:
+            self._text = text
+        if state != "speaking":
+            self._text = ""
+        evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4),
+               "text": self._text}
         self._last = evt
         with self._lock:
             clients = list(self._clients)
@@ -143,8 +150,8 @@ class OrbServer:
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
 
-    def publish(self, state: str, level: float = 0.0) -> None:
-        self.hub.publish(state, level)
+    def publish(self, state: str, level: float = 0.0, text: str | None = None) -> None:
+        self.hub.publish(state, level, text)
 
     def stop(self) -> None:
         if self._httpd is not None:
