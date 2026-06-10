@@ -263,13 +263,16 @@ def play_music_action(query: str, kind: str = "any", runner=subprocess.run) -> s
     order = [kind] if kind in _MUSIC_FIND else ["track", "artist", "playlist"]
     for k in order:
         body = _MUSIC_FIND[k].replace("{q}", q)
-        res = runner(["osascript", "-e", f'tell application "Music" to {body}'],
-                     capture_output=True, text=True, timeout=15)
-        if getattr(res, "returncode", 1) == 0:
-            now = _osa('tell application "Music" to if player state is playing then '
-                       'return (name of current track) & " — " & (artist of current track)',
-                       runner)
-            return f"재생합니다: {now}" if now else "재생을 시작했습니다."
+        try:
+            res = runner(["osascript", "-e", f'tell application "Music" to {body}'],
+                         capture_output=True, text=True, timeout=15)
+            if getattr(res, "returncode", 1) == 0:
+                now = _osa('tell application "Music" to if player state is playing then '
+                           'return (name of current track) & " — " & (artist of current track)',
+                           runner)
+                return f"재생합니다: {now}" if now else "재생을 시작했습니다."
+        except Exception:  # noqa: BLE001 - 한 종류 실패는 다음으로, 도구는 raise 금지
+            continue
     return (f"라이브러리에서 '{query}'를 찾지 못했습니다. "
             "(애플뮤직 카탈로그 검색은 지원하지 않습니다 — 라이브러리에 있는 것만)")
 

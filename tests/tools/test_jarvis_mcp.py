@@ -326,3 +326,13 @@ def test_play_music_escapes_quotes():
 def test_play_music_registered():
     from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
     assert "mcp__jarvis__play_music" in JARVIS_TOOL_NAMES
+
+
+def test_play_music_runner_exception_is_safe():
+    from jarvis.tools.jarvis_mcp import play_music_action
+
+    def boom(cmd, capture_output=True, text=True, timeout=None, input=None):
+        raise RuntimeError("osascript timeout")
+
+    out = play_music_action("아무거나", runner=boom)
+    assert "찾지 못했습니다" in out          # raise 대신 안내 문자열
