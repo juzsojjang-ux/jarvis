@@ -239,3 +239,38 @@ def test_wake_ignored_when_busy():
 
     asyncio.run(run())
     assert pb.feeds == []
+
+
+def test_wake_stt_error_recovers_to_idle():
+    class _BoomSTT:
+        def transcribe(self, pcm, sample_rate=16000, language="ko"):
+            raise RuntimeError("stt boom")
+
+    orch, pb = _make()
+    orch.stt = _BoomSTT()
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert pb.feeds == []
+    assert orch.state == State.IDLE          # 죽지 않고 IDLE로 복귀해야 웨이크가 살아있다
+
+
+def test_brain_error_recovers_to_idle():
+    class _BoomBrain:
+        async def respond(self, user_text):
+            raise RuntimeError("brain boom")
+            yield  # pragma: no cover - 제너레이터로 만들기 위한 형식
+
+    orch, _ = _make()
+    orch.brain = _BoomBrain()
+    orch.stt = _WakeSTT("자비스 안녕")
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert orch.state == State.IDLE

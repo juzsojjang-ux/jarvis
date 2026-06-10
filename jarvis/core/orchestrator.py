@@ -49,6 +49,7 @@ class Orchestrator:
         # them at playback cadence so the orb moves WITH the audio.
         self._spk_levels: asyncio.Queue[float] = asyncio.Queue()
         self._spk_pump: asyncio.Task | None = None
+        self._attentive_timer: asyncio.Task | None = None
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -113,8 +114,14 @@ class Orchestrator:
         # during a barge-in this runs after _on_press already set CAPTURING.
 
     async def _pipeline(self, pcm: np.ndarray) -> None:
-        text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, self.settings.language)
-        await self._pipeline_text(text)
+        try:
+            text = await asyncio.to_thread(
+                self.stt.transcribe, pcm, 16000, self.settings.language)
+            await self._pipeline_text(text)
+        except Exception as exc:  # noqa: BLE001 - 한 턴의 실패가 상태를 가두면 안 된다
+            print(f"[파이프라인] 오류(IDLE 복귀): {exc}")
+            self.state = State.IDLE
+            self._publish("idle")
 
     async def _pipeline_text(self, text: str) -> None:
         if not text.strip():
@@ -166,22 +173,28 @@ class Orchestrator:
         if self._task is not None and not self._task.done():
             return
         self.state = State.TRANSCRIBING
+        self._publish("thinking")  # 웨이크 변환 중에도 오브가 반응하도록
         self._task = asyncio.create_task(self._handle_wake(pcm))
 
     async def _handle_wake(self, pcm: np.ndarray) -> None:
-        text = await asyncio.to_thread(
-            self.stt.transcribe, pcm, 16000, self.settings.language)
-        matched, command = match_wake(text, self.settings.wake_words)
-        if not matched and asyncio.get_running_loop().time() < self._follow_up_until:
-            command = text.strip()  # follow-up 창: 웨이크워드 생략 가능
-            matched = bool(command)
-        if not matched:
-            self.state = State.IDLE  # 우리 부른 게 아니다 — 즉시 폐기(로그 금지)
-            return
-        if not command:
-            await self._wake_greet()  # "자비스"만 불렀다
-            return
-        await self._pipeline_text(command)
+        try:
+            text = await asyncio.to_thread(
+                self.stt.transcribe, pcm, 16000, self.settings.language)
+            matched, command = match_wake(text, self.settings.wake_words)
+            if not matched and asyncio.get_running_loop().time() < self._follow_up_until:
+                command = text.strip()  # follow-up 창: 웨이크워드 생략 가능
+                matched = bool(command)
+            if not matched:
+                self.state = State.IDLE  # 우리 부른 게 아니다 — 즉시 폐기(로그 금지)
+                return
+            if not command:
+                await self._wake_greet()  # "자비스"만 불렀다
+                return
+            await self._pipeline_text(command)
+        except Exception as exc:  # noqa: BLE001 - 웨이크 경로는 스스로 회복해야 한다
+            print(f"[웨이크] 처리 오류(IDLE 복귀): {exc}")
+            self.state = State.IDLE
+            self._publish("idle")
 
     async def _wake_greet(self) -> None:
         await self._play_phrase("Yes, sir?", "네, 주인님?")
@@ -195,7 +208,10 @@ class Orchestrator:
         self._follow_up_until = loop.time() + self.settings.follow_up_s
         self._wake_blocked_until = loop.time() + 0.5  # 발화 잔향 쿨다운
         self._publish("attentive")
+        if self._attentive_timer is not None and not self._attentive_timer.done():
+            self._attentive_timer.cancel()
         timer = asyncio.create_task(self._attentive_expiry())
+        self._attentive_timer = timer
         self._bg_tasks.add(timer)
         timer.add_done_callback(self._bg_tasks.discard)
 
