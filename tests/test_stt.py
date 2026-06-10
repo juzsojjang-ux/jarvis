@@ -30,3 +30,29 @@ def test_warm_runs_on_silence(monkeypatch):
     )
     MLXWhisperSTT("repo").warm()
     assert calls == [16000]
+
+
+def test_transcribe_forwards_explicit_none_for_autodetect(monkeypatch):
+    seen = {}
+
+    def fake(audio, path_or_hf_repo=None, language=None):
+        seen["language"] = language
+        return {"text": "hi"}
+
+    monkeypatch.setattr(stt_mod.mlx_whisper, "transcribe", fake)
+    stt = MLXWhisperSTT("repo", language="ko")
+    stt.transcribe(np.zeros(16000, dtype=np.float32), 16000, None)
+    assert seen["language"] is None                 # 자동감지 — ko로 뭉개지지 않음
+
+
+def test_transcribe_default_uses_configured_language(monkeypatch):
+    seen = {}
+
+    def fake(audio, path_or_hf_repo=None, language=None):
+        seen["language"] = language
+        return {"text": "안녕"}
+
+    monkeypatch.setattr(stt_mod.mlx_whisper, "transcribe", fake)
+    stt = MLXWhisperSTT("repo", language="ko")
+    stt.transcribe(np.zeros(16000, dtype=np.float32))   # language 미지정
+    assert seen["language"] == "ko"
