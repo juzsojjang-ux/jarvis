@@ -35,8 +35,8 @@ function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHei
   ctx.setTransform(DPR,0,0,DPR,0,0); }
 addEventListener("resize",resize); resize();
 
-const PRES={idle:0.0,listening:0.6,thinking:0.78,speaking:1.0};
-const LABEL={idle:"STANDBY",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
+const PRES={idle:0.0,attentive:0.35,listening:0.6,thinking:0.78,speaking:1.0};
+const LABEL={idle:"STANDBY",attentive:"LISTENING",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
 let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true,spin=0,_pt=0;
 const subEl=document.getElementById("subtitle");
 function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
