@@ -16,6 +16,8 @@ from zoneinfo import ZoneInfo
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from ..proactive.sources import fetch_events, fetch_reminders
+
 _CITY_COORDS: dict[str, tuple[float, float]] = {
     "서울": (37.5665, 126.9780), "부산": (35.1796, 129.0756), "인천": (37.4563, 126.7052),
     "대구": (35.8714, 128.6014), "대전": (36.3504, 127.3845), "광주": (35.1595, 126.8526),
@@ -121,6 +123,37 @@ def create_note_action(text: str, runner=subprocess.run) -> str:
     return "메모에 적어두었습니다."
 
 
+def _fmt_due(title: str, secs: int) -> str:
+    mins = max(1, secs // 60)
+    if mins >= 60:
+        return f"{title} — {mins // 60}시간 {mins % 60}분 후"
+    return f"{title} — {mins}분 후"
+
+
+def reminders_text(hours: Any = 24, fetch=fetch_reminders) -> str:
+    try:
+        h = max(1, min(168, int(hours)))
+    except (TypeError, ValueError):
+        h = 24
+    items = fetch(h * 3600)
+    if not items:
+        return f"앞으로 {h}시간 안에 예정된 미리알림이 없습니다."
+    lines = [_fmt_due(t, s) for _, t, s in items[:10]]
+    return f"다가오는 미리알림 {len(items)}건: " + " / ".join(lines)
+
+
+def calendar_text(hours: Any = 24, fetch=fetch_events) -> str:
+    try:
+        h = max(1, min(168, int(hours)))
+    except (TypeError, ValueError):
+        h = 24
+    items = fetch(h * 3600)
+    if not items:
+        return f"앞으로 {h}시간 안에 캘린더 일정이 없습니다."
+    lines = [_fmt_due(t, s) for _, t, s in items[:10]]
+    return f"다가오는 일정 {len(items)}건: " + " / ".join(lines)
+
+
 def battery_action(runner=subprocess.run) -> str:
     res = runner(["pmset", "-g", "batt"], capture_output=True, text=True)
     out = (getattr(res, "stdout", "") or "")
@@ -207,6 +240,18 @@ async def _battery(_args):
     return _text(battery_action())
 
 
+@tool("get_reminders", "다가오는 미리알림 목록을 읽는다(읽기 전용).",
+      {"type": "object", "properties": {"hours": {"type": "integer"}}})
+async def _get_reminders(args):
+    return _text(reminders_text((args or {}).get("hours", 24)))
+
+
+@tool("get_calendar_events", "다가오는 캘린더 일정을 읽는다(읽기 전용).",
+      {"type": "object", "properties": {"hours": {"type": "integer"}}})
+async def _get_calendar_events(args):
+    return _text(calendar_text((args or {}).get("hours", 24)))
+
+
 @tool("toggle_mute", "맥 소리를 음소거하거나 해제한다.",
       {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]})
 async def _mute(args):
@@ -248,13 +293,14 @@ def build_jarvis_mcp_server(memory: Any = None):
         return _text(f"기억했습니다: {note}")
 
     tools = [_get_time, _get_weather, _open_app, _set_volume, _music, _add_reminder,
-             _create_note, _battery, _mute, _lock, _quit_app, _control_mac, _remember]
+             _create_note, _battery, _get_reminders, _get_calendar_events,
+             _mute, _lock, _quit_app, _control_mac, _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
 
 # Allow-list names the brain passes to ClaudeAgentOptions.allowed_tools.
 JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "get_time", "get_weather", "open_app", "set_volume", "music_control",
-    "add_reminder", "create_note", "battery_status", "toggle_mute", "lock_screen",
-    "quit_app", "control_mac", "remember",
+    "add_reminder", "create_note", "battery_status", "get_reminders", "get_calendar_events",
+    "toggle_mute", "lock_screen", "quit_app", "control_mac", "remember",
 )]

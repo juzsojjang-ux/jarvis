@@ -98,3 +98,39 @@ def test_battery_and_mute_and_control():
     assert "77%" in battery_action(runner=bat)
     assert "음소거" in mute_action(True, runner=_cap([]))
     assert control_mac_action("", runner=_cap([])) == "무엇을 할까요?"
+
+
+def test_reminders_text_lists_upcoming():
+    from jarvis.tools.jarvis_mcp import reminders_text
+    items = [("id-1", "회의 자료 제출", 540), ("id-2", "약 먹기", 7200)]
+    out = reminders_text(fetch=lambda w, runner=None: items)
+    assert "회의 자료 제출" in out and "약 먹기" in out and "9분" in out
+
+
+def test_reminders_text_empty():
+    from jarvis.tools.jarvis_mcp import reminders_text
+    assert "없" in reminders_text(fetch=lambda w, runner=None: [])
+
+
+def test_reminders_text_bad_hours_falls_back():
+    from jarvis.tools.jarvis_mcp import reminders_text
+    out = reminders_text(hours="이상한값", fetch=lambda w, runner=None: [])
+    assert "24시간" in out
+
+
+def test_calendar_text_lists_events():
+    from jarvis.tools.jarvis_mcp import calendar_text
+    out = calendar_text(fetch=lambda w, runner=None: [("u1", "팀 미팅", 1800)])
+    assert "팀 미팅" in out and "30분" in out
+
+
+def test_calendar_text_hour_formatting():
+    from jarvis.tools.jarvis_mcp import calendar_text
+    out = calendar_text(fetch=lambda w, runner=None: [("u1", "저녁 약속", 5400)])
+    assert "1시간 30분" in out
+
+
+def test_new_tools_registered():
+    from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
+    assert "mcp__jarvis__get_reminders" in JARVIS_TOOL_NAMES
+    assert "mcp__jarvis__get_calendar_events" in JARVIS_TOOL_NAMES
