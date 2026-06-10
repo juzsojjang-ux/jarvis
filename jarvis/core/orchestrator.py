@@ -6,8 +6,10 @@ import contextlib
 import numpy as np
 
 from ..audio.util import resample
-from ..hud.level import audio_level
+from ..hud.level import audio_level, chunk_levels
 from .events import State
+
+_HUD_HOP_S = 0.1  # orb level update cadence (10 Hz)
 
 
 class Orchestrator:
@@ -32,6 +34,11 @@ class Orchestrator:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._bg_tasks: set[asyncio.Task] = set()
+        self._mic_meter: asyncio.Task | None = None
+        # Speaking levels queue: _speak pushes per-hop levels; the pump publishes
+        # them at playback cadence so the orb moves WITH the audio.
+        self._spk_levels: asyncio.Queue[float] = asyncio.Queue()
+        self._spk_pump: asyncio.Task | None = None
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -53,11 +60,24 @@ class Orchestrator:
         self.state = State.CAPTURING
         self.capture.start()
         self._publish("listening")
+        if self._mic_meter is None or self._mic_meter.done():
+            self._mic_meter = asyncio.create_task(self._mic_meter_loop())
 
     def _on_release(self) -> None:
+        if self._mic_meter is not None:
+            self._mic_meter.cancel()
+            self._mic_meter = None
         pcm = self.capture.stop()
         self.state = State.TRANSCRIBING
         self._task = asyncio.create_task(self._pipeline(pcm))
+
+    async def _mic_meter_loop(self) -> None:
+        # Live input meter: the orb pulses with the USER's voice while the key is held.
+        with contextlib.suppress(asyncio.CancelledError):
+            while self.state == State.CAPTURING:
+                tail = self.capture.level_tail()
+                self._publish("listening", audio_level(tail))
+                await asyncio.sleep(_HUD_HOP_S)
 
     def _publish(self, state: str, level: float = 0.0) -> None:
         # Best-effort: the orb HUD must never break the voice pipeline.
@@ -75,6 +95,9 @@ class Orchestrator:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        self._drain_levels()  # stop the orb animating speech that was just cancelled
+        if self._spk_pump is not None and not self._spk_pump.done():
+            self._spk_pump.cancel()
         self.playback.abort()
         # State transitions are owned by _on_press/_on_release; do NOT set IDLE here —
         # during a barge-in this runs after _on_press already set CAPTURING.
@@ -101,8 +124,28 @@ class Orchestrator:
         audio = await self.tts.synth(sentence)                    # at tts.sample_rate
         converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
         out = resample(converted, self.vc.sample_rate, self.settings.playback_rate)
-        self._publish("speaking", audio_level(out))
+        # Queue per-hop levels; the pump publishes them at playback cadence so the orb
+        # moves WITH the voice (not one static value per sentence).
+        for lv in chunk_levels(out, self.settings.playback_rate, _HUD_HOP_S):
+            self._spk_levels.put_nowait(lv)
+        if self._spk_pump is None or self._spk_pump.done():
+            self._spk_pump = asyncio.create_task(self._spk_pump_loop())
         self.playback.feed(out)
+
+    async def _spk_pump_loop(self) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            while True:
+                try:
+                    lv = self._spk_levels.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                self._publish("speaking", lv)
+                await asyncio.sleep(_HUD_HOP_S)
+
+    def _drain_levels(self) -> None:
+        while not self._spk_levels.empty():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self._spk_levels.get_nowait()
 
     # ----- run loop -----
     async def run(self) -> None:

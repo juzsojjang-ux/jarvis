@@ -5,7 +5,7 @@ import pytest
 
 from jarvis.vc.factory import build_rvc_cmd, make_vc, vc_status
 from jarvis.vc.null_vc import NullVC
-from jarvis.vc.rvc import RVCConversion
+from jarvis.vc.rvc_persistent import PersistentRVC
 
 
 def _s(**kw):
@@ -30,7 +30,7 @@ def test_make_vc_null():
 
 def test_auto_with_model_and_runtime_returns_rvc(tmp_path):
     vc = make_vc(_s(vc_backend="auto", rvc_model_path=_model(tmp_path)))
-    assert isinstance(vc, RVCConversion)
+    assert isinstance(vc, PersistentRVC)
     assert vc.sample_rate == 40000 and vc.index_rate == 0.75
 
 
@@ -47,7 +47,7 @@ def test_auto_with_model_but_no_runtime_falls_back_to_null(tmp_path):
 
 def test_force_rvc_with_model_returns_rvc(tmp_path):
     vc = make_vc(_s(vc_backend="rvc", rvc_model_path=_model(tmp_path)))
-    assert isinstance(vc, RVCConversion)
+    assert isinstance(vc, PersistentRVC)
 
 
 def test_force_rvc_without_model_falls_back_to_null(tmp_path):
@@ -63,7 +63,7 @@ def test_rvc_picks_up_added_index(tmp_path):
     # ~/jarvis/voice_models/jarvis.index on the machine wins the resolution order.
     vc = make_vc(_s(vc_backend="auto", rvc_model_path=str(tmp_path / "jarvis.pth"),
                     rvc_index_path=str(tmp_path / "jarvis.index")))
-    assert isinstance(vc, RVCConversion) and vc.index_path == str(added)
+    assert isinstance(vc, PersistentRVC) and vc.index_path == str(added)
 
 
 def test_make_vc_unknown_raises():

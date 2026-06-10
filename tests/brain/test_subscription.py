@@ -12,7 +12,13 @@ class FakeAssistant:
     def __init__(self, *texts): self.content = [FakeText(t) for t in texts]
 
 
-class FakeOther:  # SystemMessage / RateLimitEvent / ResultMessage analogue
+class FakeStreamEvent:
+    def __init__(self, text=None, type_="content_block_delta"):
+        self.event = ({"type": type_, "delta": {"type": "text_delta", "text": text}}
+                      if text is not None else {"type": type_})
+
+
+class FakeOther:
     pass
 
 
@@ -20,65 +26,110 @@ class FakeOptions:
     def __init__(self, **kw): self.kw = kw
 
 
-def _make_query(messages, captured):
-    async def fake_query(*, prompt, options):
-        captured["prompt"] = prompt
-        captured["options"] = options
-        for m in messages:
+class FakeClient:
+    instances = 0
+
+    def __init__(self, options=None):
+        FakeClient.instances += 1
+        self.options = options
+        self.connected = False
+        self.queries = []
+        self.script = []  # messages to emit per receive_response
+
+    async def connect(self):
+        self.connected = True
+
+    async def query(self, prompt, session_id="default"):
+        self.queries.append(prompt)
+
+    async def receive_response(self):
+        for m in self.script:
             yield m
-    return fake_query
+
+    async def disconnect(self):
+        self.connected = False
 
 
-def _brain(messages, captured, settings=None):
+def _brain(settings=None):
+    FakeClient.instances = 0
     return SubscriptionBrain(
         settings or types.SimpleNamespace(subscription_model=""),
         types.SimpleNamespace(text=lambda: "사용자 이름은 이성재."),
         "PERSONA가" * 10,
-        query=_make_query(messages, captured),
+        client_cls=FakeClient,
         options_cls=FakeOptions,
         assistant_message=FakeAssistant,
+        stream_event=FakeStreamEvent,
     )
 
 
-async def _collect(brain, text="안녕"):
-    return [d async for d in brain.respond(text)]
+async def _talk(brain, script, text="안녕"):
+    client = await brain._ensure_client()
+    client.script = script
+    return [d async for d in brain.respond(text)], client
 
 
-def test_respond_yields_only_assistant_text():
-    captured = {}
-    msgs = [FakeOther(), FakeAssistant("안녕하세요 ", "성재님."), FakeOther()]
-    out = asyncio.run(_collect(_brain(msgs, captured)))
-    assert out == ["안녕하세요 ", "성재님."]
-    assert captured["prompt"] == "안녕"
+def test_streams_partial_deltas_and_skips_final_duplicate():
+    async def run():
+        b = _brain()
+        out, client = await _talk(b, [
+            FakeOther(),
+            FakeStreamEvent("안녕"),
+            FakeStreamEvent("하세요"),
+            FakeAssistant("안녕하세요"),   # full text repeats — must NOT double-yield
+        ])
+        assert out == ["안녕", "하세요"]
+        assert client.queries == ["안녕"]
+    asyncio.run(run())
 
 
-def test_options_strip_api_key_and_are_isolated(monkeypatch):
+def test_falls_back_to_assistant_message_without_partials():
+    async def run():
+        b = _brain()
+        out, _ = await _talk(b, [FakeOther(), FakeAssistant("전체 답변")])
+        assert out == ["전체 답변"]
+    asyncio.run(run())
+
+
+def test_client_is_persistent_across_turns():
+    async def run():
+        b = _brain()
+        await _talk(b, [FakeAssistant("a")])
+        await _talk(b, [FakeAssistant("b")])
+        assert FakeClient.instances == 1  # no per-turn CLI cold start
+    asyncio.run(run())
+
+
+def test_options_isolated_streaming_and_key_stripped(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
-    captured = {}
-    asyncio.run(_collect(_brain([FakeAssistant("x")], captured)))
-    opts = captured["options"].kw
-    assert opts["allowed_tools"] == [] and opts["setting_sources"] == []
-    assert opts["max_turns"] == 1
-    assert "ANTHROPIC_API_KEY" not in opts["env"]  # never bills the paid API
+    async def run():
+        b = _brain()
+        client = await b._ensure_client()
+        kw = client.options.kw
+        assert kw["allowed_tools"] == [] and kw["setting_sources"] == []
+        assert kw["max_turns"] == 1 and kw["include_partial_messages"] is True
+        assert "ANTHROPIC_API_KEY" not in kw["env"]
+    asyncio.run(run())
 
 
 def test_system_prompt_has_persona_memory_guidance():
-    sp = _brain([], {})._system_prompt()
+    sp = _brain()._system_prompt()
     assert "PERSONA" in sp and "이성재" in sp and _GUIDANCE in sp
 
 
+def test_warm_connects():
+    async def run():
+        b = _brain()
+        await b.warm()
+        assert b._client is not None and b._client.connected
+        await b.close()
+        assert b._client is None
+    asyncio.run(run())
+
+
 def test_subscription_model_passed_when_set():
-    captured = {}
-    settings = types.SimpleNamespace(subscription_model="claude-opus-4-8")
-    asyncio.run(_collect(_brain([FakeAssistant("x")], captured, settings)))
-    assert captured["options"].kw["model"] == "claude-opus-4-8"
-
-
-def test_model_omitted_when_blank():
-    captured = {}
-    asyncio.run(_collect(_brain([FakeAssistant("x")], captured)))
-    assert "model" not in captured["options"].kw
-
-
-def test_warm_ok_with_injected_sdk():
-    asyncio.run(_brain([], {}).warm())  # must not raise
+    async def run():
+        b = _brain(types.SimpleNamespace(subscription_model="claude-opus-4-8"))
+        client = await b._ensure_client()
+        assert client.options.kw["model"] == "claude-opus-4-8"
+    asyncio.run(run())

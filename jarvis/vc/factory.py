@@ -22,6 +22,8 @@ _log = logging.getLogger(__name__)
 
 # Standalone adapter shim, run INSIDE .venv-rvc (never imported by the main venv).
 SHIM_PATH = Path(__file__).resolve().parent / "rvc_infer_cli.py"
+# Persistent worker (loads models once; used by the live assistant).
+WORKER_PATH = Path(__file__).resolve().parent / "rvc_worker.py"
 
 
 def build_rvc_cmd(settings) -> list[str]:
@@ -58,16 +60,17 @@ def make_vc(settings) -> VoiceConversion:
             model, expand(settings.rvc_python))
         return NullVC()
 
-    from jarvis.vc.rvc import RVCConversion
+    from jarvis.vc.rvc_persistent import PersistentRVC
     index = resolve_index_path(settings.rvc_model_path, settings.rvc_index_path)
     _log.info("JARVIS timbre active (RVC): model=%s index=%s", model, index or "<none>")
-    return RVCConversion(
+    # Persistent worker: hubert/rmvpe/model load once, not per sentence (latency).
+    return PersistentRVC(
         model_path=model,
         index_path=index,
         sample_rate=settings.rvc_sample_rate,
         index_rate=settings.rvc_index_rate,
         f0_up=settings.rvc_f0_up,
-        rvc_cmd=build_rvc_cmd(settings))
+        worker_cmd=[expand(settings.rvc_python), str(WORKER_PATH)])
 
 
 def vc_status(settings) -> tuple[bool, str]:

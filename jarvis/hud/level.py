@@ -3,6 +3,13 @@ from __future__ import annotations
 import numpy as np
 
 
+def chunk_levels(pcm, rate: int, hop_s: float = 0.1, gain: float = 4.0) -> list[float]:
+    """Per-hop RMS levels of mono PCM — drives the orb in sync with playback."""
+    x = np.asarray(pcm, dtype=np.float32).reshape(-1)
+    hop = max(1, int(hop_s * rate))
+    return [audio_level(x[i:i + hop], gain) for i in range(0, len(x), hop)]
+
+
 def audio_level(pcm, gain: float = 4.0) -> float:
     """RMS amplitude of mono float32 PCM mapped to ~0..1 for the orb's reactivity.
 

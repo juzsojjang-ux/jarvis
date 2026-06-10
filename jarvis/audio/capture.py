@@ -27,6 +27,14 @@ class MicCapture:
             return np.zeros(0, dtype=np.float32)
         return np.concatenate(frames).astype(np.float32)
 
+    def level_tail(self, window: int = 1600) -> np.ndarray:
+        """Peek (no drain) the most recent ~window samples — for the HUD live meter."""
+        with self._lock:
+            if not self._frames:
+                return np.zeros(0, dtype=np.float32)
+            tail = np.concatenate(self._frames[-4:])
+        return tail[-window:]
+
     def start(self) -> None:
         with self._lock:
             self._frames = []

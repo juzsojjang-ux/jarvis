@@ -1,10 +1,14 @@
 """JARVIS brain on the Claude SUBSCRIPTION (no Anthropic API key, no per-token bill).
 
 Routes through claude-agent-sdk, which runs the bundled Claude Code engine and
-authenticates with the user's logged-in Claude Pro/Max plan (`claude` login) — the
-same login the user already uses. So inference is covered by the subscription, not the
-paid API. Exposes the exact interface the Orchestrator needs (`respond()` async text
-stream + `warm()`), so it drops in for the API Brain with no pipeline changes.
+authenticates with the user's logged-in Claude Pro/Max plan — inference is covered by
+the subscription, not the paid API. Exposes the Orchestrator contract (`respond()`
+async text stream + `warm()`).
+
+LATENCY: a persistent ClaudeSDKClient stays connected across turns (the one-shot
+query() helper cold-starts the CLI every utterance — seconds of dead air). With
+include_partial_messages, text deltas stream out as they are generated, so the voice
+pipeline starts speaking the first sentence before the answer finishes.
 
 Hardening: ANTHROPIC_API_KEY is stripped from the child env (so it can never silently
 fall back to paid API billing); the agent is isolated from the host Claude Code project
@@ -32,31 +36,40 @@ class SubscriptionBrain:
         memory: Any,
         persona_text: str,
         *,
-        query: Any = None,
+        client_cls: Any = None,
         options_cls: Any = None,
         assistant_message: Any = None,
+        stream_event: Any = None,
     ) -> None:
         self._settings = settings
         self._memory = memory
         self._persona = persona_text  # real >=4096-token persona
-        self._query = query
+        self._client_cls = client_cls
         self._options_cls = options_cls
         self._assistant_message = assistant_message
+        self._stream_event = stream_event
+        self._client: Any = None
 
     def _ensure_sdk(self) -> None:
-        if self._query and self._options_cls and self._assistant_message:
+        if self._client_cls and self._options_cls and self._assistant_message:
             return
         try:
-            from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, query
+            from claude_agent_sdk import (
+                AssistantMessage,
+                ClaudeAgentOptions,
+                ClaudeSDKClient,
+                StreamEvent,
+            )
         except Exception as exc:  # noqa: BLE001
             raise ImportError(
                 "구독 로그인 두뇌에는 claude-agent-sdk가 필요합니다. "
                 "설치: pip install claude-agent-sdk · 그리고 'claude' 로그인 필요 "
                 "(API 키 없이 구독으로 동작)."
             ) from exc
-        self._query = self._query or query
+        self._client_cls = self._client_cls or ClaudeSDKClient
         self._options_cls = self._options_cls or ClaudeAgentOptions
         self._assistant_message = self._assistant_message or AssistantMessage
+        self._stream_event = self._stream_event or StreamEvent
 
     def _system_prompt(self) -> str:
         memory_text = self._memory.text().strip() if self._memory is not None else ""
@@ -71,21 +84,56 @@ class SubscriptionBrain:
             setting_sources=[],    # isolate from the host Claude Code project
             max_turns=1,
             env=env,
+            include_partial_messages=True,   # stream text deltas -> speak early
         )
         model = getattr(self._settings, "subscription_model", "") or ""
         if model:
             kw["model"] = model
         return self._options_cls(**kw)
 
-    async def respond(self, user_text: str) -> AsyncIterator[str]:
+    async def _ensure_client(self) -> Any:
         self._ensure_sdk()
-        async for msg in self._query(prompt=user_text, options=self._options()):
-            if isinstance(msg, self._assistant_message):
+        if self._client is None:
+            client = self._client_cls(options=self._options())
+            await client.connect()
+            self._client = client
+        return self._client
+
+    @staticmethod
+    def _delta_text(event: Any) -> str:
+        """Extract a text delta from a raw StreamEvent (anything else -> '')."""
+        raw = getattr(event, "event", None) or {}
+        if raw.get("type") == "content_block_delta":
+            delta = raw.get("delta") or {}
+            if delta.get("type") == "text_delta":
+                return delta.get("text") or ""
+        return ""
+
+    async def respond(self, user_text: str) -> AsyncIterator[str]:
+        client = await self._ensure_client()
+        await client.query(user_text)
+        streamed = False
+        async for msg in client.receive_response():
+            if self._stream_event is not None and isinstance(msg, self._stream_event):
+                text = self._delta_text(msg)
+                if text:
+                    streamed = True
+                    yield text
+            elif isinstance(msg, self._assistant_message) and not streamed:
+                # fallback: partials unavailable -> yield the full blocks at the end
                 for block in getattr(msg, "content", None) or []:
                     text = getattr(block, "text", None)
                     if text:
                         yield text
 
     async def warm(self) -> None:
-        # Fail fast if the SDK/login is missing; the first real turn pays CLI startup.
-        self._ensure_sdk()
+        # Connect the persistent session now so the first turn pays no CLI start-up.
+        await self._ensure_client()
+
+    async def close(self) -> None:
+        if self._client is not None:
+            try:
+                await self._client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self._client = None
