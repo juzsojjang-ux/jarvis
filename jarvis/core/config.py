@@ -67,6 +67,17 @@ class Settings(BaseSettings):
     rvc_index_rate: float = 0.9
     rvc_f0_up: int = -12
 
+    # --- M3 웨이크워드 + 연속대화 (실제 자비스 1단계) ---
+    # 마이크 상시-온(전부 로컬 처리). "자비스"로 시작하는 발화만 명령으로 쓰고
+    # 나머지 변환 텍스트는 즉시 폐기한다(저장·로그 금지). PTT는 백업으로 공존.
+    wake_enabled: bool = True
+    wake_words: list[str] = ["자비스", "쟈비스", "jarvis"]
+    follow_up_s: float = 8.0          # 답변 후 웨이크워드 없이 듣는 창
+    wake_vad_threshold: float = 0.5   # silero 말소리 확률 문턱값
+    wake_silence_ms: int = 800        # 이만큼 조용하면 발화 종료
+    wake_max_utterance_s: float = 30.0  # 긴 대화를 통째로 변환하는 낭비 방지 캡
+    vad_model_path: str = "~/jarvis/voice_models/silero_vad.onnx"
+
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"
