@@ -326,3 +326,55 @@ def test_wake_cooldown_blocks_delivery():
 
     asyncio.run(run())
     assert pb.feeds == []
+
+
+def test_announce_speaks_without_ack_filler():
+    # 사용자가 기다리는 게 아니므로 "잠시만요" 필러 없이 바로 본문만.
+    orch, pb = _make()
+    orch.wake = object()                  # follow-up 창 조건
+
+    async def run():
+        await orch.announce("배터리가 18%까지 떨어졌다")
+        await orch._task
+        return asyncio.get_running_loop().time() < orch._follow_up_until
+
+    in_window = asyncio.run(run())
+    assert len(pb.feeds) == 2             # 답변 두 문장만(필러 없음 — ack 포함 경로는 3+)
+    assert orch.state == State.IDLE
+    assert in_window                      # 알림 후에도 되묻기 창이 열린다
+
+
+def test_announce_skipped_when_busy():
+    orch, pb = _make()
+    orch.state = State.SPEAKING
+
+    async def run():
+        await orch.announce("아무거나")
+        assert orch._task is None
+
+    asyncio.run(run())
+    assert pb.feeds == []
+
+
+def test_announce_error_recovers_to_idle():
+    class _BoomBrain2:
+        async def respond(self, user_text):
+            raise RuntimeError("brain boom")
+            yield  # pragma: no cover
+
+    orch, _ = _make()
+    orch.brain = _BoomBrain2()
+
+    async def run():
+        await orch.announce("이벤트")
+        await orch._task
+
+    asyncio.run(run())
+    assert orch.state == State.IDLE
+
+
+def test_can_announce_reflects_state():
+    orch, _ = _make()
+    assert orch._can_announce()
+    orch.state = State.THINKING
+    assert not orch._can_announce()

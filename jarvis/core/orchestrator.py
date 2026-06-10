@@ -33,6 +33,7 @@ class Orchestrator:
         self.hud = hud
         self.micstream = micstream
         self.wake = wake
+        self.proactive = None  # ProactiveEngine — 배선(__main__)에서 주입, run()이 시작
         self.state = State.IDLE
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
@@ -131,13 +132,14 @@ class Orchestrator:
             print(f"[파이프라인] 오류(IDLE 복귀): {exc}")
             self._to_idle()
 
-    async def _pipeline_text(self, text: str) -> None:
+    async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
         if not text.strip():
             self._to_idle()
             return
         self.state = State.THINKING
         self._publish("thinking")
-        await self._play_ack()  # "One moment, sir." the instant you finish — then think
+        if ack:
+            await self._play_ack()  # "One moment, sir." — 능동 알림은 생략(아무도 안 기다림)
         async for delta in self.brain.respond(text):
             for sentence in self.chunker.feed(delta):
                 await self._speak(sentence)
@@ -252,6 +254,25 @@ class Orchestrator:
         if self.state == State.IDLE and loop.time() >= self._follow_up_until:
             self._publish("idle")
 
+    # ----- 능동 알림 (ProactiveEngine이 호출) -----
+    def _can_announce(self) -> bool:
+        return (self.state == State.IDLE
+                and (self._task is None or self._task.done()))
+
+    async def announce(self, prompt: str) -> None:
+        # 같은 루프에서 불린다. self._task로 돌려 PTT/웨이크가 평소처럼 끼어들 수 있게.
+        if not self._can_announce():
+            return
+        self.state = State.THINKING
+        self._task = asyncio.create_task(self._handle_announce(prompt))
+
+    async def _handle_announce(self, prompt: str) -> None:
+        try:
+            await self._pipeline_text(f"[SYSTEM EVENT] {prompt}", ack=False)
+        except Exception as exc:  # noqa: BLE001 - 알림 실패가 상태를 가두면 안 된다
+            print(f"[능동] 처리 오류(IDLE 복귀): {exc}")
+            self._to_idle()
+
     # Instant acknowledgements (English speech, Korean subtitle). Cached after first
     # synth so they play with zero delay — JARVIS answers the moment you stop talking.
     ACK_FILLERS = (
@@ -342,5 +363,7 @@ class Orchestrator:
                 print(f"[마이크] 입력 스트림 시작 실패(자동 재시도): {exc}")
         if self.wake is not None:
             self.wake.start(self._on_wake_utterance, self._wake_gate)
+        if self.proactive is not None:
+            self.proactive.start()
         self.activator.start(self._press, self._release)
         await asyncio.Event().wait()  # run until process is killed
