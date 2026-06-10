@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     proactive_cooldown_min: int = 10   # 같은 종류 알림 최소 간격
     proactive_late_night: bool = False  # 새벽 2시 "주무시죠" 한마디(기본 꺼짐)
 
+    # --- M5 정보 팩 (3b) ---
+    interpret_enabled: bool = True        # "통역 모드" 사용 가능
+    interpret_ko_voice: str = "Yuna"      # 통역 한국어 출력 보이스(macOS say)
+
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"

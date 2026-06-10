@@ -38,3 +38,9 @@ def test_proactive_defaults():
     assert s.briefing_expire_h == 2.0
     assert s.proactive_cooldown_min == 10
     assert s.proactive_late_night is False
+
+
+def test_interpret_defaults():
+    s = Settings()
+    assert s.interpret_enabled is True
+    assert s.interpret_ko_voice == "Yuna"
