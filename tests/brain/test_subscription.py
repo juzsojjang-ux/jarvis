@@ -173,7 +173,9 @@ def test_options_isolated_streaming_and_key_stripped(monkeypatch):
         assert "WebSearch" in kw["allowed_tools"]
         assert "mcp__jarvis__open_app" in kw["allowed_tools"]
         assert "jarvis" in kw["mcp_servers"]
-        assert "Bash" in kw["disallowed_tools"] and "Write" in kw["disallowed_tools"]
+        # 풀 도구 개방 — disallowed_tools 삭제, can_use_tool 콜백이 음성 게이트 역할.
+        assert "disallowed_tools" not in kw
+        assert callable(kw["can_use_tool"])
         assert kw["setting_sources"] == [] and kw["include_partial_messages"] is True
         assert "ANTHROPIC_API_KEY" not in kw["env"]
     asyncio.run(run())

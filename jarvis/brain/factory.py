@@ -21,7 +21,7 @@ def make_brain(
     backend = getattr(settings, "brain_backend", "subscription")
     if backend == "subscription":
         from jarvis.brain.subscription import SubscriptionBrain
-        return SubscriptionBrain(settings, memory, persona_text)
+        return SubscriptionBrain(settings, memory, persona_text, confirm=confirm)
     if backend == "api":
         from jarvis.brain.claude import Brain
         return Brain(settings, memory, persona_text, client=client,

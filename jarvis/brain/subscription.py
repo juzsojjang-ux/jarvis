@@ -62,6 +62,9 @@ _GUIDANCE_EN = (
     "browsers.' / 'The weather is clear, sir, much like your schedule, which is alarming.' "
     "Keep it to the point and genuinely helpful — clever, never goofy, never slapstick. "
     "A flat, humourless reply is a failure. "
+    "You have full tool access (bash, file read/write/edit, search); destructive "
+    "steps are voice-confirmed by the system, so just use them when needed. Prefer "
+    "the dedicated jarvis tools for simple actions (volume, music, timers) over bash. "
     "Use your tools directly for time, weather, opening apps, volume, "
     "and memory, and web search for current info; when a tool applies, act first and "
     "state the result briefly — don't ask. "
@@ -93,6 +96,7 @@ class SubscriptionBrain:
         options_cls: Any = None,
         assistant_message: Any = None,
         stream_event: Any = None,
+        confirm: Any = None,
     ) -> None:
         self._settings = settings
         self._memory = memory
@@ -101,6 +105,7 @@ class SubscriptionBrain:
         self._options_cls = options_cls
         self._assistant_message = assistant_message
         self._stream_event = stream_event
+        self._confirm = confirm
         self._client: Any = None
         self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
@@ -108,6 +113,33 @@ class SubscriptionBrain:
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
     _DEEP_TRIGGERS = ("최대 사고", "깊게 생각", "깊이 생각", "심층", "딥씽킹", "곰곰이",
                       "max thinking", "think hard", "think deeply", "deep think")
+
+    # 읽기 전용·무해 — 음성 확인 없이 자동 허용.
+    _SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "TodoWrite", "WebSearch",
+                             "WebFetch", "NotebookRead"})
+
+    def _confirm_prompt(self, tool: str, inp: dict) -> str:
+        if tool == "Bash":
+            cmd = str(inp.get("command", ""))[:80]
+            return f"명령을 실행할까요? {cmd}"
+        if tool in ("Write", "Edit", "NotebookEdit"):
+            path = inp.get("file_path") or inp.get("notebook_path") or "파일"
+            return f"{path} 파일을 수정할까요?"
+        return f"{tool} 작업을 실행할까요?"
+
+    async def _can_use_tool(self, tool_name, tool_input, context):
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+
+        base = tool_name.split("__")[-1]  # mcp__jarvis__x → x
+        if tool_name in self._SAFE_TOOLS or base in self._SAFE_TOOLS \
+                or tool_name.startswith("mcp__jarvis__"):
+            return PermissionResultAllow()
+        if self._confirm is None:
+            return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
+        ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))
+        if ok:
+            return PermissionResultAllow()
+        return PermissionResultDeny(message=f"{base} 작업을 취소했습니다.")
 
     def _deep_tokens(self, user_text: str) -> int:
         low = user_text.lower()
@@ -148,24 +180,24 @@ class SubscriptionBrain:
         return f"{self._persona}\n\n{tail}"
 
     def _options(self, thinking_tokens: int = 0, model: str = "") -> Any:
-        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-        # JARVIS capabilities: read-only web tools (current events) + safe in-process
-        # action tools (time/weather/open-app/volume/remember). Bash/file-edit stay
-        # forbidden — a spoken sentence can never run a command or touch the disk.
+        from pathlib import Path
+
         from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES, build_jarvis_mcp_server
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt(),
-            allowed_tools=["WebSearch", "WebFetch", *JARVIS_TOOL_NAMES],
-            disallowed_tools=["Bash", "Edit", "Write", "NotebookEdit"],
+            # 전체 도구 사용 가능 — 읽기셋은 자동, Bash/파일수정은 _can_use_tool이
+            # 음성으로 확인. allowed_tools는 '확인 없이 바로'인 자동 허용 목록.
+            allowed_tools=["WebSearch", "WebFetch", "Read", "Glob", "Grep",
+                           "TodoWrite", *JARVIS_TOOL_NAMES],
+            can_use_tool=self._can_use_tool,
             mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
-            setting_sources=[],    # isolate from the host Claude Code project
-            max_turns=8,           # 브리핑=도구 3회+요약이 직렬이면 4턴 정확히 소진되어
-                                   # 요약이 잘린다 — 위험 경계는 disallowed_tools가 지킨다
-            # 0 = snappy voice replies; raised on demand when the user asks JARVIS to
-            # "think deeply" (extended thinking, slower but smarter — _deep_tokens).
+            setting_sources=[],
+            cwd=str(Path.home()),
+            max_turns=20,
             max_thinking_tokens=thinking_tokens,
             env=env,
-            include_partial_messages=True,   # stream text deltas -> speak early
+            include_partial_messages=True,
         )
         if model:
             kw["model"] = model
