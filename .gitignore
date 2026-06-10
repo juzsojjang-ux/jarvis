@@ -1,14 +1,15 @@
-.DS_Store
-.venv/
-.venv-tts/
-.venv-rvc/
-.venv-xtts/
 __pycache__/
-*.pyc
-.pytest_cache/
+.DS_Store
 .jarvis/
-voice_data/
+.pytest_cache/
+.venv-pocket/
+.venv-rvc/
+.venv-tts/
+.venv-xtts/
+.venv/
+*.pyc
 # Personal/local JARVIS voice model — never commit (drop-in dir keeps README only).
-voice_models/*.pth
+voice_data/
 voice_models/*.index
+voice_models/*.pth
 voice_models/*.wav

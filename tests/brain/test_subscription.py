@@ -146,6 +146,19 @@ def test_system_prompt_has_persona_memory_guidance():
     assert "PERSONA" in sp and "이성재" in sp and _GUIDANCE in sp
 
 
+def test_english_reply_language_uses_english_guidance():
+    b = _brain(types.SimpleNamespace(subscription_model="", reply_language="en"))
+    sp = b._system_prompt()
+    assert "reply in ENGLISH" in sp and "sir" in sp
+    assert b._tool_filler() == SubscriptionBrain.TOOL_FILLER_EN
+
+
+def test_korean_reply_language_default():
+    b = _brain()  # no reply_language -> Korean
+    assert "한국어" in b._system_prompt()
+    assert b._tool_filler() == SubscriptionBrain.TOOL_FILLER
+
+
 def test_warm_connects():
     async def run():
         b = _brain()

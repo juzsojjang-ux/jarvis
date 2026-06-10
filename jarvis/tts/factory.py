@@ -22,6 +22,11 @@ def _xtts_ready(settings) -> bool:
             and os.path.exists(os.path.expanduser(settings.xtts_ref_path)))
 
 
+def _pocket_ready(settings) -> bool:
+    return (os.path.exists(os.path.expanduser(settings.pocket_python))
+            and os.path.exists(os.path.expanduser(settings.pocket_ref_path)))
+
+
 def _rvc_chain_ready(settings) -> bool:
     # Mirrors jarvis.vc.factory's auto gate (model + isolated runtime) and also needs
     # the MeloTTS worker venv that feeds the conversion.
@@ -32,13 +37,23 @@ def _rvc_chain_ready(settings) -> bool:
 
 def make_tts(settings) -> TTSBackend:
     backend = settings.tts_backend
+    if backend == "pocket" and not _pocket_ready(settings):
+        backend = "auto"  # graceful fallback if .venv-pocket isn't set up here
     if backend == "auto":
-        if _rvc_chain_ready(settings):
-            backend = "melotts"
+        if _pocket_ready(settings):
+            backend = "pocket"          # Kyutai Pocket TTS (English JARVIS voice)
+        elif _rvc_chain_ready(settings):
+            backend = "melotts"         # MeloTTS-KR -> trained RVC (Korean JARVIS)
         elif _xtts_ready(settings):
             backend = "xtts"
         else:
             backend = "say"
+    if backend == "pocket":
+        from jarvis.tts.pocket_tts import PocketTTS
+        return PocketTTS(
+            worker_cmd=[os.path.expanduser(settings.pocket_python),
+                        "-m", "jarvis.tts.pocket_worker"],
+            ref_path=settings.pocket_ref_path)
     if backend == "say":
         from jarvis.tts.system_say import SystemSayTTS
         return SystemSayTTS()

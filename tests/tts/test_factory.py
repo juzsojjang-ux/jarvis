@@ -4,12 +4,15 @@ import pytest
 
 from jarvis.tts.factory import make_tts
 from jarvis.tts.melotts_kr import MeloTTSKR
+from jarvis.tts.pocket_tts import PocketTTS
 from jarvis.tts.system_say import SystemSayTTS
 from jarvis.tts.xtts_kr import XTTSBackend
 
 
 def _s(**kw):
     base = dict(tts_backend="say", tts_worker_python="/nonexistent/.venv-tts/bin/python",
+                pocket_python="/nonexistent/.venv-pocket/bin/python",
+                pocket_ref_path="/nonexistent/jarvis_ref.wav",
                 xtts_python="/nonexistent/.venv-xtts/bin/python",
                 xtts_ref_path="/nonexistent/jarvis_ref.wav", xtts_device="cpu",
                 rvc_model_path="/nonexistent/voice_models/jarvis.pth",
@@ -47,6 +50,24 @@ def test_auto_uses_xtts_when_runtime_and_ref_present(tmp_path):
     tts = make_tts(_s(tts_backend="auto", xtts_python=py, xtts_ref_path=ref))
     assert isinstance(tts, XTTSBackend)
     assert tts._env["JARVIS_XTTS_REF"] == ref
+
+
+def test_make_tts_pocket(tmp_path):
+    py, ref = _ready(tmp_path)
+    tts = make_tts(_s(tts_backend="pocket", pocket_python=py, pocket_ref_path=ref))
+    assert isinstance(tts, PocketTTS) and tts._cmd[1:] == ["-m", "jarvis.tts.pocket_worker"]
+    assert tts.sample_rate == 24000 and tts._env["JARVIS_POCKET_REF"] == ref
+
+
+def test_pocket_falls_back_to_auto_when_not_ready():
+    # tts_backend="pocket" but .venv-pocket absent -> auto -> say (nothing else ready)
+    assert isinstance(make_tts(_s(tts_backend="pocket")), SystemSayTTS)
+
+
+def test_auto_prefers_pocket_over_everything(tmp_path):
+    py, ref = _ready(tmp_path)
+    tts = make_tts(_s(tts_backend="auto", pocket_python=py, pocket_ref_path=ref))
+    assert isinstance(tts, PocketTTS)
 
 
 def test_auto_falls_back_to_say_when_not_ready():

@@ -31,9 +31,13 @@ class Settings(BaseSettings):
     keyring_user: str = "anthropic_api_key"
 
     # --- M2 voice backends ---
-    # "auto": real JARVIS voice (XTTS zero-shot clone) when .venv-xtts + a reference wav
-    # exist, else macOS "say". Also: "xtts" | "melotts" | "say".
-    tts_backend: str = "auto"
+    # "pocket": Kyutai Pocket TTS English JARVIS clone (user's pick — sounds most like
+    # the real JARVIS); falls back to "auto" if .venv-pocket isn't set up. "auto" picks
+    # pocket > melotts->RVC > xtts > say. Also force one: "pocket"|"xtts"|"melotts"|"say".
+    tts_backend: str = "pocket"
+    reply_language: str = "en"        # JARVIS replies in this language (pocket = English-only)
+    pocket_python: str = "~/jarvis/.venv-pocket/bin/python"
+    pocket_ref_path: str = "~/jarvis/voice_models/jarvis_ref.wav"
     xtts_python: str = "~/jarvis/.venv-xtts/bin/python"
     xtts_ref_path: str = "~/jarvis/voice_models/jarvis_ref.wav"
     xtts_device: str = "cpu"          # "cpu" (safe) | "mps" (faster, occasionally flaky)
@@ -41,7 +45,9 @@ class Settings(BaseSettings):
     # present AND the .venv-rvc runtime exists; otherwise the MeloTTS Korean voice
     # plays. "null" forces MeloTTS-only; "rvc" forces RVC (warns + falls back if the
     # model is missing). Drop-in readiness lives in jarvis/vc/resolve.py + factory.py.
-    vc_backend: str = "auto"          # "auto" | "null" | "rvc"
+    # "null" while tts="pocket" (Pocket already IS the JARVIS voice; RVC would wreck it).
+    # Set "auto" to re-enable the Korean MeloTTS->RVC chain (needs tts="melotts"/"auto").
+    vc_backend: str = "null"          # "auto" | "null" | "rvc"
     tts_worker_python: str = "~/jarvis/.venv-tts/bin/python"
     # Isolated RVC inference interpreter (mirrors .venv-tts). The factory builds
     # rvc_cmd = [rvc_python, jarvis/vc/rvc_infer_cli.py]. Created by setup_rvc.sh.

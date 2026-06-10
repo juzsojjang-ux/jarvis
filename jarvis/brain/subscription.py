@@ -21,10 +21,10 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-# Voice-optimized guidance. The model previously answered questions with markdown
-# bullet lists, which (a) read awful through TTS and (b) made answers long/slow — so we
-# force short, spoken-style replies with NO markdown.
-_GUIDANCE = (
+# Voice-optimized guidance. Short, spoken-style, NO markdown (lists read awful via TTS
+# and make answers slow). The user may speak Korean either way; reply_language controls
+# what JARVIS SAYS (Pocket TTS is English-only).
+_GUIDANCE_KO = (
     "너는 자비스, 음성으로 답하는 한국어 집사다. 반드시 한두 문장으로 짧게, "
     "목록·번호·마크다운·별표 같은 기호 없이 사람이 말하듯 자연스럽게 답하라. "
     "사고 과정·머리말·맺음말 없이 핵심만 먼저 말하라. 내용이 길어질 것 같으면 "
@@ -32,6 +32,19 @@ _GUIDANCE = (
     "시간·날씨·앱 실행·볼륨 조절·기억은 네게 주어진 도구로 직접 처리하고, 최신 정보는 "
     "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라."
 )
+_GUIDANCE_EN = (
+    "You are JARVIS, a refined English-speaking butler AI. The user may speak Korean, "
+    "but you ALWAYS reply in ENGLISH. Answer in one or two short, natural spoken "
+    "sentences — no markdown, lists, numbering, or symbols, no preamble or sign-off, "
+    "just the point. Address the user as 'sir'. Use your tools directly for time, "
+    "weather, opening apps, volume, and memory, and web search for current information; "
+    "when a tool applies, act first and then state the result briefly — don't ask."
+)
+_GUIDANCE = _GUIDANCE_KO  # back-compat alias (tests/imports)
+
+
+def _guidance_for(reply_language: str) -> str:
+    return _GUIDANCE_EN if str(reply_language).lower().startswith("en") else _GUIDANCE_KO
 
 
 class SubscriptionBrain:
@@ -78,7 +91,8 @@ class SubscriptionBrain:
 
     def _system_prompt(self) -> str:
         memory_text = self._memory.text().strip() if self._memory is not None else ""
-        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _GUIDANCE
+        guidance = _guidance_for(getattr(self._settings, "reply_language", "ko"))
+        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + guidance
         return f"{self._persona}\n\n{tail}"
 
     def _options(self) -> Any:
@@ -113,6 +127,11 @@ class SubscriptionBrain:
     # Spoken the instant a web search starts, so there's no dead air while the search
     # + synthesis run (the slow part of a current-events answer).
     TOOL_FILLER = "잠시만요, 확인하겠습니다."
+    TOOL_FILLER_EN = "One moment, sir."
+
+    def _tool_filler(self) -> str:
+        lang = getattr(self._settings, "reply_language", "ko")
+        return self.TOOL_FILLER_EN if str(lang).lower().startswith("en") else self.TOOL_FILLER
 
     @staticmethod
     def _delta_text(event: Any) -> str:
@@ -146,7 +165,7 @@ class SubscriptionBrain:
             if self._stream_event is not None and isinstance(msg, self._stream_event):
                 if not filler_sent and self._is_tool_start(msg):
                     filler_sent = True
-                    yield self.TOOL_FILLER
+                    yield self._tool_filler()
                 text = self._delta_text(msg)
                 if text:
                     streamed = True
