@@ -85,6 +85,23 @@ def test_pipeline_feeds_playback_at_48k_float32():
     assert orch.state == State.IDLE
 
 
+def test_play_ack_speaks_immediately_and_caches():
+    orch, pb = _make()
+    asyncio.run(orch._play_ack())
+    assert len(pb.feeds) == 1 and pb.feeds[0].dtype == np.float32
+    assert len(orch._ack_cache) == 1          # first filler synthesised + cached
+    asyncio.run(orch._play_ack())             # rotates to the next filler
+    assert len(pb.feeds) == 2 and len(orch._ack_cache) == 2
+
+
+def test_pipeline_emits_ack_before_answer():
+    orch, pb = _make()
+    asyncio.run(orch._pipeline(np.zeros(16000, dtype=np.float32)))
+    # ack + the two answer sentences -> at least three audio chunks fed
+    assert len(pb.feeds) >= 3
+    assert orch.state == State.IDLE
+
+
 def test_speak_skips_empty_sentence():
     # empty/whitespace must NOT reach TTS/VC (it crashes RVC -> silent dead turn)
     orch, pb = _make()

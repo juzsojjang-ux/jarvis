@@ -35,6 +35,9 @@ class Orchestrator:
         self._task: asyncio.Task | None = None
         self._bg_tasks: set[asyncio.Task] = set()
         self._mic_meter: asyncio.Task | None = None
+        # Instant acknowledgement spoken the moment you finish — then JARVIS thinks.
+        self._ack_i = 0
+        self._ack_cache: dict[str, np.ndarray] = {}
         # Speaking levels queue: _speak pushes per-hop levels; the pump publishes
         # them at playback cadence so the orb moves WITH the audio.
         self._spk_levels: asyncio.Queue[float] = asyncio.Queue()
@@ -110,6 +113,7 @@ class Orchestrator:
             return
         self.state = State.THINKING
         self._publish("thinking")
+        await self._play_ack()  # "One moment, sir." the instant you finish — then think
         async for delta in self.brain.respond(text):
             for sentence in self.chunker.feed(delta):
                 await self._speak(sentence)
@@ -134,6 +138,36 @@ class Orchestrator:
             if not pump_busy and pending <= 0:
                 break
             await asyncio.sleep(_HUD_HOP_S)
+
+    # Instant acknowledgements (English speech, Korean subtitle). Cached after first
+    # synth so they play with zero delay — JARVIS answers the moment you stop talking.
+    ACK_FILLERS = (
+        ("One moment, sir.", "잠시만요."),
+        ("Just a moment, sir.", "잠시만 기다려 주십시오."),
+        ("Right away, sir.", "바로 처리하겠습니다."),
+        ("Let me see, sir.", "확인해 보겠습니다."),
+    )
+
+    async def _play_ack(self) -> None:
+        en, ko = self.ACK_FILLERS[self._ack_i % len(self.ACK_FILLERS)]
+        self._ack_i += 1
+        out = self._ack_cache.get(en)
+        if out is None:
+            try:
+                audio = await self.tts.synth(en)
+                conv = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
+                out = resample(np.asarray(conv, dtype=np.float32).reshape(-1),
+                               self.vc.sample_rate, self.settings.playback_rate)
+            except Exception:  # noqa: BLE001 - ack is best-effort
+                return
+            self._ack_cache[en] = out
+        self.state = State.SPEAKING
+        self._publish("speaking", audio_level(out), ko)
+        for lv in chunk_levels(out, self.settings.playback_rate, _HUD_HOP_S):
+            self._spk_levels.put_nowait(lv)
+        if self._spk_pump is None or self._spk_pump.done():
+            self._spk_pump = asyncio.create_task(self._spk_pump_loop())
+        self.playback.feed(out)
 
     async def _speak(self, sentence: str, subtitle: str | None = None) -> None:
         # Empty/whitespace chunks make MeloTTS emit empty audio, which crashes RVC

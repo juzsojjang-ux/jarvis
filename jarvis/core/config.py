@@ -16,9 +16,10 @@ class Settings(BaseSettings):
     # Brain backend: "subscription" (Claude Pro/Max login via claude-agent-sdk — NO API
     # key, no per-token bill) or "api" (Anthropic API key + local tool loop).
     brain_backend: str = "subscription"
-    # Sonnet for everyday turns (fast: ~1.3s first token vs Opus ~2.8s). When the user
-    # says "최대 사고/think hard", JARVIS switches to deep_model + extended thinking.
-    subscription_model: str = "claude-sonnet-4-6"
+    # Opus for accuracy (user preferred its quality over Sonnet). The instant spoken
+    # acknowledgement masks Opus's first-token latency; "최대 사고/think hard" adds
+    # extended thinking on top.
+    subscription_model: str = "claude-opus-4-8"
     deep_model: str = "claude-opus-4-8"
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
