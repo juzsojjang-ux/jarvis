@@ -139,3 +139,103 @@ def test_barge_in_cancels_brain_task_and_aborts_playback():
     assert task.cancelled()
     assert pb.aborted == 1
     assert orch.state == State.IDLE
+
+
+class _WakeSTT:
+    def __init__(self, text):
+        self.text = text
+
+    def transcribe(self, pcm, sample_rate=16000, language="ko"):
+        return self.text
+
+
+def test_wake_command_runs_pipeline():
+    orch, pb = _make()
+    orch.stt = _WakeSTT("자비스 지금 몇 시야")
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert len(pb.feeds) >= 3          # 즉답 필러 + 답변 문장들
+    assert orch.state == State.IDLE
+
+
+def test_bare_wake_word_greets_and_opens_follow_up():
+    orch, pb = _make()
+    orch.stt = _WakeSTT("자비스")
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(8000, dtype=np.float32))
+        await orch._task
+        return asyncio.get_running_loop().time() < orch._follow_up_until
+
+    in_window = asyncio.run(run())
+    assert len(pb.feeds) == 1          # "Yes, sir?" 한 마디
+    assert in_window
+    assert orch.state == State.IDLE
+
+
+def test_non_wake_utterance_discarded():
+    orch, pb = _make()
+    orch.stt = _WakeSTT("오늘 진짜 덥네 그치")
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert pb.feeds == []
+    assert orch.state == State.IDLE
+
+
+def test_follow_up_accepts_command_without_wake_word():
+    orch, pb = _make()
+    orch.stt = _WakeSTT("내일 날씨는 어때?")
+
+    async def run():
+        orch._follow_up_until = asyncio.get_running_loop().time() + 5.0
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        await orch._task
+
+    asyncio.run(run())
+    assert len(pb.feeds) >= 3
+
+
+def test_pipeline_reopens_follow_up_window():
+    orch, _ = _make()
+
+    async def run():
+        await orch._pipeline(np.zeros(16000, dtype=np.float32))
+        return asyncio.get_running_loop().time() < orch._follow_up_until
+
+    assert asyncio.run(run())
+
+
+def test_wake_gate_blocks_outside_idle_and_cooldown():
+    orch, _ = _make()
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        assert orch._wake_gate()                    # IDLE + 쿨다운 없음
+        orch.state = State.SPEAKING
+        assert not orch._wake_gate()                # 말하는 중엔 닫힘
+        orch.state = State.IDLE
+        orch._wake_blocked_until = loop.time() + 5.0
+        assert not orch._wake_gate()                # 에코 쿨다운 동안 닫힘
+
+    asyncio.run(run())
+
+
+def test_wake_ignored_when_busy():
+    orch, pb = _make()
+    orch.stt = _WakeSTT("자비스 안녕")
+    orch.state = State.THINKING
+
+    async def run():
+        orch._on_wake_utterance(np.zeros(16000, dtype=np.float32))
+        assert orch._task is None                   # 태스크가 만들어지지 않아야 한다
+
+    asyncio.run(run())
+    assert pb.feeds == []
