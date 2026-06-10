@@ -134,3 +134,35 @@ def test_new_tools_registered():
     from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
     assert "mcp__jarvis__get_reminders" in JARVIS_TOOL_NAMES
     assert "mcp__jarvis__get_calendar_events" in JARVIS_TOOL_NAMES
+
+
+def test_set_timer_action_registers_on_board():
+    from jarvis.proactive.timers import TimerBoard
+    from jarvis.tools.jarvis_mcp import set_timer_action
+    board = TimerBoard(clock=lambda: 0.0)
+    out = set_timer_action(board, minutes=5, seconds=30, label="라면")
+    assert "라면" in out and "5분" in out and "30초" in out
+    assert board.listing() == [("라면", 330)]
+
+
+def test_set_timer_action_rejects_zero():
+    from jarvis.proactive.timers import TimerBoard
+    from jarvis.tools.jarvis_mcp import set_timer_action
+    out = set_timer_action(TimerBoard(), minutes=0, seconds=0, label="")
+    assert "몇 분" in out
+
+
+def test_cancel_and_list_timer_actions():
+    from jarvis.proactive.timers import TimerBoard
+    from jarvis.tools.jarvis_mcp import cancel_timer_action, list_timers_action
+    board = TimerBoard(clock=lambda: 0.0)
+    assert "없습니다" in list_timers_action(board)
+    board.add(90, "회의")
+    assert "회의" in list_timers_action(board) and "1분 30초" in list_timers_action(board)
+    assert "취소" in cancel_timer_action(board, "회의")
+
+
+def test_timer_tools_registered():
+    from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES
+    for n in ("set_timer", "cancel_timer", "list_timers"):
+        assert f"mcp__jarvis__{n}" in JARVIS_TOOL_NAMES

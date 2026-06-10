@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from ..proactive.sources import fetch_events, fetch_reminders
+from ..proactive.timers import DEFAULT_BOARD
 
 _CITY_COORDS: dict[str, tuple[float, float]] = {
     "서울": (37.5665, 126.9780), "부산": (35.1796, 129.0756), "인천": (37.4563, 126.7052),
@@ -163,6 +164,30 @@ def battery_action(runner=subprocess.run) -> str:
     return f"배터리 {m.group(1)}%입니다, {state}." if m else "배터리 상태를 읽지 못했습니다."
 
 
+def set_timer_action(board, minutes=0, seconds=0, label: str = "") -> str:
+    try:
+        total = float(minutes or 0) * 60 + float(seconds or 0)
+    except (TypeError, ValueError):
+        return "몇 분짜리 타이머인지 말씀해 주세요."
+    if total <= 0:
+        return "몇 분짜리 타이머인지 말씀해 주세요."
+    _tid, lb = board.add(total, label)
+    m, s = int(total) // 60, int(total) % 60
+    dur = (f"{m}분 " if m else "") + (f"{s}초" if s else "")
+    return f"'{lb}' 타이머 {dur.strip()} 시작했습니다. 완료되면 알려드리겠습니다."
+
+
+def cancel_timer_action(board, label: str = "") -> str:
+    return board.cancel(label)
+
+
+def list_timers_action(board) -> str:
+    items = board.listing()
+    if not items:
+        return "진행 중인 타이머가 없습니다."
+    return " / ".join(f"{lb}: {s // 60}분 {s % 60}초 남음" for lb, s in items)
+
+
 def mute_action(on: Any = True, runner=subprocess.run) -> str:
     muted = "with" if on in (True, "true", "True", 1, "on", "켜") else "without"
     _osa(f"set volume {muted} output muted", runner)
@@ -279,6 +304,26 @@ async def _control_mac(args):
     return _text(control_mac_action(str((args or {}).get("applescript", ""))))
 
 
+@tool("set_timer", "타이머를 맞춘다(분/초/라벨). 완료되면 자비스가 음성으로 알린다.",
+      {"type": "object", "properties": {"minutes": {"type": "number"},
+       "seconds": {"type": "number"}, "label": {"type": "string"}}})
+async def _set_timer(args):
+    a = args or {}
+    return _text(set_timer_action(DEFAULT_BOARD, a.get("minutes"), a.get("seconds"),
+                                  str(a.get("label") or "")))
+
+
+@tool("cancel_timer", "진행 중인 타이머를 취소한다.",
+      {"type": "object", "properties": {"label": {"type": "string"}}})
+async def _cancel_timer(args):
+    return _text(cancel_timer_action(DEFAULT_BOARD, str((args or {}).get("label") or "")))
+
+
+@tool("list_timers", "진행 중인 타이머 목록과 남은 시간을 알려준다.", {})
+async def _list_timers(_args):
+    return _text(list_timers_action(DEFAULT_BOARD))
+
+
 def build_jarvis_mcp_server(memory: Any = None):
     """In-process MCP server. `memory` (a MemoryStore) backs the remember tool."""
 
@@ -294,7 +339,8 @@ def build_jarvis_mcp_server(memory: Any = None):
 
     tools = [_get_time, _get_weather, _open_app, _set_volume, _music, _add_reminder,
              _create_note, _battery, _get_reminders, _get_calendar_events,
-             _mute, _lock, _quit_app, _control_mac, _remember]
+             _mute, _lock, _quit_app, _control_mac, _set_timer, _cancel_timer,
+             _list_timers, _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
 
@@ -302,5 +348,7 @@ def build_jarvis_mcp_server(memory: Any = None):
 JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "get_time", "get_weather", "open_app", "set_volume", "music_control",
     "add_reminder", "create_note", "battery_status", "get_reminders", "get_calendar_events",
-    "toggle_mute", "lock_screen", "quit_app", "control_mac", "remember",
+    "toggle_mute", "lock_screen", "quit_app", "control_mac",
+    "set_timer", "cancel_timer", "list_timers",
+    "remember",
 )]
