@@ -159,7 +159,8 @@ class SubscriptionBrain:
             disallowed_tools=["Bash", "Edit", "Write", "NotebookEdit"],
             mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
             setting_sources=[],    # isolate from the host Claude Code project
-            max_turns=4,           # allow a tool round-trip; cap over-searching
+            max_turns=8,           # 브리핑=도구 3회+요약이 직렬이면 4턴 정확히 소진되어
+                                   # 요약이 잘린다 — 위험 경계는 disallowed_tools가 지킨다
             # 0 = snappy voice replies; raised on demand when the user asks JARVIS to
             # "think deeply" (extended thinking, slower but smarter — _deep_tokens).
             max_thinking_tokens=thinking_tokens,
