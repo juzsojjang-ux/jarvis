@@ -1,23 +1,26 @@
+# jarvis/audio/capture.py
 import threading
 
 import numpy as np
-import sounddevice as sd
 
 
 class MicCapture:
-    """Captures 16 kHz mono float32 PCM while held. Frames appended in the PortAudio
-    callback thread; concatenated on stop()."""
+    """공유 MicStream 위의 PTT 녹음기: start()부터 stop()까지의 청크를 모아
+    돌려준다. 스트림 자체는 닫지 않는다 — 웨이크 리스너가 같은 스트림을 계속
+    듣는다. (이전에는 누를 때마다 InputStream을 새로 열었다.)"""
 
-    def __init__(self, sample_rate: int = 16000):
-        self.sample_rate = sample_rate
+    def __init__(self, micstream):
+        self._mic = micstream
+        self.sample_rate = micstream.sample_rate
         self._frames: list[np.ndarray] = []
-        self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
+        self._active = False
+        micstream.subscribe(self._on_chunk)
 
-    def _callback(self, indata, frames, time_info, status) -> None:
-        chunk = np.asarray(indata, dtype=np.float32).reshape(-1).copy()
+    def _on_chunk(self, chunk: np.ndarray) -> None:
         with self._lock:
-            self._frames.append(chunk)
+            if self._active:
+                self._frames.append(chunk)
 
     def _drain(self) -> np.ndarray:
         with self._lock:
@@ -38,14 +41,10 @@ class MicCapture:
     def start(self) -> None:
         with self._lock:
             self._frames = []
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate, channels=1, dtype="float32", callback=self._callback
-        )
-        self._stream.start()
+            self._active = True
+        self._mic.ensure_running()
 
     def stop(self) -> np.ndarray:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        with self._lock:
+            self._active = False
         return self._drain()

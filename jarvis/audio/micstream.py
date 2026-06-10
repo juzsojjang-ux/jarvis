@@ -12,7 +12,9 @@ class MicStream:
     """상시 16 kHz 모노 입력 스트림 하나를 모든 소비자(PTT 캡처, 웨이크 리스너)가
     공유한다 — 같은 장치에 스트림 2개를 여는 낭비/충돌 방지. blocksize=512는
     silero VAD 윈도우와 일치. 구독자는 PortAudio 콜백 스레드에서 불리므로
-    append 수준으로 가벼워야 한다."""
+    append 수준으로 가벼워야 한다.
+    start/stop/ensure_running은 단일 호출자(오케스트레이터 asyncio 루프) 가정 —
+    잠금 없이 _stream을 만지므로 다중 호출자 금지."""
 
     def __init__(self, sample_rate: int = 16000, blocksize: int = 512):
         self.sample_rate = sample_rate
@@ -36,6 +38,7 @@ class MicStream:
         chunk = np.asarray(indata, dtype=np.float32).reshape(-1).copy()
         with self._lock:
             subs = list(self._subs)
+        # 같은 객체를 모든 구독자에게 전달한다 — 구독자는 in-place 수정 금지.
         for cb in subs:
             try:
                 cb(chunk)

@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 
 from .activation.ptt import PushToTalk
 from .audio.capture import MicCapture
+from .audio.micstream import MicStream
 from .audio.playback import Playback
 from .brain.factory import make_brain
 from .brain.memory import MemoryStore
@@ -48,7 +49,8 @@ async def build_orchestrator(
 
     # Shared backends (constructed here, then dependency-injected).
     activator = PushToTalk(settings.ptt_key)
-    capture = MicCapture(sample_rate=16000)
+    micstream = MicStream(sample_rate=16000)
+    capture = MicCapture(micstream)
     stt = MLXWhisperSTT(settings.stt_repo, language=settings.language)
     tts = make_tts(settings)
     vc = make_vc(settings)

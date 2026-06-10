@@ -34,7 +34,8 @@ def test_chunk_levels_follow_audio_shape():
 
 def test_capture_level_tail_peeks_without_drain():
     from jarvis.audio.capture import MicCapture
-    cap = MicCapture()
+    from jarvis.audio.micstream import MicStream
+    cap = MicCapture(MicStream())
     cap._frames = [0.1 * np.ones(800, np.float32), 0.2 * np.ones(800, np.float32)]
     tail = cap.level_tail(window=1600)
     assert tail.shape[0] == 1600
