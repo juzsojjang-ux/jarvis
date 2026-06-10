@@ -18,8 +18,12 @@ def ensure_silero_model(path: Path) -> Path:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".part")
-    urllib.request.urlretrieve(SILERO_URL, tmp)
-    tmp.rename(path)
+    try:
+        urllib.request.urlretrieve(SILERO_URL, tmp)
+        tmp.rename(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # 중단/실패 시 부분 파일 잔류 방지
+        raise
     return path
 
 
