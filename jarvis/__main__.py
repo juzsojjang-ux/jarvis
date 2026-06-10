@@ -21,6 +21,8 @@ from .brain.sentence import SentenceChunker
 from .core.config import Settings
 from .core.orchestrator import Orchestrator
 from .hud.orb_server import OrbServer
+from .proactive.engine import ProactiveEngine
+from .proactive.monitors import build_monitors
 from .stt.mlx_whisper import MLXWhisperSTT
 from .tools.builtin.local_tools import calc, make_remember_tool
 from .tools.builtin.time_weather import get_time, get_weather
@@ -91,7 +93,7 @@ async def build_orchestrator(
         confirm=confirmer.confirm,
     )
 
-    return Orchestrator(
+    orch = Orchestrator(
         settings=settings,
         activator=activator,
         capture=capture,
@@ -105,6 +107,14 @@ async def build_orchestrator(
         micstream=micstream,
         wake=wake,
     )
+    if settings.proactive_enabled:
+        orch.proactive = ProactiveEngine(
+            build_monitors(settings),
+            announce=orch.announce,
+            can_speak=orch._can_announce,
+            cooldown_s=settings.proactive_cooldown_min * 60,
+        )
+    return orch
 
 
 def _spawn_overlay(url: str) -> subprocess.Popen | None:
@@ -145,6 +155,16 @@ async def _amain() -> None:
                   "말씀하세요. (Ctrl+C로 종료)")
         else:
             print("자비스 준비 완료. 오른쪽 옵션 키를 누른 채 말씀하세요. (Ctrl+C로 종료)")
+        if orch.proactive is not None:
+            from time import monotonic
+
+            from .proactive.events import Announcement
+            now = monotonic()
+            # 부팅 인사 — 화면이 이미 해제 상태면 SessionMonitor의 첫 브리핑이 이걸
+            # 대체한다(enqueue 규칙). 엔진과 같은 단조시계 사용.
+            orch.proactive.enqueue(Announcement(
+                "boot_greet", "자비스가 방금 기동했다 — 시스템 정상임을 짧게 보고하며 인사",
+                3, now, now + 300))
         try:
             await orch.run()
         finally:

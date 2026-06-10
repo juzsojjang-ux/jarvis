@@ -70,3 +70,15 @@ def test_wake_disabled_by_env(monkeypatch):
     monkeypatch.setenv("JARVIS_WAKE_ENABLED", "false")
     orch = _build()
     assert orch.wake is None
+
+
+def test_build_orchestrator_wires_proactive():
+    orch = _build()
+    assert orch.proactive is not None
+    assert any(type(m).__name__ == "BatteryMonitor" for m in orch.proactive._monitors)
+
+
+def test_proactive_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("JARVIS_PROACTIVE_ENABLED", "false")
+    orch = _build()
+    assert orch.proactive is None
