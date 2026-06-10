@@ -207,6 +207,47 @@ def quit_app_action(app: str, runner=subprocess.run) -> str:
     return f"{app}을(를) 닫았습니다."
 
 
+def clipboard_read_action(runner=subprocess.run) -> str:
+    res = runner(["pbpaste"], capture_output=True, text=True, timeout=10)
+    out = (getattr(res, "stdout", "") or "").strip()
+    if not out:
+        return "클립보드가 비어 있습니다."
+    if len(out) > 4000:  # 두뇌 컨텍스트 보호 — 긴 본문은 잘라서
+        out = out[:4000] + " …(이하 생략)"
+    return f"클립보드 내용: {out}"
+
+
+def clipboard_write_action(text: str, runner=subprocess.run) -> str:
+    if not (text or "").strip():
+        return "복사할 내용을 말씀해 주세요."
+    runner(["pbcopy"], capture_output=True, text=True, timeout=10, input=text)
+    return "클립보드에 복사했습니다."
+
+
+def run_shortcut_action(name: str, runner=subprocess.run) -> str:
+    name = (name or "").strip()
+    if not name:
+        return "어느 단축어를 실행할까요?"
+    try:
+        res = runner(["shortcuts", "run", name], capture_output=True, text=True, timeout=30)
+    except Exception:  # noqa: BLE001 - 타임아웃 포함: 실행은 백그라운드에서 계속된다
+        return f"'{name}' 단축어가 30초 안에 끝나지 않았습니다 — 백그라운드에서 계속됩니다."
+    if getattr(res, "returncode", 1) != 0:
+        return f"'{name}' 단축어 실행에 실패했습니다. list_shortcuts로 정확한 이름을 확인하세요."
+    out = (getattr(res, "stdout", "") or "").strip()
+    return f"'{name}' 단축어를 실행했습니다." + (f" 결과: {out[:500]}" if out else "")
+
+
+def list_shortcuts_action(runner=subprocess.run) -> str:
+    res = runner(["shortcuts", "list"], capture_output=True, text=True, timeout=15)
+    names = [ln.strip() for ln in (getattr(res, "stdout", "") or "").splitlines() if ln.strip()]
+    if not names:
+        return "만들어 둔 단축어가 없습니다."
+    head = ", ".join(names[:20])
+    more = f" 외 {len(names) - 20}개" if len(names) > 20 else ""
+    return f"단축어 {len(names)}개: {head}{more}"
+
+
 def control_mac_action(script: str, runner=subprocess.run) -> str:
     script = (script or "").strip()
     if not script:
@@ -379,6 +420,29 @@ async def _system_toggle(args):
     return _text(system_toggle_action(str(a.get("target", "")), str(a.get("state", "toggle"))))
 
 
+@tool("clipboard_read", "클립보드의 텍스트를 읽는다(요약·낭독용).", {})
+async def _clipboard_read(_args):
+    return _text(clipboard_read_action())
+
+
+@tool("clipboard_write", "텍스트를 클립보드에 복사한다.",
+      {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})
+async def _clipboard_write(args):
+    return _text(clipboard_write_action(str((args or {}).get("text", ""))))
+
+
+@tool("run_shortcut", "macOS 단축어(Shortcuts) 앱의 단축어를 이름으로 실행한다. "
+      "방해금지·스마트홈 등 확장은 사용자가 단축어를 만들면 전부 가능.",
+      {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]})
+async def _run_shortcut(args):
+    return _text(run_shortcut_action(str((args or {}).get("name", ""))))
+
+
+@tool("list_shortcuts", "사용 가능한 macOS 단축어 목록.", {})
+async def _list_shortcuts(_args):
+    return _text(list_shortcuts_action())
+
+
 @tool("set_timer", "타이머를 맞춘다(분/초/라벨). 완료되면 자비스가 음성으로 알린다.",
       {"type": "object", "properties": {"minutes": {"type": "number"},
        "seconds": {"type": "number"}, "label": {"type": "string"}}})
@@ -415,6 +479,7 @@ def build_jarvis_mcp_server(memory: Any = None):
     tools = [_get_time, _get_weather, _open_app, _set_volume, _music, _add_reminder,
              _create_note, _battery, _get_reminders, _get_calendar_events,
              _mute, _lock, _quit_app, _control_mac, _system_toggle,
+             _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
              _set_timer, _cancel_timer, _list_timers, _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
@@ -424,6 +489,7 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "get_time", "get_weather", "open_app", "set_volume", "music_control",
     "add_reminder", "create_note", "battery_status", "get_reminders", "get_calendar_events",
     "toggle_mute", "lock_screen", "quit_app", "control_mac", "system_toggle",
+    "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
     "set_timer", "cancel_timer", "list_timers",
     "remember",
 )]

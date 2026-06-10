@@ -234,3 +234,47 @@ def test_toggle_unknown_target_lists_supported():
     from jarvis.tools.jarvis_mcp import system_toggle_action
     out = system_toggle_action("프린터", "on", runner=_recording_runner())
     assert "다크모드" in out
+
+
+def test_clipboard_read_truncates():
+    from jarvis.tools.jarvis_mcp import clipboard_read_action
+    r = _recording_runner(stdout="x" * 5000)
+    out = clipboard_read_action(runner=r)
+    assert "생략" in out and len(out) < 4200
+    assert ["pbpaste"] in r.calls
+
+
+def test_clipboard_read_empty():
+    from jarvis.tools.jarvis_mcp import clipboard_read_action
+    assert "비어" in clipboard_read_action(runner=_recording_runner(stdout=""))
+
+
+def test_clipboard_write_pipes_text():
+    from jarvis.tools.jarvis_mcp import clipboard_write_action
+    captured = {}
+
+    def runner(cmd, capture_output=True, text=True, timeout=None, input=None):
+        from types import SimpleNamespace
+        captured["cmd"], captured["input"] = cmd, input
+        return SimpleNamespace(stdout="", returncode=0)
+
+    out = clipboard_write_action("안녕하세요", runner=runner)
+    assert "복사" in out
+    assert captured["cmd"] == ["pbcopy"] and captured["input"] == "안녕하세요"
+
+
+def test_run_shortcut_success_and_failure():
+    from jarvis.tools.jarvis_mcp import run_shortcut_action
+    ok = _recording_runner(stdout="결과물")
+    out = run_shortcut_action("퇴근", runner=ok)
+    assert "퇴근" in out and "결과물" in out
+    fail = _recording_runner(stdout="이름1\n이름2", returncode=1)
+    out = run_shortcut_action("없는것", runner=fail)
+    assert "실패" in out
+
+
+def test_list_shortcuts():
+    from jarvis.tools.jarvis_mcp import list_shortcuts_action
+    r = _recording_runner(stdout="퇴근\n방해금지\n")
+    out = list_shortcuts_action(runner=r)
+    assert "2개" in out and "퇴근" in out
