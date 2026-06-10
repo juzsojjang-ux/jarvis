@@ -17,6 +17,9 @@ class ProactiveEngine:
         self._monitors = list(monitors)
         self._announce = announce          # async (prompt) -> None
         self._can_speak = can_speak        # () -> bool
+        # 두-시계 계약: clock(주입)은 알림의 '의미 시간'(만료·쿨다운·created_at)만
+        # 지배한다. 폴링 주기는 항상 실제 time.monotonic() — _poll_due_monitors 참조.
+        # 테스트가 의미 시간을 정지시켜도 폴링은 흘러가야 하기 때문. 합치지 말 것.
         self._clock = clock
         self._cooldown_s = cooldown_s
         self._tick_s = tick_s
