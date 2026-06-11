@@ -418,18 +418,24 @@ def send_message_action(recipient: str, text: str, runner=subprocess.run) -> str
     text = (text or "").strip()
     if not recipient or not text:
         return "받는 사람과 내용을 알려주세요."
-    # Escape backslashes first, then double-quotes
-    safe_r = recipient.replace("\\", "\\\\").replace('"', '\\"')
-    safe_t = text.replace("\\", "\\\\").replace('"', '\\"')
+    # 값은 osascript argv로 넘긴다(문자열 보간 금지) — 따옴표·역슬래시·개행이
+    # 들어와도 AppleScript를 깨거나 탈출시킬 수 없다. 셸도 거치지 않는다.
     script = (
-        'tell application "Messages"\n'
-        '  set targetService to 1st account whose service type = iMessage\n'
-        f'  set targetBuddy to participant "{safe_r}" of targetService\n'
-        f'  send "{safe_t}" to targetBuddy\n'
-        'end tell'
+        'on run argv\n'
+        '  set r to item 1 of argv\n'
+        '  set t to item 2 of argv\n'
+        '  tell application "Messages"\n'
+        '    set targetService to 1st account whose service type = iMessage\n'
+        '    set targetBuddy to participant r of targetService\n'
+        '    send t to targetBuddy\n'
+        '  end tell\n'
+        'end run'
     )
     try:
-        runner(["osascript", "-e", script], capture_output=True, text=True)
+        res = runner(["osascript", "-e", script, "--", recipient, text],
+                     capture_output=True, text=True)
+        if getattr(res, "returncode", 0) != 0:
+            return f"{recipient}에게 메시지를 보내지 못했습니다(권한·수신자를 확인해 주세요)."
         return f"{recipient}에게 메시지를 보냈습니다."
     except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
         return f"{recipient}에게 메시지를 보내지 못했습니다."
@@ -440,21 +446,26 @@ def send_mail_action(to: str, subject: str = "", body: str = "",
     to = (to or "").strip()
     if not to:
         return "받는 사람을 알려주세요."
-    # Escape backslashes first, then double-quotes
-    safe_to = to.replace("\\", "\\\\").replace('"', '\\"')
-    safe_subject = (subject or "").replace("\\", "\\\\").replace('"', '\\"')
-    safe_body = (body or "").replace("\\", "\\\\").replace('"', '\\"')
+    # 값은 osascript argv로 넘긴다 — 개행 포함 본문도 안전하고 탈출 불가.
     script = (
-        'tell application "Mail"\n'
-        f'  set m to make new outgoing message with properties {{subject:"{safe_subject}", '
-        f'content:"{safe_body}", visible:false}}\n'
-        f'  tell m to make new to recipient at end of to recipients with properties '
-        f'{{address:"{safe_to}"}}\n'
-        '  send m\n'
-        'end tell'
+        'on run argv\n'
+        '  set theTo to item 1 of argv\n'
+        '  set theSubject to item 2 of argv\n'
+        '  set theBody to item 3 of argv\n'
+        '  tell application "Mail"\n'
+        '    set m to make new outgoing message with properties '
+        '{subject:theSubject, content:theBody, visible:false}\n'
+        '    tell m to make new to recipient at end of to recipients with properties '
+        '{address:theTo}\n'
+        '    send m\n'
+        '  end tell\n'
+        'end run'
     )
     try:
-        runner(["osascript", "-e", script], capture_output=True, text=True)
+        res = runner(["osascript", "-e", script, "--", to, subject or "", body or ""],
+                     capture_output=True, text=True)
+        if getattr(res, "returncode", 0) != 0:
+            return f"{to}에게 메일을 보내지 못했습니다(권한·메일 설정을 확인해 주세요)."
         return f"{to}에게 메일을 보냈습니다."
     except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
         return f"{to}에게 메일을 보내지 못했습니다."
