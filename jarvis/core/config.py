@@ -44,8 +44,11 @@ class Settings(BaseSettings):
     # --- M2 voice backends ---
     # "pocket": Kyutai Pocket TTS English JARVIS clone (user's pick — sounds most like
     # the real JARVIS); falls back to "auto" if .venv-pocket isn't set up. "auto" picks
-    # pocket > melotts->RVC > xtts > say. Also force one: "pocket"|"xtts"|"melotts"|"say".
+    # pocket > melotts->RVC > xtts > say. Also force one: "pocket"|"xtts"|"melotts"|"say"|"edge".
     tts_backend: str = "pocket"
+    # edge-tts (cross-platform, no API key): voice name used by the EdgeTTS backend.
+    # "en-GB-RyanNeural" = British butler tone; swap to e.g. "ko-KR-InJoonNeural" for Korean.
+    edge_tts_voice: str = "en-GB-RyanNeural"
     reply_language: str = "en"        # JARVIS replies in this language (pocket = English-only)
     pocket_python: str = "~/jarvis/.venv-pocket/bin/python"
     # Clean 16s continuous English JARVIS take — Pocket reproduces the sample's quality,

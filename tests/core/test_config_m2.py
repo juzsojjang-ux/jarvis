@@ -73,3 +73,7 @@ def test_gpt_subscription_defaults():
     assert f["gpt_auth"].default == "subscription"
     assert f["gpt_subscription_base_url"].default == "https://chatgpt.com/backend-api/codex"
     assert f["gpt_subscription_model"].default == "gpt-5.5"
+
+
+def test_edge_voice_default():
+    assert Settings().edge_tts_voice == "en-GB-RyanNeural"

@@ -57,6 +57,9 @@ def make_tts(settings) -> TTSBackend:
     if backend == "say":
         from jarvis.tts.system_say import SystemSayTTS
         return SystemSayTTS()
+    if backend == "edge":
+        from jarvis.tts.edge_tts_backend import EdgeTTS
+        return EdgeTTS(voice=getattr(settings, "edge_tts_voice", "en-GB-RyanNeural"))
     if backend == "melotts":
         from jarvis.tts.melotts_kr import MeloTTSKR
         worker_python = os.path.expanduser(settings.tts_worker_python)
