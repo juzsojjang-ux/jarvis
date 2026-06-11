@@ -133,6 +133,17 @@ def _spawn_overlay(url: str) -> subprocess.Popen | None:
 
 
 async def _amain() -> None:
+    # 첫 실행 설정 — 설정 파일이 없거나 미완료이면 브라우저 설정 UI를 띄운다.
+    from .setup.store import configured_provider, is_configured
+    if not is_configured():
+        from .setup.launcher import run_first_run_setup
+        print("[설정] 첫 실행 — 브라우저에서 두뇌(Claude/Gemini/GPT)를 선택하세요.")
+        run_first_run_setup()
+    # 저장된 brain_provider를 환경변수로 주입 → Settings()가 이를 읽는다(env가 최우선).
+    _saved_provider = configured_provider()
+    if _saved_provider:
+        os.environ.setdefault("JARVIS_BRAIN_PROVIDER", _saved_provider)
+
     # AsyncExitStack stays open for the whole process lifetime (MCP sessions live).
     async with contextlib.AsyncExitStack() as stack:
         orch = await build_orchestrator(exit_stack=stack)
