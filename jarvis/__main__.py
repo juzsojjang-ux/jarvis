@@ -20,6 +20,7 @@ from .brain.persona import load_persona
 from .brain.sentence import SentenceChunker
 from .core.config import Settings
 from .core.orchestrator import Orchestrator
+from .core.platform_defaults import apply_platform_defaults
 from .hud.orb_server import OrbServer
 from .proactive.engine import ProactiveEngine
 from .proactive.monitors import build_monitors
@@ -49,6 +50,7 @@ async def build_orchestrator(
     loaded into the registry through it.
     """
     settings = Settings()
+    apply_platform_defaults(settings)
     memory = MemoryStore(settings.memory_path)
     memory.load()
     persona = load_persona(settings.persona_path)  # real >=4096-token persona; no fallback
