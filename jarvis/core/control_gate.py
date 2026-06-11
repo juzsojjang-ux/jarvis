@@ -30,3 +30,29 @@ class ControlGate:
 
 # 공유 싱글턴 — 오케스트레이터가 토글하고 screen_control 도구가 확인한다.
 CONTROL_GATE = ControlGate()
+
+
+class TrustGate:
+    """전권 위임 모드 게이트 — 음성 토글로 켜고 TTL이 지나면 스스로 꺼진다.
+    켠 채 잊어도 자동으로 닫힌다(보안 안전망). TRUST_GATE 싱글턴으로 공유."""
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._until = 0.0
+
+    def enable(self, ttl_s: float = 600.0) -> None:
+        with self._lock:
+            self._until = self._clock() + max(1.0, float(ttl_s))
+
+    def disable(self) -> None:
+        with self._lock:
+            self._until = 0.0
+
+    def is_on(self) -> bool:
+        with self._lock:
+            return self._clock() < self._until
+
+
+# 공유 싱글턴 — 오케스트레이터가 토글하고 _can_use_tool이 확인한다.
+TRUST_GATE = TrustGate()
