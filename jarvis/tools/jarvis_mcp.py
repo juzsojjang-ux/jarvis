@@ -10,10 +10,15 @@ memory file. Helpers take an injectable `runner`/`fetch` so they're unit-testabl
 from __future__ import annotations
 
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+
+def _is_mac() -> bool:
+    return sys.platform == "darwin"
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
@@ -261,6 +266,13 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
     target = Path(path) if path is not None else _SCREENSHOT_PATH
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
+        if not _is_mac():
+            from jarvis.tools.win_control import capture
+            try:
+                capture(target)
+                return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
+            except Exception:  # noqa: BLE001
+                return "화면 캡처에 실패했습니다. 화면 권한을 확인해 주세요."
         res = runner(["screencapture", "-x", str(target)],
                      capture_output=True, text=True)
         if getattr(res, "returncode", 1) != 0:
@@ -332,15 +344,22 @@ def screen_control_action(action: str, x: Any = None, y: Any = None, text: str =
     else:
         return ("지원하지 않는 동작입니다. click, double_click, right_click, move, "
                 "type, key, scroll 중 하나를 쓰세요.")
-    try:
-        res = runner(["cliclick", *args], capture_output=True, text=True)
-    except FileNotFoundError:
-        return ("화면 제어에는 cliclick이 필요합니다. 터미널에서 "
-                "brew install cliclick 을 실행해 주세요.")
-    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
-        return "화면 조작에 실패했습니다."
-    if getattr(res, "returncode", 0) != 0:
-        return "화면 조작에 실패했습니다. 손쉬운 사용(접근성) 권한을 확인해 주세요."
+    if _is_mac():
+        try:
+            res = runner(["cliclick", *args], capture_output=True, text=True)
+        except FileNotFoundError:
+            return ("화면 제어에는 cliclick이 필요합니다. 터미널에서 "
+                    "brew install cliclick 을 실행해 주세요.")
+        except Exception:  # noqa: BLE001
+            return "화면 조작에 실패했습니다."
+        if getattr(res, "returncode", 0) != 0:
+            return "화면 조작에 실패했습니다. 손쉬운 사용(접근성) 권한을 확인해 주세요."
+    else:
+        from jarvis.tools.win_control import perform
+        try:
+            perform(action, x=x, y=y, text=text, key=key, amount=amount)
+        except Exception:  # noqa: BLE001
+            return "화면 조작에 실패했습니다. 접근성/입력 권한을 확인해 주세요."
     return f"{done}."
 
 
