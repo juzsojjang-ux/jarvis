@@ -464,3 +464,85 @@ def test_interpret_translate_failure_recovers():
     asyncio.run(run())
     assert orch.state == State.IDLE
     assert orch.interpret_mode is True
+
+
+def test_control_command_toggles_gate_on_off(monkeypatch):
+    from jarvis.core import orchestrator as orch_mod
+    orch, pb = _make()
+    calls = []
+
+    class _FakeGate:
+        def enable(self, ttl):
+            calls.append(("enable", ttl))
+
+        def disable(self):
+            calls.append(("disable",))
+
+    monkeypatch.setattr(orch_mod, "CONTROL_GATE", _FakeGate())
+
+    async def run():
+        await orch._pipeline_text("화면 제어 모드 켜줘")
+        await orch._pipeline_text("화면 제어 모드 꺼줘")
+
+    asyncio.run(run())
+    assert calls == [("enable", orch.settings.screen_control_ttl_s), ("disable",)]
+    assert len(pb.feeds) >= 1  # 안내 발화
+    assert orch.state == State.IDLE
+
+
+def test_control_command_matching():
+    orch, _ = _make()
+    assert orch._control_command("화면 제어 모드 켜줘") == "on"
+    assert orch._control_command("화면제어 켜") == "on"
+    assert orch._control_command("화면 제어 모드 꺼줘") == "off"
+    assert orch._control_command("화면 제어 그만") == "off"
+    assert orch._control_command("통역 모드 켜줘") is None
+    assert orch._control_command("화면에 뭐 있어") is None
+
+
+def test_control_toggle_does_not_hijack_normal_turns(monkeypatch):
+    """control 모드는 interpret과 달리 턴을 가로채지 않는다 — 토글 후 일반
+    질문은 평소처럼 두뇌로 간다."""
+    from jarvis.core import orchestrator as orch_mod
+
+    class _FakeGate:
+        def enable(self, ttl):
+            pass
+
+        def disable(self):
+            pass
+
+    monkeypatch.setattr(orch_mod, "CONTROL_GATE", _FakeGate())
+    orch, pb = _make()
+
+    async def run():
+        await orch._pipeline_text("화면 제어 모드 켜줘")
+        await orch._pipeline_text("안녕")  # 일반 두뇌 경로
+
+    asyncio.run(run())
+    assert orch.state == State.IDLE
+    assert len(pb.feeds) >= 2  # 토글 안내 + 두뇌 답변 둘 다 발화됨
+
+
+def test_control_command_checked_before_interpret(monkeypatch):
+    """'화면 제어'가 들어간 토글은 interpret_mode 중에도 control 토글로 잡힌다."""
+    from jarvis.core import orchestrator as orch_mod
+    calls = []
+
+    class _FakeGate:
+        def enable(self, ttl):
+            calls.append("enable")
+
+        def disable(self):
+            calls.append("disable")
+
+    monkeypatch.setattr(orch_mod, "CONTROL_GATE", _FakeGate())
+    orch, pb = _make()
+    _interp(orch)  # 통역 모드 중
+
+    async def run():
+        await orch._pipeline_text("화면 제어 모드 켜줘")
+
+    asyncio.run(run())
+    assert calls == ["enable"]
+    assert orch.interpret_mode is True  # 통역 모드는 건드리지 않는다

@@ -8,6 +8,7 @@ import numpy as np
 from ..audio.util import resample
 from ..audio.wake import match_wake
 from ..hud.level import audio_level, chunk_levels
+from .control_gate import CONTROL_GATE
 from .events import State
 from .interpret import detect_lang, interpret_speak_korean
 
@@ -137,6 +138,10 @@ class Orchestrator:
     async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
         if not text.strip():
             self._to_idle()
+            return
+        ctl = self._control_command(text)
+        if ctl is not None:
+            await self._toggle_control(ctl)
             return
         cmd = self._interpret_command(text)
         if cmd is not None:
@@ -304,6 +309,35 @@ class Orchestrator:
                     interpret_speak_korean, out, self.settings.interpret_ko_voice)
         except Exception as exc:  # noqa: BLE001 - 통역 한 줄 실패가 모드를 깨면 안 된다
             print(f"[통역] 오류: {exc}")
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
+
+    # ----- 화면 제어 모드 (3c) -----
+    def _control_command(self, text: str) -> str | None:
+        if "화면 제어" not in text and "화면제어" not in text:
+            return None
+        if any(w in text for w in self._INTERP_OFF):
+            return "off"
+        if any(w in text for w in self._INTERP_ON):
+            return "on"
+        return None
+
+    async def _toggle_control(self, cmd: str) -> None:
+        # interpret과 달리 턴을 가로채는 모드가 아니다 — 게이트 플래그만 연다.
+        # 두뇌는 평소 경로에서 capture_screen/screen_control을 쓴다.
+        if cmd == "on":
+            CONTROL_GATE.enable(self.settings.screen_control_ttl_s)
+            en, ko = ("Screen control engaged, sir. It will switch itself off "
+                      "in a few minutes.",
+                      "화면 제어 모드를 켰습니다. 잠시 후 자동으로 꺼집니다.")
+        else:
+            CONTROL_GATE.disable()
+            en, ko = ("Screen control disengaged, sir.", "화면 제어 모드를 껐습니다.")
+        await self._play_phrase(en, ko)
+        await self._finish_speaking("")
         self.state = State.IDLE
         if self.wake is not None:
             self._enter_attentive()
