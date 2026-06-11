@@ -64,6 +64,7 @@ class Orchestrator:
         self._spk_pump: asyncio.Task | None = None
         self._attentive_timer: asyncio.Task | None = None
         self._warm_task: asyncio.Task | None = None
+        self._remote_busy = False
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -96,6 +97,9 @@ class Orchestrator:
         if self.wake is None and self.micstream is not None:
             # PTT 전용 모드: 누르는 동안만 마이크 점등(상시-온은 웨이크 모드 전용).
             self.micstream.stop()
+        if self._remote_busy:
+            self._to_idle()  # 원격 턴 진행 중 — PTT 발화 폐기(두뇌 동시 사용 방지)
+            return
         self.state = State.TRANSCRIBING
         self._task = asyncio.create_task(self._pipeline(pcm))
 
@@ -405,6 +409,36 @@ class Orchestrator:
             await self._pipeline_text(f"[SYSTEM EVENT] {prompt}", ack=False)
         except Exception as exc:  # noqa: BLE001 - 알림 실패가 상태를 가두면 안 된다
             print(f"[능동] 처리 오류(IDLE 복귀): {exc}")
+            self._to_idle()
+
+    # ----- 아이폰 원격 명령 -----
+    async def remote_turn(self, text: str) -> dict:
+        """원격(HTTP) 텍스트 턴 — TTS 없이 텍스트로만 답한다(사용자 부재).
+        THINKING 상태가 웨이크 게이트를 막고 _remote_busy가 PTT 경로를 막아
+        두뇌 동시 사용(응답 훔치기 레이스)을 차단한다."""
+        if not text.strip():
+            return {"reply": "무엇을 도와드릴까요?"}
+        if self._remote_busy or not self._can_announce():
+            return {"reply": "지금 다른 일을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."}
+        self._remote_busy = True
+        self.state = State.THINKING
+        self._publish("thinking")
+        if hasattr(self.brain, "remote_mode"):
+            self.brain.remote_mode = True
+        try:
+            parts: list[str] = []
+            async for delta in self.brain.respond(text):
+                parts.append(delta)
+            en = "".join(parts).strip()
+            ko = (getattr(self.brain, "last_subtitle", "") or "").strip()
+            return {"reply": ko or en or "답을 만들지 못했습니다.", "reply_en": en}
+        except Exception as exc:  # noqa: BLE001 - 원격 한 턴 실패가 상태를 가두면 안 된다
+            print(f"[원격] 처리 오류: {exc}")
+            return {"reply": "처리 중 오류가 났습니다."}
+        finally:
+            if hasattr(self.brain, "remote_mode"):
+                self.brain.remote_mode = False
+            self._remote_busy = False
             self._to_idle()
 
     # Instant acknowledgements (English speech, Korean subtitle). Cached after first

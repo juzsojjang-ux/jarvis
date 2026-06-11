@@ -593,3 +593,75 @@ def test_warm_phrases_precaches_ack_and_greet():
     cached = set(orch._ack_cache)
     assert {en for en, _ in orch.ACK_FILLERS} <= cached
     assert "Yes, sir?" in cached
+
+
+def test_remote_turn_collects_text_without_tts():
+    orch, pb = _make()
+
+    async def run():
+        return await orch.remote_turn("안녕")
+    res = asyncio.run(run())
+    assert res["reply"]
+    assert pb.feeds == []  # 원격 턴은 절대 말하지 않는다
+    assert orch.state == State.IDLE
+
+
+def test_remote_turn_busy_when_not_idle():
+    orch, _pb = _make()
+    orch.state = State.THINKING
+
+    async def run():
+        return await orch.remote_turn("안녕")
+    res = asyncio.run(run())
+    assert "다른 일" in res["reply"]
+
+
+def test_remote_turn_sets_and_clears_remote_mode():
+    orch, _pb = _make()
+    seen = []
+
+    class _FlagBrain:
+        remote_mode = False
+        last_subtitle = "한국어 답"
+
+        async def respond(self, text):
+            seen.append(self.remote_mode)
+            yield "english answer"
+
+    orch.brain = _FlagBrain()
+
+    async def run():
+        return await orch.remote_turn("hi")
+    res = asyncio.run(run())
+    assert seen == [True]                 # 응답 생성 중엔 원격 모드
+    assert orch.brain.remote_mode is False  # 끝나면 해제
+    assert res["reply"] == "한국어 답"
+    assert res["reply_en"] == "english answer"
+
+
+def test_remote_turn_recovers_on_brain_error():
+    orch, _pb = _make()
+
+    class _BoomBrain:
+        async def respond(self, text):
+            raise RuntimeError("down")
+            yield
+
+    orch.brain = _BoomBrain()
+
+    async def run():
+        return await orch.remote_turn("hi")
+    res = asyncio.run(run())
+    assert "오류" in res["reply"]
+    assert orch.state == State.IDLE
+
+
+def test_remote_turn_blocks_concurrent_remote():
+    orch, _pb = _make()
+    orch._remote_busy = True
+    orch.state = State.IDLE
+
+    async def run():
+        return await orch.remote_turn("hi")
+    res = asyncio.run(run())
+    assert "다른 일" in res["reply"]
