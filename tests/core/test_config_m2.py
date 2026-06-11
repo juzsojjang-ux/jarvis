@@ -44,3 +44,8 @@ def test_interpret_defaults():
     s = Settings()
     assert s.interpret_enabled is True
     assert s.interpret_ko_voice == "Yuna"
+
+
+def test_screen_control_defaults():
+    s = Settings()
+    assert s.screen_control_ttl_s == 300.0

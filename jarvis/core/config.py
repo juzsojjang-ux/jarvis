@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     interpret_enabled: bool = True        # "통역 모드" 사용 가능
     interpret_ko_voice: str = "Yuna"      # 통역 한국어 출력 보이스(macOS say)
 
+    # --- M6 화면 시야+제어 (3c) ---
+    screen_control_ttl_s: float = 300.0  # "화면 제어 모드" 자동 만료(초) — 켠 채 잊기 방지
+
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"
