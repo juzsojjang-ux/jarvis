@@ -96,3 +96,16 @@ def test_status_active(tmp_path):
 def test_status_null_backend():
     active, msg = vc_status(_s(vc_backend="null"))
     assert active is False and "꺼짐" in msg
+
+
+def test_vc_status_null_with_pocket_mentions_pocket():
+    s = _s(vc_backend="null", tts_backend="pocket")
+    active, msg = vc_status(s)
+    assert active is False
+    assert "포켓" in msg and "멜로TTS" not in msg
+
+
+def test_vc_status_null_with_melotts_keeps_melo_message():
+    s = _s(vc_backend="null", tts_backend="melotts")
+    active, msg = vc_status(s)
+    assert "멜로TTS" in msg

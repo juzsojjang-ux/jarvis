@@ -78,6 +78,8 @@ def vc_status(settings) -> tuple[bool, str]:
     and the voice_status tool. active=True only when the JARVIS timbre is live."""
     drop_dir = os.path.dirname(expand(settings.rvc_model_path))
     if settings.vc_backend == "null":
+        if getattr(settings, "tts_backend", "") == "pocket":
+            return (False, "음색 변환 꺼짐 — 포켓 TTS 자비스 음색(영어)으로 말합니다.")
         return (False, "음색 변환 꺼짐 — 멜로TTS 한국어 음성으로 말합니다.")
     model = resolve_model_path(settings.rvc_model_path)
     if model is None:
