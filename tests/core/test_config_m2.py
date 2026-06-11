@@ -49,3 +49,10 @@ def test_interpret_defaults():
 def test_screen_control_defaults():
     s = Settings()
     assert s.screen_control_ttl_s == 300.0
+
+
+def test_remote_defaults():
+    s = Settings()
+    assert s.remote_enabled is True
+    assert s.remote_host == "0.0.0.0"
+    assert s.remote_port == 8790

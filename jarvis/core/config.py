@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     # --- M6 화면 시야+제어 (3c) ---
     screen_control_ttl_s: float = 300.0  # "화면 제어 모드" 자동 만료(초) — 켠 채 잊기 방지
 
+    # --- M7 아이폰 원격 명령 ---
+    remote_enabled: bool = True
+    remote_host: str = "0.0.0.0"   # LAN 수신(외부망은 Tailscale 권장 — 포트포워딩 비권장)
+    remote_port: int = 8790
+
     # --- HUD: movie-style JARVIS ring interface (Avengers look) ---
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"

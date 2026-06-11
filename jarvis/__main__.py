@@ -34,6 +34,8 @@ from .tools.mcp_client import DEFAULT_MCP_SERVERS, load_mcp_tools
 from .tools.registry import ToolRegistry
 from .tts.factory import make_tts
 from .vc.factory import make_vc, vc_status
+from .remote.server import RemoteServer
+from .remote.token import load_or_create_token
 
 
 async def build_orchestrator(
@@ -152,6 +154,22 @@ async def _amain() -> None:
                     webbrowser.open(orch.hud.url)
             except OSError as exc:  # port busy etc. — HUD is optional, keep going
                 print(f"[HUD] HUD 비활성화(서버 시작 실패): {exc}")
+        remote = None
+        if orch.settings.remote_enabled:
+            try:
+                loop = asyncio.get_running_loop()
+
+                def _remote_bridge(text: str) -> dict:
+                    fut = asyncio.run_coroutine_threadsafe(orch.remote_turn(text), loop)
+                    return fut.result(timeout=120.0)
+
+                remote = RemoteServer(_remote_bridge, orch.settings.remote_host,
+                                      orch.settings.remote_port, load_or_create_token())
+                remote.start()
+                print(f"[원격] 아이폰 단축어 수신: {remote.url} "
+                      "(토큰: ~/.jarvis/remote_token · 설정법: docs/REMOTE.md)")
+            except OSError as exc:  # 포트 사용 중 등 — 원격은 옵션, 부팅은 계속
+                print(f"[원격] 시작 실패(비활성화): {exc}")
         if orch.wake is not None:
             print('자비스 준비 완료. "자비스"라고 부르거나, 오른쪽 옵션 키를 누른 채 '
                   "말씀하세요. (Ctrl+C로 종료)")
@@ -172,6 +190,8 @@ async def _amain() -> None:
         finally:
             if overlay is not None and overlay.poll() is None:
                 overlay.terminate()
+            if remote is not None:
+                remote.stop()
 
 
 def main() -> None:
