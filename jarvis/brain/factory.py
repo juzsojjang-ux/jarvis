@@ -18,6 +18,16 @@ def make_brain(
     registry: Any = None,
     confirm: Any = None,
 ) -> Any:
+    provider = getattr(settings, "brain_provider", "claude") or "claude"
+    if provider == "gemini":
+        raise NotImplementedError(
+            "Gemini 두뇌는 곧 추가됩니다. 지금은 brain_provider=claude로 실행하세요.")
+    if provider == "gpt":
+        raise NotImplementedError(
+            "GPT 두뇌는 곧 추가됩니다. 지금은 brain_provider=claude로 실행하세요.")
+    if provider != "claude":
+        raise ValueError(f"unknown brain_provider: {provider!r}")
+    # provider == "claude": 기존 brain_backend 분기 그대로
     backend = getattr(settings, "brain_backend", "subscription")
     if backend == "subscription":
         from jarvis.brain.subscription import SubscriptionBrain
