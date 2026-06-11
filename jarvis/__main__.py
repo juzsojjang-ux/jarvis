@@ -139,6 +139,7 @@ async def _amain() -> None:
         orch.tts.warm()
         orch.vc.warm()
         await orch.brain.warm()
+        await orch.warm_phrases()
         _active, voice_msg = vc_status(orch.settings)
         print(f"[음성] {voice_msg}")
         overlay = None

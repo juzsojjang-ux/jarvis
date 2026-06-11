@@ -582,3 +582,14 @@ def test_pipeline_text_prints_latency_line(capsys):
         await orch._pipeline_text("안녕")
     asyncio.run(run())
     assert "[지연]" in capsys.readouterr().out
+
+
+def test_warm_phrases_precaches_ack_and_greet():
+    orch, _pb = _make()
+
+    async def run():
+        await orch.warm_phrases()
+    asyncio.run(run())
+    cached = set(orch._ack_cache)
+    assert {en for en, _ in orch.ACK_FILLERS} <= cached
+    assert "Yes, sir?" in cached

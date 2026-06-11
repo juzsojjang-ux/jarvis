@@ -421,7 +421,7 @@ class Orchestrator:
         self._ack_i += 1
         await self._play_phrase(en, ko)
 
-    async def _play_phrase(self, en: str, ko: str) -> None:
+    async def _synth_phrase(self, en: str) -> np.ndarray | None:
         out = self._ack_cache.get(en)
         if out is None:
             try:
@@ -430,9 +430,20 @@ class Orchestrator:
                 out = resample(np.asarray(conv, dtype=np.float32).reshape(-1),
                                self.vc.sample_rate, self.settings.playback_rate)
             except Exception:  # noqa: BLE001 - canned phrase is best-effort
-                return
+                return None
             self._ack_cache[en] = out
+        return out
+
+    async def _play_phrase(self, en: str, ko: str) -> None:
+        out = await self._synth_phrase(en)
+        if out is None:
+            return
         self._queue_audio(out, ko)
+
+    async def warm_phrases(self) -> None:
+        # 부팅 직후 호출 — 캔드 프레이즈를 미리 합성해 첫 ACK·인사도 0지연.
+        for en, _ko in (*self.ACK_FILLERS, ("Yes, sir?", "네, 주인님?")):
+            await self._synth_phrase(en)
 
     def _queue_audio(self, out: np.ndarray, subtitle: str | None = None) -> None:
         # 발화 송출의 단일 꼬리: 상태 전환 → HUD(자막 포함) → 레벨 펌프 → 재생.
