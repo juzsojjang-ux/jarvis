@@ -55,6 +55,12 @@ datas_raw = [
     # Silero VAD ONNX model (~2.3 MB, wake-word voice activity detection)
     _data(REPO_ROOT / "voice_models" / "silero_vad.onnx", "voice_models"),
 
+    # JARVIS voice (torch-free ONNX RVC) — bundled so the cloned timbre works out of
+    # the box on macOS AND Windows. jarvis.onnx = synthesizer (~105MB),
+    # vec-768-layer-12.onnx = contentvec embedder (~360MB).
+    _data(REPO_ROOT / "voice_models" / "jarvis.onnx", "voice_models"),
+    _data(REPO_ROOT / "voice_models" / "vec-768-layer-12.onnx", "voice_models"),
+
     # Setup UI HTML (first-run provider selection screen)
     _data(REPO_ROOT / "jarvis" / "setup" / "index.html", "jarvis/setup"),
 ]
