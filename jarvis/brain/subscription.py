@@ -124,6 +124,7 @@ class SubscriptionBrain:
         self._confirm = confirm
         self._client: Any = None
         self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
+        self._xlate: dict[str, Any] = {}  # 통역용 방향별 영속 클라이언트(콜드스타트 제거)
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
 
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
@@ -325,27 +326,47 @@ class SubscriptionBrain:
             yield pending
         self.last_subtitle = _strip_sources(self.last_subtitle)
 
+    async def _ensure_xlate(self, target_lang: str) -> Any:
+        client = self._xlate.get(target_lang)
+        if client is None:
+            self._ensure_sdk()
+            env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+            opts = self._options_cls(
+                system_prompt=(f"Translate the given sentence into {target_lang}. "
+                               "Output ONLY the translation — no explanation, quotes, "
+                               "or notes."),
+                allowed_tools=[],
+                setting_sources=[],
+                max_turns=1,
+                env=env,
+            )
+            client = self._client_cls(options=opts)
+            await client.connect()
+            self._xlate[target_lang] = client
+        return client
+
     async def translate(self, text: str, target_lang: str) -> str:
-        """도구 없는 1회 번역 질의. 번역문만 돌려준다(설명·따옴표 없음)."""
-        self._ensure_sdk()
-        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-        opts = self._options_cls(
-            system_prompt=(f"Translate the given sentence into {target_lang}. "
-                           "Output ONLY the translation — no explanation, quotes, "
-                           "or notes."),
-            allowed_tools=[],
-            setting_sources=[],
-            max_turns=1,
-            env=env,
-        )
+        """도구 없는 번역 질의 — 방향별 영속 클라이언트 재사용(첫 통역 콜드스타트 제거)."""
+        client = await self._ensure_xlate(target_lang)
         out: list[str] = []
-        async with self._client_cls(options=opts) as client:
+        try:
             await client.query(text)
             async for msg in client.receive_response():
                 for block in getattr(msg, "content", []) or []:
                     if getattr(block, "type", "") == "text":
                         out.append(getattr(block, "text", ""))
+        except Exception:
+            self._xlate.pop(target_lang, None)  # 죽은 세션 폐기 — 다음 호출이 재연결
+            raise
         return "".join(out).strip()
+
+    async def warm_interpret(self) -> None:
+        """통역 토글 on에서 백그라운드 호출 — 두 방향을 미리 연결·예열(best-effort)."""
+        for target in ("English", "Korean"):
+            try:
+                await self.translate("hi", target)
+            except Exception:  # noqa: BLE001 - 예열 실패는 무해
+                pass
 
     async def warm(self) -> None:
         # Connect AND run one throwaway query so the agent + in-process MCP tools are
@@ -359,9 +380,11 @@ class SubscriptionBrain:
             pass
 
     async def close(self) -> None:
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception:  # noqa: BLE001
-                pass
-            self._client = None
+        for client in (self._client, *self._xlate.values()):
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+        self._client = None
+        self._xlate = {}

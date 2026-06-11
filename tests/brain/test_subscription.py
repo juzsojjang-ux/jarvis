@@ -233,11 +233,11 @@ def test_translate_uses_translation_only_options():
         def __init__(self, options=None):
             captured["options_obj"] = options
 
-        async def __aenter__(self):
-            return self
+        async def connect(self):
+            captured["connected"] = True
 
-        async def __aexit__(self, *a):
-            return False
+        async def disconnect(self):
+            captured["disconnected"] = True
 
         async def query(self, text):
             captured["query"] = text
@@ -259,6 +259,99 @@ def test_translate_uses_translation_only_options():
     assert captured["allowed_tools"] == []
     assert captured["max_turns"] == 1
     assert "English" in captured["system_prompt"]
+    assert captured["connected"] is True
+
+
+def test_translate_reuses_client_per_direction():
+    import asyncio
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    instances = []
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            pass
+
+    class _FakeClient:
+        def __init__(self, options=None):
+            self.connects = 0
+            instances.append(self)
+
+        async def connect(self):
+            self.connects += 1
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, text):
+            pass
+
+        async def receive_response(self):
+            class _Blk:
+                type = "text"
+                text = "ok"
+
+            class _Msg:
+                content = [_Blk()]
+            yield _Msg()
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096,
+                              client_cls=_FakeClient, options_cls=_FakeOptions)
+
+    async def run():
+        await brain.translate("a", "English")
+        await brain.translate("b", "English")   # 같은 방향 — 재사용
+        await brain.translate("c", "Korean")    # 다른 방향 — 새 클라이언트
+        await brain.close()
+
+    asyncio.run(run())
+    assert len(instances) == 2
+    assert all(c.connects == 1 for c in instances)
+
+
+def test_translate_failure_drops_cached_client():
+    import asyncio
+
+    import pytest
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    instances = []
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            pass
+
+    class _BoomClient:
+        def __init__(self, options=None):
+            instances.append(self)
+
+        async def connect(self):
+            pass
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, text):
+            raise RuntimeError("dead session")
+
+        async def receive_response(self):
+            yield  # pragma: no cover
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096,
+                              client_cls=_BoomClient, options_cls=_FakeOptions)
+
+    async def run():
+        with pytest.raises(RuntimeError):
+            await brain.translate("a", "English")
+        with pytest.raises(RuntimeError):
+            await brain.translate("b", "English")
+
+    asyncio.run(run())
+    assert len(instances) == 2  # 실패가 캐시를 비워 다음 호출이 새로 연결
 
 
 def test_guidance_mentions_screen_tools():
