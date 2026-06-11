@@ -1,7 +1,7 @@
 import asyncio
 import types
 
-from jarvis.brain.subscription import _GUIDANCE, SubscriptionBrain, _strip_sources
+from jarvis.brain.subscription import _GUIDANCE, _GUIDANCE_EN, _GUIDANCE_KO, SubscriptionBrain, _strip_sources
 
 
 class FakeText:
@@ -259,3 +259,9 @@ def test_translate_uses_translation_only_options():
     assert captured["allowed_tools"] == []
     assert captured["max_turns"] == 1
     assert "English" in captured["system_prompt"]
+
+
+def test_guidance_mentions_screen_tools():
+    for g in (_GUIDANCE_EN, _GUIDANCE_KO):
+        assert "capture_screen" in g
+        assert "screen_control" in g
