@@ -98,6 +98,7 @@ class Settings(BaseSettings):
 
     # --- M6 화면 시야+제어 (3c) ---
     screen_control_ttl_s: float = 300.0  # "화면 제어 모드" 자동 만료(초) — 켠 채 잊기 방지
+    trust_mode_ttl_s: float = 600.0  # "전권 위임 모드" 자동 만료(초) — 잊어도 닫힘
 
     # --- M7 아이폰 원격 명령 ---
     remote_enabled: bool = True

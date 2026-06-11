@@ -56,3 +56,8 @@ def test_remote_defaults():
     assert s.remote_enabled is True
     assert s.remote_host == "0.0.0.0"
     assert s.remote_port == 8790
+
+
+def test_trust_mode_default():
+    s = Settings()
+    assert s.trust_mode_ttl_s == 600.0
