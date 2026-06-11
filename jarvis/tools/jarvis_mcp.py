@@ -413,6 +413,53 @@ def messages_text(count: Any = 5, runner=subprocess.run) -> str:
     return "최근 메시지 " + " / ".join(f"{who}: {body}" for who, body in items)
 
 
+def send_message_action(recipient: str, text: str, runner=subprocess.run) -> str:
+    recipient = (recipient or "").strip()
+    text = (text or "").strip()
+    if not recipient or not text:
+        return "받는 사람과 내용을 알려주세요."
+    # Escape backslashes first, then double-quotes
+    safe_r = recipient.replace("\\", "\\\\").replace('"', '\\"')
+    safe_t = text.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Messages"\n'
+        '  set targetService to 1st account whose service type = iMessage\n'
+        f'  set targetBuddy to participant "{safe_r}" of targetService\n'
+        f'  send "{safe_t}" to targetBuddy\n'
+        'end tell'
+    )
+    try:
+        runner(["osascript", "-e", script], capture_output=True, text=True)
+        return f"{recipient}에게 메시지를 보냈습니다."
+    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
+        return f"{recipient}에게 메시지를 보내지 못했습니다."
+
+
+def send_mail_action(to: str, subject: str = "", body: str = "",
+                     runner=subprocess.run) -> str:
+    to = (to or "").strip()
+    if not to:
+        return "받는 사람을 알려주세요."
+    # Escape backslashes first, then double-quotes
+    safe_to = to.replace("\\", "\\\\").replace('"', '\\"')
+    safe_subject = (subject or "").replace("\\", "\\\\").replace('"', '\\"')
+    safe_body = (body or "").replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Mail"\n'
+        f'  set m to make new outgoing message with properties {{subject:"{safe_subject}", '
+        f'content:"{safe_body}", visible:false}}\n'
+        f'  tell m to make new to recipient at end of to recipients with properties '
+        f'{{address:"{safe_to}"}}\n'
+        '  send m\n'
+        'end tell'
+    )
+    try:
+        runner(["osascript", "-e", script], capture_output=True, text=True)
+        return f"{to}에게 메일을 보냈습니다."
+    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
+        return f"{to}에게 메일을 보내지 못했습니다."
+
+
 def mail_text(count: Any = 5, runner=subprocess.run) -> str:
     try:
         n = max(1, min(20, int(count)))
@@ -656,6 +703,23 @@ async def _get_unread_mail(args):
     return _text(mail_text((args or {}).get("count", 5)))
 
 
+@tool("send_message", "iMessage로 메시지를 보낸다(발송 전 음성 확인 필요).",
+      {"type": "object", "properties": {"recipient": {"type": "string"},
+       "text": {"type": "string"}}, "required": ["recipient", "text"]})
+async def _send_message(args):
+    a = args or {}
+    return _text(send_message_action(str(a.get("recipient") or ""), str(a.get("text") or "")))
+
+
+@tool("send_mail", "메일을 보낸다(발송 전 음성 확인 필요).",
+      {"type": "object", "properties": {"to": {"type": "string"}, "subject": {"type": "string"},
+       "body": {"type": "string"}}, "required": ["to"]})
+async def _send_mail(args):
+    a = args or {}
+    return _text(send_mail_action(str(a.get("to") or ""), str(a.get("subject") or ""),
+                                  str(a.get("body") or "")))
+
+
 @tool("set_timer", "타이머를 맞춘다(분/초/라벨). 완료되면 자비스가 음성으로 알린다.",
       {"type": "object", "properties": {"minutes": {"type": "number"},
        "seconds": {"type": "number"}, "label": {"type": "string"}}})
@@ -721,6 +785,7 @@ def build_jarvis_mcp_server(memory: Any = None):
              _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
              _set_timer, _cancel_timer, _list_timers,
              _get_messages, _get_unread_mail,
+             _send_message, _send_mail,
              _capture_screen, _screen_control,
              _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
@@ -734,6 +799,7 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
     "set_timer", "cancel_timer", "list_timers",
     "get_messages", "get_unread_mail",
+    "send_message", "send_mail",
     "capture_screen", "screen_control",
     "remember",
 )]
