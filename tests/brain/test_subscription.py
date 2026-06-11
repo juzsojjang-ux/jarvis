@@ -679,3 +679,8 @@ def test_send_tools_denied_on_remote():
                     {"recipient":"x","text":"y"}, None)
     res = asyncio.run(run())
     assert type(res).__name__ == "PermissionResultDeny" and "원격" in res.message
+
+
+def test_guidance_mentions_send_tools():
+    from jarvis.brain.subscription import _GUIDANCE_EN, _GUIDANCE_KO
+    assert "send_message" in _GUIDANCE_KO and "send_message" in _GUIDANCE_EN
