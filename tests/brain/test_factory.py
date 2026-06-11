@@ -30,9 +30,11 @@ def test_factory_gemini_builds_brain():
     assert isinstance(b, GeminiBrain)
 
 
-def test_factory_gpt_not_implemented():
-    with pytest.raises(NotImplementedError):
-        make_brain(_settings(brain_provider="gpt"), None, "p" * 4096)
+def test_factory_gpt_builds_brain():
+    from jarvis.brain.openai_brain import GPTBrain
+    b = make_brain(_settings(brain_provider="gpt", gpt_model="gpt-4o"),
+                   None, "p" * 4096)
+    assert isinstance(b, GPTBrain)
 
 
 def test_factory_unknown_provider():

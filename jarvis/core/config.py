@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Gemini/GPT는 다음 sub-project에서 구현 예정 — 지금은 claude만 동작.
     brain_provider: str = "claude"  # 첫 실행에서 택1: claude/gemini/gpt
     gemini_model: str = "gemini-2.5-flash"  # Gemini 두뇌용 모델 이름
+    gpt_model: str = "gpt-4o"              # GPT 두뇌용 모델 이름
 
     # Brain backend: "subscription" (Claude Pro/Max login via claude-agent-sdk — NO API
     # key, no per-token bill) or "api" (Anthropic API key + local tool loop).

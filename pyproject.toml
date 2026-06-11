@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest==8.3.3", "ruff==0.7.4"]
 gemini = ["google-genai>=2.8,<3"]
+gpt = ["openai>=2.0,<3"]
 # [voice] (M2 install: pip install -e ".[voice]") — RVC voice path + audio cleanup.
 voice = [
     "soundfile==0.13.1",

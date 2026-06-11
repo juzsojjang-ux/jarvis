@@ -23,8 +23,8 @@ def make_brain(
         from jarvis.brain.gemini import GeminiBrain  # noqa: PLC0415
         return GeminiBrain(settings, memory, persona_text, confirm=confirm)
     if provider == "gpt":
-        raise NotImplementedError(
-            "GPT 두뇌는 곧 추가됩니다. 지금은 brain_provider=claude로 실행하세요.")
+        from jarvis.brain.openai_brain import GPTBrain  # noqa: PLC0415
+        return GPTBrain(settings, memory, persona_text, confirm=confirm)
     if provider != "claude":
         raise ValueError(f"unknown brain_provider: {provider!r}")
     # provider == "claude": 기존 brain_backend 분기 그대로
