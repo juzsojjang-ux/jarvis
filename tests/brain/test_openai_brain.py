@@ -45,8 +45,15 @@ class _FakeClient:
         pass
 
 
+def _api_key_settings() -> Settings:
+    """Chat Completions 경로를 테스트하기 위해 api_key 모드로 강제."""
+    s = Settings()
+    s.gpt_auth = "api_key"  # type: ignore[assignment]
+    return s
+
+
 def _brain(scripted, **kw):
-    return GPTBrain(Settings(), kw.pop("memory", None), "p" * 4096, client=_FakeClient(scripted), **kw)
+    return GPTBrain(_api_key_settings(), kw.pop("memory", None), "p" * 4096, client=_FakeClient(scripted), **kw)
 
 
 async def _collect(agen):
