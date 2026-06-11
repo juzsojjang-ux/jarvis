@@ -24,7 +24,7 @@ from .hud.orb_server import OrbServer
 from .proactive.engine import ProactiveEngine
 from .proactive.monitors import build_monitors
 from .proactive.timers import DEFAULT_BOARD
-from .stt.mlx_whisper import MLXWhisperSTT
+from .stt.factory import make_stt
 from .tools.builtin.local_tools import calc, make_remember_tool
 from .tools.builtin.time_weather import get_time, get_weather
 from .tools.builtin.voice_status import make_voice_status_tool
@@ -57,7 +57,7 @@ async def build_orchestrator(
     activator = PushToTalk(settings.ptt_key)
     micstream = MicStream(sample_rate=16000)
     capture = MicCapture(micstream)
-    stt = MLXWhisperSTT(settings.stt_repo, language=settings.language)
+    stt = make_stt(settings)
     tts = make_tts(settings)
     vc = make_vc(settings)
     playback = Playback(sample_rate=settings.playback_rate)

@@ -112,6 +112,12 @@ class Settings(BaseSettings):
     screen_control_ttl_s: float = 300.0  # "화면 제어 모드" 자동 만료(초) — 켠 채 잊기 방지
     trust_mode_ttl_s: float = 600.0  # "전권 위임 모드" 자동 만료(초) — 잊어도 닫힘
 
+    # --- 크로스플랫폼 STT ---
+    # "mlx": 애플 실리콘 최속(맥 기본). "faster": CTranslate2 CPU/CUDA(윈도우·리눅스).
+    stt_backend: str = "mlx"
+    # faster-whisper 전용 quantization — int8(기본, 빠름) | float16 | float32
+    faster_whisper_compute: str = "int8"
+
     # --- M7 아이폰 원격 명령 ---
     remote_enabled: bool = True
     remote_host: str = "0.0.0.0"   # LAN 수신(외부망은 Tailscale 권장 — 포트포워딩 비권장)

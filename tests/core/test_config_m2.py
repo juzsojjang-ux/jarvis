@@ -77,3 +77,7 @@ def test_gpt_subscription_defaults():
 
 def test_edge_voice_default():
     assert Settings().edge_tts_voice == "en-GB-RyanNeural"
+
+
+def test_stt_backend_default():
+    assert Settings.model_fields["stt_backend"].default == "mlx"
