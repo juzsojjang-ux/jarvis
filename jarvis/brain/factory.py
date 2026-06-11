@@ -20,8 +20,8 @@ def make_brain(
 ) -> Any:
     provider = getattr(settings, "brain_provider", "claude") or "claude"
     if provider == "gemini":
-        raise NotImplementedError(
-            "Gemini 두뇌는 곧 추가됩니다. 지금은 brain_provider=claude로 실행하세요.")
+        from jarvis.brain.gemini import GeminiBrain  # noqa: PLC0415
+        return GeminiBrain(settings, memory, persona_text, confirm=confirm)
     if provider == "gpt":
         raise NotImplementedError(
             "GPT 두뇌는 곧 추가됩니다. 지금은 brain_provider=claude로 실행하세요.")

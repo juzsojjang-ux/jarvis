@@ -23,10 +23,11 @@ def test_factory_default_provider_is_claude(monkeypatch):
     assert isinstance(make_brain(s, None, "p" * 4096), SubscriptionBrain)
 
 
-def test_factory_gemini_not_implemented():
-    with pytest.raises(NotImplementedError) as e:
-        make_brain(_settings(brain_provider="gemini"), None, "p" * 4096)
-    assert "Gemini" in str(e.value)
+def test_factory_gemini_builds_brain():
+    from jarvis.brain.gemini import GeminiBrain
+    b = make_brain(_settings(brain_provider="gemini", gemini_model="gemini-2.5-flash"),
+                   None, "p" * 4096)
+    assert isinstance(b, GeminiBrain)
 
 
 def test_factory_gpt_not_implemented():
