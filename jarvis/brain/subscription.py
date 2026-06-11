@@ -147,6 +147,9 @@ class SubscriptionBrain:
     _SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "TodoWrite", "WebSearch",
                              "WebFetch", "NotebookRead"})
 
+    # 발송류 — mcp__jarvis__이지만 되돌릴 수 없어 자동 허용에서 제외(음성 확인/전권 필요).
+    _GUARDED_JARVIS = frozenset({"send_message", "send_mail"})
+
     # 원격(아이폰) 턴에서 허용되는 jarvis 도구 — 읽기·무해 전용. control_mac(임의
     # AppleScript)·run_shortcut·system_toggle 등 상태를 바꾸는 도구는 원격 금지.
     _REMOTE_SAFE_JARVIS = frozenset({
@@ -162,6 +165,12 @@ class SubscriptionBrain:
         if tool in ("Write", "Edit", "NotebookEdit"):
             path = inp.get("file_path") or inp.get("notebook_path") or "파일"
             return f"{path} 파일을 수정할까요?"
+        if tool == "send_message":
+            r = str(inp.get("recipient", "")); t = str(inp.get("text", ""))[:40]
+            return f"{r}에게 '{t}' 보낼까요?"
+        if tool == "send_mail":
+            to = str(inp.get("to", "")); s = str(inp.get("subject", ""))
+            return f"{to}에게 '{s}' 메일 보낼까요?"
         return f"{tool} 작업을 실행할까요?"
 
     async def _can_use_tool(self, tool_name, tool_input, context):
@@ -181,7 +190,9 @@ class SubscriptionBrain:
         # 내장 읽기셋뿐이다. mcp__타사__Read 처럼 끝 segment만 읽기셋과 같아도
         # 통과하던 우회를 막는다(향후 다른 MCP 서버가 붙어도 안전).
         if tool_name.startswith("mcp__jarvis__"):
-            return PermissionResultAllow()
+            if tool_name.split("__")[-1] not in self._GUARDED_JARVIS:
+                return PermissionResultAllow()
+            # 발송류는 자동 허용하지 않고 아래 confirm/전권 경로로 흐른다
         if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
             return PermissionResultAllow()
         base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용

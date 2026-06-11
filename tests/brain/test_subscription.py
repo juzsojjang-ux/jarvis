@@ -636,3 +636,46 @@ def test_respond_saves_turn(tmp_path):
     asyncio.run(run())
     assert hist.turns and hist.turns[-1][0] == "질문이야"
     assert "Answer" in hist.turns[-1][1]
+
+
+def test_send_tools_require_confirm_not_auto_allowed():
+    import asyncio
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+    prompts = []
+    async def confirm(p):
+        prompts.append(p); return True
+    brain = SubscriptionBrain(Settings(), None, "p"*4096, confirm=confirm)
+    async def run():
+        return (await brain._can_use_tool("mcp__jarvis__send_message",
+                    {"recipient":"민지","text":"곧 도착"}, None),
+                await brain._can_use_tool("mcp__jarvis__get_time", {}, None))
+    send, gettime = asyncio.run(run())
+    assert type(send).__name__ == "PermissionResultAllow"  # confirm True
+    assert prompts and "민지" in prompts[0]
+    assert type(gettime).__name__ == "PermissionResultAllow"  # auto, no prompt added
+    assert len(prompts) == 1  # only send_message asked
+
+
+def test_send_tools_denied_when_confirm_false():
+    import asyncio
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+    async def confirm(p): return False
+    brain = SubscriptionBrain(Settings(), None, "p"*4096, confirm=confirm)
+    async def run():
+        return await brain._can_use_tool("mcp__jarvis__send_mail", {"to":"a@b.com"}, None)
+    assert type(asyncio.run(run())).__name__ == "PermissionResultDeny"
+
+
+def test_send_tools_denied_on_remote():
+    import asyncio
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+    brain = SubscriptionBrain(Settings(), None, "p"*4096, confirm=None)
+    brain.remote_mode = True
+    async def run():
+        return await brain._can_use_tool("mcp__jarvis__send_message",
+                    {"recipient":"x","text":"y"}, None)
+    res = asyncio.run(run())
+    assert type(res).__name__ == "PermissionResultDeny" and "원격" in res.message
