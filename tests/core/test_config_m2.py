@@ -1,6 +1,11 @@
 from jarvis.core.config import Settings
 
 
+def test_brain_provider_default():
+    s = Settings()
+    assert s.brain_provider == "claude"
+
+
 def test_m2_backend_defaults():
     f = Settings.model_fields
     # "pocket": Kyutai Pocket TTS English JARVIS clone (user's chosen voice).
