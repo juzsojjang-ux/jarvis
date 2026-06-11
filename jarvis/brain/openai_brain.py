@@ -258,6 +258,36 @@ class GPTBrain:
         if en.strip():
             yield en
 
+    async def _collect_response(self, client: Any, **kw: Any) -> tuple[str, list]:
+        """Responses API 한 번 호출. Codex 엔드포인트는 store=false·stream=true 강제 —
+        스트림이면 output_text.delta로 텍스트, output_item.done(function_call)로 도구
+        호출 수집. 비스트림 응답(가짜/호환)이면 output/output_text를 파싱. (text, calls)."""
+        result = await client.responses.create(store=False, stream=True, **kw)
+        if hasattr(result, "__aiter__"):
+            text = ""
+            calls: list = []
+            async for event in result:
+                et = getattr(event, "type", "")
+                if et == "response.output_text.delta":
+                    text += getattr(event, "delta", "") or ""
+                elif et == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    if item is not None and getattr(item, "type", None) == "function_call":
+                        calls.append(item)
+            return text, calls
+        # 비스트림(가짜 테스트/호환)
+        resp = result
+        calls = [it for it in (getattr(resp, "output", None) or [])
+                 if getattr(it, "type", None) == "function_call"]
+        text = getattr(resp, "output_text", None) or ""
+        if not text:
+            for item in (getattr(resp, "output", None) or []):
+                if getattr(item, "type", None) == "message":
+                    for part in (getattr(item, "content", None) or []):
+                        if getattr(part, "type", None) in ("output_text", "text"):
+                            text += getattr(part, "text", "") or ""
+        return text, calls
+
     async def _run_responses(
         self, client: Any, user_payload: str, user_text: str
     ) -> AsyncIterator[str]:
@@ -268,28 +298,14 @@ class GPTBrain:
             tools = self._responses_tools()
 
             for _iteration in range(8):
-                resp = await client.responses.create(
+                raw_text, calls = await self._collect_response(
+                    client,
                     model=self._sub_model,
                     instructions=self._system_prompt(),
                     input=input_items,
                     tools=tools,
                     tool_choice="auto",
                 )
-
-                # function_call 항목 수집
-                calls = [
-                    item for item in (resp.output or [])
-                    if getattr(item, "type", None) == "function_call"
-                ]
-
-                # 텍스트 추출 — output_text 단축키 우선, 없으면 output 파싱
-                raw_text: str = getattr(resp, "output_text", None) or ""
-                if not raw_text:
-                    for item in (resp.output or []):
-                        if getattr(item, "type", None) == "message":
-                            for part in (getattr(item, "content", None) or []):
-                                if getattr(part, "type", None) in ("output_text", "text"):
-                                    raw_text += getattr(part, "text", "") or ""
 
                 if not calls:
                     final_text = raw_text
@@ -345,7 +361,8 @@ class GPTBrain:
         client = await self._ensure_client()
         try:
             if self._auth_mode == "subscription":
-                resp = await client.responses.create(
+                out, _calls = await self._collect_response(
+                    client,
                     model=self._sub_model,
                     instructions=(
                         f"Translate the given text into {target_lang}. "
@@ -353,7 +370,7 @@ class GPTBrain:
                     ),
                     input=[{"role": "user", "content": text}],
                 )
-                return (getattr(resp, "output_text", "") or "").strip()
+                return (out or "").strip()
             else:
                 resp = await client.chat.completions.create(
                     model=self._model,
