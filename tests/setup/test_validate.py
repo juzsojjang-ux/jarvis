@@ -88,32 +88,23 @@ async def test_gemini_fake_client_failure():
 
 
 # ---------------------------------------------------------------------------
-# GPT
+# GPT — codex 구독 로그인 확인 (키 불필요)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_gpt_empty_key_fails():
-    ok, msg = await validate("gpt", "", openai_client=_make_openai_client(success=True))
-    assert ok is False
-    assert "입력" in msg
-
-
-@pytest.mark.anyio
-async def test_gpt_fake_client_success():
-    ok, msg = await validate(
-        "gpt", "sk-test", openai_client=_make_openai_client(success=True)
-    )
+async def test_gpt_codex_check_success():
+    """codex_check가 True를 반환하면 (True, '확인') 을 반환한다."""
+    ok, msg = await validate("gpt", "", codex_check=lambda: True)
     assert ok is True
     assert "확인" in msg
 
 
 @pytest.mark.anyio
-async def test_gpt_fake_client_failure():
-    ok, msg = await validate(
-        "gpt", "sk-bad", openai_client=_make_openai_client(success=False)
-    )
+async def test_gpt_codex_check_failure():
+    """codex_check가 False를 반환하면 (False, 'codex login') 메시지를 반환한다."""
+    ok, msg = await validate("gpt", "", codex_check=lambda: False)
     assert ok is False
-    assert "올바르지" in msg
+    assert "codex login" in msg
 
 
 # ---------------------------------------------------------------------------
