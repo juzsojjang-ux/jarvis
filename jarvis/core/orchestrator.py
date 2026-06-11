@@ -321,7 +321,9 @@ class Orchestrator:
             return None
         if any(w in text for w in self._INTERP_OFF):
             return "off"
-        if any(w in text for w in self._INTERP_ON):
+        if "켜져" in text or "켜졌" in text:
+            return None  # 상태 질문("켜져 있어?") — 토글 아님, 두뇌로
+        if "켜" in text:
             return "on"
         return None
 

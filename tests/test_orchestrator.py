@@ -498,6 +498,9 @@ def test_control_command_matching():
     assert orch._control_command("화면 제어 그만") == "off"
     assert orch._control_command("통역 모드 켜줘") is None
     assert orch._control_command("화면에 뭐 있어") is None
+    assert orch._control_command("화면 제어 모드 켜져 있어?") is None
+    assert orch._control_command("화면 제어 시작") is None
+    assert orch._control_command("screen control on") is None
 
 
 def test_control_toggle_does_not_hijack_normal_turns(monkeypatch):

@@ -255,8 +255,9 @@ _SCREENSHOT_PATH = Path.home() / ".jarvis" / "screenshots" / "shot.png"
 
 def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> str:
     """화면을 무음 캡처해 파일로 저장하고 경로를 반환한다 — 두뇌가 Read로 본다.
-    레티나 캡처(2배 픽셀)를 포인트 크기로 줄여 이미지 좌표를 cliclick 좌표와
-    일치시킨다(보정 실패는 무시 — 캡처 자체는 유효)."""
+    레티나 캡처(이미지 dpi 144)를 포인트 크기로 줄여 이미지 좌표를 cliclick 좌표와
+    일치시킨다 — 데스크톱 전체 너비가 아니라 이미지 자신의 DPI를 쓰므로 멀티 모니터에서도
+    안전하다(보정 실패는 무시)."""
     target = Path(path) if path is not None else _SCREENSHOT_PATH
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -266,12 +267,18 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
             return ("화면 캡처에 실패했습니다. 시스템 설정의 화면 기록 권한을 "
                     "확인해 주세요.")
         try:
-            b = runner(["osascript", "-e",
-                        'tell application "Finder" to get bounds of window of desktop'],
+            info = runner(["sips", "-g", "dpiWidth", "-g", "pixelWidth", str(target)],
+                          capture_output=True, text=True)
+            props = {}
+            for line in str(info.stdout).splitlines():
+                if ":" in line:
+                    k, v = line.rsplit(":", 1)
+                    props[k.strip()] = v.strip()
+            scale = round(float(props["dpiWidth"]) / 72.0)
+            if scale > 1:
+                width = int(props["pixelWidth"]) // scale
+                runner(["sips", "--resampleWidth", str(width), str(target)],
                        capture_output=True, text=True)
-            width = int(str(b.stdout).split(",")[2].strip())
-            runner(["sips", "--resampleWidth", str(width), str(target)],
-                   capture_output=True, text=True)
         except Exception:  # noqa: BLE001 - 보정은 최선 노력
             pass
         return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
@@ -291,7 +298,7 @@ def screen_control_action(action: str, x: Any = None, y: Any = None, text: str =
     if not g.is_on():
         return ("화면 제어 모드가 꺼져 있습니다. 먼저 '화면 제어 모드 켜줘'라고 "
                 "말씀해 주세요.")
-    action = (action or "").strip()
+    action = str(action or "").strip()
     if action in _CLICK_PREFIX:
         try:
             args = [f"{_CLICK_PREFIX[action]}:{int(x)},{int(y)}"]
@@ -300,15 +307,17 @@ def screen_control_action(action: str, x: Any = None, y: Any = None, text: str =
         done = {"click": "클릭했습니다", "double_click": "더블클릭했습니다",
                 "right_click": "우클릭했습니다", "move": "이동했습니다"}[action]
     elif action == "type":
-        if not (text or "").strip():
+        text = str(text or "")
+        if not text.strip():
             return "입력할 텍스트가 비어 있습니다."
         args = [f"t:{text}"]
         done = "입력했습니다"
     elif action == "key":
-        if not (key or "").strip():
+        key = str(key or "").strip()
+        if not key:
             return "누를 키 이름이 비어 있습니다(return, tab, esc, space, arrow-down 등)."
-        args = [f"kp:{key.strip()}"]
-        done = f"{key.strip()} 키를 눌렀습니다"
+        args = [f"kp:{key}"]
+        done = f"{key} 키를 눌렀습니다"
     elif action == "scroll":
         # cliclick엔 스크롤 명령이 없다 — page-up/down 키로 구현(양수=위).
         try:

@@ -9,13 +9,13 @@ class _Res:
         self.returncode = returncode
 
 
-def _runner(calls, *, fail_capture=False):
+def _runner(calls, *, fail_capture=False, dpi="144.000", pixel_w="3456"):
     def run(cmd, capture_output=True, text=True):
         calls.append(list(cmd))
         if cmd[0] == "screencapture" and fail_capture:
             return _Res(returncode=1)
-        if cmd[0] == "osascript":
-            return _Res(stdout="0, 0, 1728, 1117\n")
+        if cmd[0] == "sips" and "-g" in cmd:
+            return _Res(stdout=f"/tmp/shot.png\n  dpiWidth: {dpi}\n  pixelWidth: {pixel_w}\n")
         return _Res()
     return run
 
@@ -29,12 +29,19 @@ def test_capture_creates_dir_and_returns_path(tmp_path):
     assert calls[0] == ["screencapture", "-x", str(target)]
 
 
-def test_capture_resamples_to_point_width(tmp_path):
+def test_capture_resamples_retina_to_point_width(tmp_path):
     calls = []
     target = tmp_path / "shot.png"
     capture_screen_action(runner=_runner(calls), path=target)
-    sips = [c for c in calls if c[0] == "sips"]
-    assert sips and sips[0][:3] == ["sips", "--resampleWidth", "1728"]
+    resample = [c for c in calls if c[0] == "sips" and "--resampleWidth" in c]
+    assert resample and resample[0][:3] == ["sips", "--resampleWidth", "1728"]
+
+
+def test_capture_skips_resample_on_non_retina(tmp_path):
+    calls = []
+    capture_screen_action(runner=_runner(calls, dpi="72.000", pixel_w="1920"),
+                          path=tmp_path / "shot.png")
+    assert not [c for c in calls if "--resampleWidth" in c]
 
 
 def test_capture_failure_returns_guidance(tmp_path):
@@ -50,10 +57,10 @@ def test_capture_never_raises(tmp_path):
     assert "실패" in out
 
 
-def test_capture_survives_bad_bounds(tmp_path):
-    """osascript 보정 실패해도 캡처 경로는 반환."""
+def test_capture_survives_bad_sips_info(tmp_path):
+    """sips 정보 조회 실패해도 캡처 경로는 반환."""
     def run(cmd, capture_output=True, text=True):
-        if cmd[0] == "osascript":
+        if cmd[0] == "sips":
             return _Res(stdout="garbage")
         return _Res()
     target = tmp_path / "shot.png"
@@ -145,3 +152,10 @@ def test_control_missing_cliclick_guidance():
 def test_control_empty_type_and_key_guidance():
     assert "텍스트" in screen_control_action("type", text="", gate=_gate(), runner=_runner([]))
     assert "키" in screen_control_action("key", key="", gate=_gate(), runner=_runner([]))
+
+
+def test_control_non_string_args_never_raise():
+    out = screen_control_action(123, gate=_gate(), runner=_runner([]))
+    assert "지원하지 않는" in out
+    out = screen_control_action("key", key=7, gate=_gate(), runner=_runner([]))
+    assert "키" in out
