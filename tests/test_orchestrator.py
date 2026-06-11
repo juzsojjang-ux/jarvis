@@ -684,3 +684,31 @@ def test_on_press_ignored_while_remote_busy():
     orch.state = State.IDLE
     orch._on_press()
     assert orch.state == State.IDLE  # CAPTURING으로 안 바뀜
+
+
+def test_trust_command_matching():
+    orch, _ = _make()
+    assert orch._trust_command("전권 모드 켜줘") == "on"
+    assert orch._trust_command("전권 위임 켜") == "on"
+    assert orch._trust_command("전권 모드 꺼줘") == "off"
+    assert orch._trust_command("전권 켜져 있어?") is None
+    assert orch._trust_command("통역 모드 켜줘") is None
+    assert orch._trust_command("화면 제어 모드 켜줘") is None
+
+
+def test_toggle_trust_enables_gate(monkeypatch):
+    from jarvis.core import orchestrator as om
+    calls = []
+    class _G:
+        def enable(self, ttl): calls.append(("enable", ttl))
+        def disable(self): calls.append(("disable",))
+    monkeypatch.setattr(om, "TRUST_GATE", _G())
+    orch, pb = _make()
+
+    async def run():
+        await orch._pipeline_text("전권 모드 켜줘")
+        await orch._pipeline_text("전권 모드 꺼줘")
+    asyncio.run(run())
+    assert calls == [("enable", orch.settings.trust_mode_ttl_s), ("disable",)]
+    assert len(pb.feeds) >= 1
+    assert orch.state == State.IDLE

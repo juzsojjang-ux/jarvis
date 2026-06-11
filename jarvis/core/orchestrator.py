@@ -8,7 +8,7 @@ import numpy as np
 from ..audio.util import resample
 from ..audio.wake import match_wake
 from ..hud.level import audio_level, chunk_levels
-from .control_gate import CONTROL_GATE
+from .control_gate import CONTROL_GATE, TRUST_GATE
 from .events import State
 from .interpret import detect_lang, interpret_speak_korean
 
@@ -161,6 +161,10 @@ class Orchestrator:
         if ctl is not None:
             await self._toggle_control(ctl)
             return
+        trust = self._trust_command(text)
+        if trust is not None:
+            await self._toggle_trust(trust)
+            return
         cmd = self._interpret_command(text)
         if cmd is not None:
             await self._toggle_interpret(cmd)
@@ -304,6 +308,34 @@ class Orchestrator:
         await asyncio.sleep(max(0.0, self._follow_up_until - loop.time()))
         # 창이 연장(새 답변)되지 않았고 여전히 한가할 때만 STANDBY로 복귀.
         if self.state == State.IDLE and loop.time() >= self._follow_up_until:
+            self._publish("idle")
+
+    # ----- 전권 위임 모드 -----
+    def _trust_command(self, text: str) -> str | None:
+        if "전권" not in text:
+            return None
+        if any(w in text for w in self._INTERP_OFF):
+            return "off"
+        if "켜져" in text or "켜졌" in text:
+            return None
+        if "켜" in text:
+            return "on"
+        return None
+
+    async def _toggle_trust(self, cmd: str) -> None:
+        if cmd == "on":
+            TRUST_GATE.enable(self.settings.trust_mode_ttl_s)
+            en, ko = ("Full authority granted, sir. I'll tidy up after myself shortly.",
+                      "전권을 위임받았습니다, 주인님. 잠시 후 자동으로 닫습니다.")
+        else:
+            TRUST_GATE.disable()
+            en, ko = ("Full authority revoked, sir.", "전권 모드를 껐습니다.")
+        await self._play_phrase(en, ko)
+        await self._finish_speaking("")
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
             self._publish("idle")
 
     # ----- 통역 모드 -----
