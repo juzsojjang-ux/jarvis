@@ -19,6 +19,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from ..proactive.sources import fetch_events, fetch_reminders
 from ..proactive.timers import DEFAULT_BOARD
+from ..core.control_gate import CONTROL_GATE
 
 _CITY_COORDS: dict[str, tuple[float, float]] = {
     "서울": (37.5665, 126.9780), "부산": (35.1796, 129.0756), "인천": (37.4563, 126.7052),
@@ -276,6 +277,62 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
         return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
     except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
         return "화면 캡처에 실패했습니다."
+
+
+_CLICK_PREFIX = {"click": "c", "double_click": "dc", "right_click": "rc", "move": "m"}
+
+
+def screen_control_action(action: str, x: Any = None, y: Any = None, text: str = "",
+                          key: str = "", amount: Any = None,
+                          gate=None, runner=subprocess.run) -> str:
+    """좌표 기반 화면 조작(cliclick). '화면 제어 모드' 게이트가 꺼져 있으면 거부 —
+    모드 진입 자체가 사용자 동의라서 모드 안에서는 동작별 음성 확인 없이 실행한다."""
+    g = gate if gate is not None else CONTROL_GATE
+    if not g.is_on():
+        return ("화면 제어 모드가 꺼져 있습니다. 먼저 '화면 제어 모드 켜줘'라고 "
+                "말씀해 주세요.")
+    action = (action or "").strip()
+    if action in _CLICK_PREFIX:
+        try:
+            args = [f"{_CLICK_PREFIX[action]}:{int(x)},{int(y)}"]
+        except (TypeError, ValueError):
+            return "좌표 x, y를 정수로 알려주세요."
+        done = {"click": "클릭했습니다", "double_click": "더블클릭했습니다",
+                "right_click": "우클릭했습니다", "move": "이동했습니다"}[action]
+    elif action == "type":
+        if not (text or "").strip():
+            return "입력할 텍스트가 비어 있습니다."
+        args = [f"t:{text}"]
+        done = "입력했습니다"
+    elif action == "key":
+        if not (key or "").strip():
+            return "누를 키 이름이 비어 있습니다(return, tab, esc, space, arrow-down 등)."
+        args = [f"kp:{key.strip()}"]
+        done = f"{key.strip()} 키를 눌렀습니다"
+    elif action == "scroll":
+        # cliclick엔 스크롤 명령이 없다 — page-up/down 키로 구현(양수=위).
+        try:
+            n = int(amount if amount is not None else 1)
+        except (TypeError, ValueError):
+            return "스크롤 양은 정수로 알려주세요(양수 위, 음수 아래)."
+        if n == 0:
+            return "스크롤 양이 0입니다."
+        k = "page-up" if n > 0 else "page-down"
+        args = [f"kp:{k}"] * min(abs(n), 10)
+        done = "스크롤했습니다"
+    else:
+        return ("지원하지 않는 동작입니다. click, double_click, right_click, move, "
+                "type, key, scroll 중 하나를 쓰세요.")
+    try:
+        res = runner(["cliclick", *args], capture_output=True, text=True)
+    except FileNotFoundError:
+        return ("화면 제어에는 cliclick이 필요합니다. 터미널에서 "
+                "brew install cliclick 을 실행해 주세요.")
+    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
+        return "화면 조작에 실패했습니다."
+    if getattr(res, "returncode", 0) != 0:
+        return "화면 조작에 실패했습니다. 손쉬운 사용(접근성) 권한을 확인해 주세요."
+    return f"{done}."
 
 
 _MUSIC_FIND = {
@@ -617,6 +674,25 @@ async def _capture_screen(_args):
     return _text(capture_screen_action())
 
 
+@tool("screen_control",
+      "화면을 마우스·키보드로 조작한다(클릭/더블클릭/우클릭/이동/텍스트 입력/특수키/"
+      "스크롤). 사용자가 '화면 제어 모드'를 켜둬야만 동작한다. 좌표는 먼저 "
+      "capture_screen으로 화면을 본 뒤 그 이미지 픽셀 좌표를 그대로 쓴다.",
+      {"type": "object", "properties": {
+          "action": {"type": "string",
+                     "enum": ["click", "double_click", "right_click", "move",
+                              "type", "key", "scroll"]},
+          "x": {"type": "integer"}, "y": {"type": "integer"},
+          "text": {"type": "string"}, "key": {"type": "string"},
+          "amount": {"type": "integer"}},
+       "required": ["action"]})
+async def _screen_control(args):
+    a = args or {}
+    return _text(screen_control_action(
+        str(a.get("action") or ""), a.get("x"), a.get("y"),
+        str(a.get("text") or ""), str(a.get("key") or ""), a.get("amount")))
+
+
 def build_jarvis_mcp_server(memory: Any = None):
     """In-process MCP server. `memory` (a MemoryStore) backs the remember tool."""
 
@@ -636,7 +712,7 @@ def build_jarvis_mcp_server(memory: Any = None):
              _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
              _set_timer, _cancel_timer, _list_timers,
              _get_messages, _get_unread_mail,
-             _capture_screen,
+             _capture_screen, _screen_control,
              _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
@@ -649,6 +725,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
     "set_timer", "cancel_timer", "list_timers",
     "get_messages", "get_unread_mail",
-    "capture_screen",
+    "capture_screen", "screen_control",
     "remember",
 )]

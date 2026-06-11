@@ -59,3 +59,89 @@ def test_capture_survives_bad_bounds(tmp_path):
     target = tmp_path / "shot.png"
     out = capture_screen_action(runner=run, path=target)
     assert str(target) in out
+
+
+# ---------------------------------------------------------------------------
+# screen_control_action tests
+# ---------------------------------------------------------------------------
+from jarvis.core.control_gate import ControlGate
+from jarvis.tools.jarvis_mcp import screen_control_action
+
+
+def _gate(on=True):
+    g = ControlGate(clock=lambda: 100.0)
+    if on:
+        g.enable(300.0)
+    return g
+
+
+def test_control_refused_when_gate_off():
+    calls = []
+    out = screen_control_action("click", x=10, y=20, gate=_gate(on=False),
+                                runner=_runner(calls))
+    assert "화면 제어 모드" in out
+    assert calls == []  # 절대 실행되지 않는다
+
+
+def test_control_click_dispatch():
+    calls = []
+    out = screen_control_action("click", x=10, y=20, gate=_gate(),
+                                runner=_runner(calls))
+    assert calls == [["cliclick", "c:10,20"]]
+    assert "클릭" in out
+
+
+def test_control_double_right_move_dispatch():
+    for action, prefix in (("double_click", "dc"), ("right_click", "rc"), ("move", "m")):
+        calls = []
+        screen_control_action(action, x=5, y=7, gate=_gate(), runner=_runner(calls))
+        assert calls == [["cliclick", f"{prefix}:5,7"]]
+
+
+def test_control_type_dispatch():
+    calls = []
+    screen_control_action("type", text="안녕 jarvis", gate=_gate(), runner=_runner(calls))
+    assert calls == [["cliclick", "t:안녕 jarvis"]]
+
+
+def test_control_key_dispatch():
+    calls = []
+    screen_control_action("key", key="return", gate=_gate(), runner=_runner(calls))
+    assert calls == [["cliclick", "kp:return"]]
+
+
+def test_control_scroll_maps_to_page_keys():
+    calls = []
+    screen_control_action("scroll", amount=-2, gate=_gate(), runner=_runner(calls))
+    assert calls == [["cliclick", "kp:page-down", "kp:page-down"]]
+    calls.clear()
+    screen_control_action("scroll", amount=3, gate=_gate(), runner=_runner(calls))
+    assert calls == [["cliclick", "kp:page-up"] + ["kp:page-up"] * 2]
+
+
+def test_control_scroll_caps_repeats():
+    calls = []
+    screen_control_action("scroll", amount=-99, gate=_gate(), runner=_runner(calls))
+    assert len(calls[0]) == 1 + 10  # cliclick + 최대 10회
+
+
+def test_control_bad_coords_guidance():
+    out = screen_control_action("click", x="abc", y=None, gate=_gate(), runner=_runner([]))
+    assert "좌표" in out
+
+
+def test_control_unknown_action_guidance():
+    out = screen_control_action("fly", gate=_gate(), runner=_runner([]))
+    assert "지원하지 않는" in out
+
+
+def test_control_missing_cliclick_guidance():
+    def no_bin(cmd, capture_output=True, text=True):
+        raise FileNotFoundError("cliclick")
+    out = screen_control_action("click", x=1, y=1, gate=_gate(), runner=no_bin)
+    assert "brew install cliclick" in out
+
+
+def test_control_empty_type_and_key_guidance():
+    assert "텍스트" in screen_control_action("type", text="", gate=_gate(), runner=_runner([]))
+    assert "키" in screen_control_action("key", key="", gate=_gate(), runner=_runner([]))
