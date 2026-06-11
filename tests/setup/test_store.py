@@ -120,14 +120,17 @@ def test_is_configured_gemini_true_after_save_key(tmp_setup, fake_keyring):
     assert is_configured(tmp_setup) is True
 
 
-def test_is_configured_gpt_false_without_key(tmp_setup, fake_keyring):
+def test_is_configured_gpt_false_when_codex_not_logged_in(tmp_setup, fake_keyring, monkeypatch):
+    """GPT: codex 미로그인 → is_configured False."""
+    monkeypatch.setattr("jarvis.brain.codex_auth.is_codex_logged_in", lambda path=None: False)
     save_setup("gpt", tmp_setup)
     assert is_configured(tmp_setup) is False
 
 
-def test_is_configured_gpt_true_after_save_key(tmp_setup, fake_keyring):
+def test_is_configured_gpt_true_when_codex_logged_in(tmp_setup, fake_keyring, monkeypatch):
+    """GPT: codex 로그인 → is_configured True (키 불필요)."""
+    monkeypatch.setattr("jarvis.brain.codex_auth.is_codex_logged_in", lambda path=None: True)
     save_setup("gpt", tmp_setup)
-    save_key("gpt", "sk-fake-key")
     assert is_configured(tmp_setup) is True
 
 

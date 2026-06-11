@@ -53,4 +53,7 @@ def is_configured(path: Path | None = None) -> bool:
         return False
     if prov == "claude":
         return True  # 구독 로그인은 claude CLI가 관리
-    return bool(get_key(prov))
+    if prov == "gpt":
+        from jarvis.brain.codex_auth import is_codex_logged_in
+        return is_codex_logged_in()
+    return bool(get_key(prov))  # gemini → keyring key
