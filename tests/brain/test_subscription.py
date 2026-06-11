@@ -481,14 +481,42 @@ def test_can_use_tool_remote_mode_denies_without_confirm():
     brain.remote_mode = True
 
     async def run():
-        deny = await brain._can_use_tool("Bash", {"command": "rm -rf /"}, None)
-        read = await brain._can_use_tool("Read", {}, None)
-        jarvis_tool = await brain._can_use_tool("mcp__jarvis__get_time", {}, None)
-        return deny, read, jarvis_tool
+        return (
+            await brain._can_use_tool("Bash", {"command": "rm -rf /"}, None),
+            await brain._can_use_tool("mcp__jarvis__control_mac",
+                                      {"script": 'do shell script "rm -rf ~"'}, None),
+            await brain._can_use_tool("mcp__jarvis__run_shortcut", {"name": "x"}, None),
+            await brain._can_use_tool("mcp__jarvis__system_toggle",
+                                      {"target": "wifi", "state": "off"}, None),
+            await brain._can_use_tool("mcp__jarvis__screen_control",
+                                      {"action": "click", "x": 1, "y": 1}, None),
+            await brain._can_use_tool("Read", {}, None),
+            await brain._can_use_tool("WebSearch", {}, None),
+            await brain._can_use_tool("mcp__jarvis__get_time", {}, None),
+            await brain._can_use_tool("mcp__jarvis__get_weather", {"city": "서울"}, None),
+        )
 
-    deny, read, jarvis_tool = asyncio.run(run())
-    assert type(deny).__name__ == "PermissionResultDeny"
-    assert "원격" in deny.message
+    (bash, ctl, sc, tog, scr, read, web, gtime, gweather) = asyncio.run(run())
+    for deny in (bash, ctl, sc, tog, scr):
+        assert type(deny).__name__ == "PermissionResultDeny"
+        assert "원격" in deny.message
     assert confirm_calls == []  # 음성 확인을 부르지도 않는다
-    assert type(read).__name__ == "PermissionResultAllow"
-    assert type(jarvis_tool).__name__ == "PermissionResultAllow"
+    for allow in (read, web, gtime, gweather):
+        assert type(allow).__name__ == "PermissionResultAllow"
+
+
+def test_can_use_tool_normal_mode_unchanged():
+    """remote_mode=False면 기존 동작 그대로 — jarvis 도구 자동 허용."""
+    import asyncio
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096)
+    assert brain.remote_mode is False
+
+    async def run():
+        return await brain._can_use_tool("mcp__jarvis__control_mac", {"script": "x"}, None)
+
+    res = asyncio.run(run())
+    assert type(res).__name__ == "PermissionResultAllow"

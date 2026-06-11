@@ -3,6 +3,7 @@
 (토큰 원문을 stdout에 찍지 않는다)."""
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 
@@ -12,11 +13,15 @@ DEFAULT_TOKEN_PATH = Path.home() / ".jarvis" / "remote_token"
 def load_or_create_token(path: Path | None = None) -> str:
     p = Path(path) if path is not None else DEFAULT_TOKEN_PATH
     if p.exists():
+        p.chmod(0o600)  # 기존 파일이 넓은 권한이었어도 좁힌다
         tok = p.read_text(encoding="utf-8").strip()
         if tok:
             return tok
     tok = secrets.token_urlsafe(32)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(tok + "\n", encoding="utf-8")
-    p.chmod(0o600)
+    p.parent.chmod(0o700)
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(tok + "\n")
+    p.chmod(0o600)  # 기존 파일이 넓은 권한이었어도 좁힌다
     return tok

@@ -665,3 +665,22 @@ def test_remote_turn_blocks_concurrent_remote():
         return await orch.remote_turn("hi")
     res = asyncio.run(run())
     assert "다른 일" in res["reply"]
+
+
+def test_remote_busy_closes_voice_gates():
+    orch, _pb = _make()
+    orch._remote_busy = True
+    orch.state = State.IDLE
+    assert orch._can_announce() is False
+    if hasattr(orch, "_wake_gate"):
+        async def run():
+            return orch._wake_gate()
+        assert asyncio.run(run()) is False
+
+
+def test_on_press_ignored_while_remote_busy():
+    orch, _pb = _make()
+    orch._remote_busy = True
+    orch.state = State.IDLE
+    orch._on_press()
+    assert orch.state == State.IDLE  # CAPTURING으로 안 바뀜

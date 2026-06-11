@@ -76,6 +76,8 @@ class Orchestrator:
             self._loop.call_soon_threadsafe(self._on_release)
 
     def _on_press(self) -> None:
+        if self._remote_busy:
+            return  # 원격 턴 진행 중 — PTT 무시(상태·캡처를 건드리면 게이트가 풀린다)
         # Barge-in: a press while a pipeline is running cancels it before re-capturing.
         if self._task is not None and not self._task.done():
             # Keep a strong ref: the loop only weakly references tasks, so a bare
@@ -224,7 +226,8 @@ class Orchestrator:
             now = asyncio.get_running_loop().time()
         except RuntimeError:
             return False
-        return self.state == State.IDLE and now >= self._wake_blocked_until
+        return (self.state == State.IDLE and now >= self._wake_blocked_until
+                and not self._remote_busy)
 
     # 웨이크 판정엔 발화 앞부분만 변환한다 — 잡담 전체(최대 30초)를 위스퍼에
     # 태우는 게 상시 청취의 지배적 배터리 비용이라서다. 매칭이 확정된 뒤에만
@@ -393,6 +396,7 @@ class Orchestrator:
     # ----- 능동 알림 (ProactiveEngine이 호출) -----
     def _can_announce(self) -> bool:
         return (self.state == State.IDLE
+                and not self._remote_busy
                 and (self._task is None or self._task.done()))
 
     async def announce(self, prompt: str) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hmac
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -19,6 +20,7 @@ class RemoteServer:
         self._token = token
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._last_auth_log = 0.0
 
     @property
     def url(self) -> str:
@@ -28,6 +30,8 @@ class RemoteServer:
         outer = self
 
         class _Handler(BaseHTTPRequestHandler):
+            timeout = 30  # 느린/반열림 연결이 스레드를 영원히 잡는 것 방지
+
             def log_message(self, *args):  # noqa: D102 - stderr 스팸 방지
                 pass
 
@@ -42,16 +46,23 @@ class RemoteServer:
                     self.wfile.write(body)
 
             def do_POST(self):  # noqa: N802 - http.server 계약
+                # 인증을 경로 확인보다 먼저 — 경로 탐색으로 엔드포인트 존재를 확인할 수 없다(N1).
+                auth = self.headers.get("Authorization", "")
+                if not hmac.compare_digest(auth, f"Bearer {outer._token}"):
+                    now = time.monotonic()
+                    if now - outer._last_auth_log > 10.0:
+                        outer._last_auth_log = now
+                        print("[원격] 인증 실패 요청 거부")
+                    self._send(401)
+                    return
                 if self.path != "/ask":
                     self._send(404, {"reply": "없는 경로입니다."})
                     return
-                auth = self.headers.get("Authorization", "")
-                if not hmac.compare_digest(auth, f"Bearer {outer._token}"):
-                    print("[원격] 인증 실패 요청 거부")
-                    self._send(401)
-                    return
                 try:
                     n = int(self.headers.get("Content-Length", "0"))
+                    if n > 64 * 1024:
+                        self._send(413, {"reply": "요청이 너무 큽니다."})
+                        return
                     data = json.loads(self.rfile.read(n) or b"{}")
                     text = str(data.get("text", "")).strip()
                 except Exception:  # noqa: BLE001 - 못 읽는 본문은 빈 text 취급

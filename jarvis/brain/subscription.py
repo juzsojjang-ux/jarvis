@@ -138,6 +138,14 @@ class SubscriptionBrain:
     _SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "TodoWrite", "WebSearch",
                              "WebFetch", "NotebookRead"})
 
+    # 원격(아이폰) 턴에서 허용되는 jarvis 도구 — 읽기·무해 전용. control_mac(임의
+    # AppleScript)·run_shortcut·system_toggle 등 상태를 바꾸는 도구는 원격 금지.
+    _REMOTE_SAFE_JARVIS = frozenset({
+        "get_time", "get_weather", "battery_status", "get_reminders",
+        "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
+        "clipboard_read", "remember",
+    })
+
     def _confirm_prompt(self, tool: str, inp: dict) -> str:
         if tool == "Bash":
             cmd = str(inp.get("command", ""))[:80]
@@ -150,6 +158,16 @@ class SubscriptionBrain:
     async def _can_use_tool(self, tool_name, tool_input, context):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
+        # 원격 턴: 음성 확인 채널이 없다 — 읽기 전용 허용목록 외 전부 차단.
+        # 이 검사가 jarvis 자동 허용보다 먼저여야 한다(control_mac=임의 AppleScript).
+        if self.remote_mode:
+            base = tool_name.split("__")[-1]
+            if tool_name.startswith("mcp__jarvis__") and base in self._REMOTE_SAFE_JARVIS:
+                return PermissionResultAllow()
+            if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
+                return PermissionResultAllow()
+            return PermissionResultDeny(message=f"{base}은 원격에서는 실행할 수 없습니다.")
+
         # 자동 허용은 ① 우리 인프로세스 jarvis MCP 도구, 또는 ② '__' 없는
         # 내장 읽기셋뿐이다. mcp__타사__Read 처럼 끝 segment만 읽기셋과 같아도
         # 통과하던 우회를 막는다(향후 다른 MCP 서버가 붙어도 안전).
@@ -158,9 +176,6 @@ class SubscriptionBrain:
         if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
             return PermissionResultAllow()
         base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용
-        if self.remote_mode:
-            # 원격엔 음성 확인 채널이 없다 — 확인을 시도하지 말고 차단.
-            return PermissionResultDeny(message=f"{base}은 원격에서는 실행할 수 없습니다.")
         if self._confirm is None:
             return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
         ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))

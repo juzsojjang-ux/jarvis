@@ -20,3 +20,11 @@ def test_regenerates_empty_file(tmp_path):
     p.write_text("  \n")
     tok = load_or_create_token(p)
     assert tok.strip()
+
+
+def test_existing_file_perms_renarrowed(tmp_path):
+    p = tmp_path / "remote_token"
+    p.write_text("tok123\n")
+    p.chmod(0o644)
+    assert load_or_create_token(p) == "tok123"
+    assert (p.stat().st_mode & 0o777) == 0o600

@@ -80,3 +80,24 @@ def test_unknown_path_404(server):
     with pytest.raises(urllib.error.HTTPError) as e:
         _post(srv.port, path="/other")
     assert e.value.code == 404
+
+
+def test_oversized_body_413(server):
+    srv, _calls = server
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{srv.port}/ask",
+        data=b"x" * (65 * 1024),
+        headers={"Authorization": f"Bearer {TOKEN}",
+                 "Content-Type": "application/json"},
+        method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 413
+
+
+def test_unknown_path_needs_auth_first(server):
+    """경로 탐색으로 /ask 존재를 확인할 수 없다 — 인증이 먼저."""
+    srv, _calls = server
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _post(srv.port, token="wrong", path="/other")
+    assert e.value.code == 401
