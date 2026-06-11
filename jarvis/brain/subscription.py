@@ -19,6 +19,7 @@ VoiceConfirm). A misheard command can't run unconfirmed.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from collections.abc import AsyncIterator
@@ -125,6 +126,7 @@ class SubscriptionBrain:
         self._client: Any = None
         self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
         self._xlate: dict[str, Any] = {}  # 통역용 방향별 영속 클라이언트(콜드스타트 제거)
+        self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(예열·턴 동시 호출 레이스 방지)
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
 
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
@@ -346,19 +348,29 @@ class SubscriptionBrain:
         return client
 
     async def translate(self, text: str, target_lang: str) -> str:
-        """도구 없는 번역 질의 — 방향별 영속 클라이언트 재사용(첫 통역 콜드스타트 제거)."""
-        client = await self._ensure_xlate(target_lang)
-        out: list[str] = []
-        try:
-            await client.query(text)
-            async for msg in client.receive_response():
-                for block in getattr(msg, "content", []) or []:
-                    if getattr(block, "type", "") == "text":
-                        out.append(getattr(block, "text", ""))
-        except Exception:
-            self._xlate.pop(target_lang, None)  # 죽은 세션 폐기 — 다음 호출이 재연결
-            raise
-        return "".join(out).strip()
+        """도구 없는 번역 질의 — 방향별 영속 클라이언트 재사용(첫 통역 콜드스타트 제거).
+        방향별 락으로 직렬화: 백그라운드 예열과 실제 통역 턴이 같은 클라이언트의
+        receive_response를 동시에 돌리면 서로 응답을 훔쳐간다."""
+        lock = self._xlate_locks.setdefault(target_lang, asyncio.Lock())
+        async with lock:
+            client = await self._ensure_xlate(target_lang)
+            out: list[str] = []
+            try:
+                await client.query(text)
+                async for msg in client.receive_response():
+                    for block in getattr(msg, "content", []) or []:
+                        if getattr(block, "type", "") == "text":
+                            out.append(getattr(block, "text", ""))
+            except BaseException:
+                # 바지인 취소(CancelledError) 포함 — 반쯤 소비된 세션을 캐시에
+                # 남기면 다음 번역이 이전 응답 찌꺼기를 받는다. 폐기 후 재연결.
+                self._xlate.pop(target_lang, None)
+                try:
+                    await asyncio.shield(asyncio.ensure_future(client.disconnect()))
+                except BaseException:  # noqa: BLE001 - 정리는 최선 노력
+                    pass
+                raise
+            return "".join(out).strip()
 
     async def warm_interpret(self) -> None:
         """통역 토글 on에서 백그라운드 호출 — 두 방향을 미리 연결·예열(best-effort)."""

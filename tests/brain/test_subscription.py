@@ -283,7 +283,7 @@ def test_translate_reuses_client_per_direction():
             self.connects += 1
 
         async def disconnect(self):
-            pass
+            self.disconnects = getattr(self, "disconnects", 0) + 1
 
         async def query(self, text):
             pass
@@ -309,6 +309,7 @@ def test_translate_reuses_client_per_direction():
     asyncio.run(run())
     assert len(instances) == 2
     assert all(c.connects == 1 for c in instances)
+    assert all(getattr(c, "disconnects", 0) == 1 for c in instances)
 
 
 def test_translate_failure_drops_cached_client():
@@ -358,3 +359,107 @@ def test_guidance_mentions_screen_tools():
     for g in (_GUIDANCE_EN, _GUIDANCE_KO):
         assert "capture_screen" in g
         assert "screen_control" in g
+
+
+def test_translate_concurrent_same_direction_serialized():
+    """예열과 첫 통역이 같은 방향을 동시에 때려도 클라이언트 1개·응답 혼선 없음(락)."""
+    import asyncio
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    instances = []
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            pass
+
+    class _SlowClient:
+        def __init__(self, options=None):
+            instances.append(self)
+            self.active = 0
+
+        async def connect(self):
+            await asyncio.sleep(0)
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, text):
+            self._text = text
+
+        async def receive_response(self):
+            self.active += 1
+            assert self.active == 1, "동시 receive_response — 응답 훔치기 레이스"
+            await asyncio.sleep(0)
+
+            class _Blk:
+                type = "text"
+                text = ""
+            _Blk.text = f"<{self._text}>"
+
+            class _Msg:
+                content = [_Blk()]
+            yield _Msg()
+            self.active -= 1
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096,
+                              client_cls=_SlowClient, options_cls=_FakeOptions)
+
+    async def run():
+        return await asyncio.gather(
+            brain.translate("hi", "Korean"),
+            brain.translate("진짜 질문", "Korean"),
+        )
+
+    a, b = asyncio.run(run())
+    assert len(instances) == 1          # 더블 커넥트 없음
+    assert a == "<hi>" and b == "<진짜 질문>"  # 각자 자기 응답
+
+
+def test_translate_cancellation_evicts_cached_client():
+    """바지인 취소가 반쯤 소비된 세션을 캐시에 남기지 않는다."""
+    import asyncio
+
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    disconnected = []
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            pass
+
+    class _HangClient:
+        def __init__(self, options=None):
+            pass
+
+        async def connect(self):
+            pass
+
+        async def disconnect(self):
+            disconnected.append(True)
+
+        async def query(self, text):
+            pass
+
+        async def receive_response(self):
+            await asyncio.Event().wait()  # 영원히 스트리밍 중
+            yield  # pragma: no cover
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096,
+                              client_cls=_HangClient, options_cls=_FakeOptions)
+
+    async def run():
+        task = asyncio.create_task(brain.translate("안녕", "English"))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert brain._xlate == {}  # 오염된 세션 폐기
+        await asyncio.sleep(0.01)  # 백그라운드 disconnect 완료 여유
+
+    asyncio.run(run())
+    assert disconnected == [True]
