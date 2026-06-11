@@ -106,6 +106,16 @@ SETUP_HTML = """\
     color: var(--dim);
     line-height: 1.4;
   }
+  .badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.6rem;
+    vertical-align: middle;
+  }
+  .badge.free { background: #0d3a2a; color: #4ade80; }
+  .badge.paid { background: #3a2a0d; color: #fbbf24; }
   .card input[type="radio"] { display: none; }
   .key-section {
     width: 100%;
@@ -182,20 +192,20 @@ SETUP_HTML = """\
 
   <label class="card selected" data-provider="claude">
     <input type="radio" name="provider" value="claude" checked>
-    <div class="provider-name">Claude</div>
-    <div class="provider-note">구독 로그인 사용<br>(키 불필요)</div>
+    <div class="provider-name">Claude <span class="badge free">무료 · 추천</span></div>
+    <div class="provider-note">구독 로그인 (키 불필요)<br>가장 강력 — Bash·파일·웹검색·화면비전</div>
   </label>
 
   <label class="card" data-provider="gemini">
     <input type="radio" name="provider" value="gemini">
-    <div class="provider-name">Gemini</div>
-    <div class="provider-note">Google AI Studio 키</div>
+    <div class="provider-name">Gemini <span class="badge free">무료</span></div>
+    <div class="provider-note">Google AI Studio 무료 키<br>개인용 과금 없음 (도구·통역·기억 지원)</div>
   </label>
 
   <label class="card" data-provider="gpt">
     <input type="radio" name="provider" value="gpt">
-    <div class="provider-name">GPT</div>
-    <div class="provider-note">OpenAI 키</div>
+    <div class="provider-name">GPT <span class="badge paid">유료</span></div>
+    <div class="provider-note">OpenAI 유료 키 (토큰당 과금)<br>구독 연동 불가</div>
   </label>
 
 </div>
