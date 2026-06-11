@@ -777,8 +777,13 @@ async def _screen_control(args):
         str(a.get("text") or ""), str(a.get("key") or ""), a.get("amount")))
 
 
-def build_jarvis_mcp_server(memory: Any = None):
-    """In-process MCP server. `memory` (a MemoryStore) backs the remember tool."""
+def build_tool_objects(memory: Any = None):
+    """30개 SdkMcpTool 객체 리스트를 반환한다.
+
+    MCP 서버와 프로바이더 중립 레지스트리가 같은 도구 정의를 공유하기 위해
+    도구 리스트 구성 로직을 여기로 추출했다.  `remember` 도구는 `memory`를
+    클로저로 캡처하므로 매 호출마다 새로 만든다.
+    """
 
     @tool("remember", "사용자가 알려준 정보를 장기 기억에 저장한다.",
           {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]})
@@ -790,16 +795,20 @@ def build_jarvis_mcp_server(memory: Any = None):
             memory.remember(note)
         return _text(f"기억했습니다: {note}")
 
-    tools = [_get_time, _get_weather, _open_app, _set_volume, _play_music, _music,
-             _add_reminder, _create_note, _battery, _get_reminders, _get_calendar_events,
-             _mute, _lock, _quit_app, _control_mac, _system_toggle,
-             _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
-             _set_timer, _cancel_timer, _list_timers,
-             _get_messages, _get_unread_mail,
-             _send_message, _send_mail,
-             _capture_screen, _screen_control,
-             _remember]
-    return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
+    return [_get_time, _get_weather, _open_app, _set_volume, _play_music, _music,
+            _add_reminder, _create_note, _battery, _get_reminders, _get_calendar_events,
+            _mute, _lock, _quit_app, _control_mac, _system_toggle,
+            _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
+            _set_timer, _cancel_timer, _list_timers,
+            _get_messages, _get_unread_mail,
+            _send_message, _send_mail,
+            _capture_screen, _screen_control,
+            _remember]
+
+
+def build_jarvis_mcp_server(memory: Any = None):
+    """In-process MCP server. `memory` (a MemoryStore) backs the remember tool."""
+    return create_sdk_mcp_server("jarvis", "1.0.0", tools=build_tool_objects(memory))
 
 
 # Allow-list names the brain passes to ClaudeAgentOptions.allowed_tools.

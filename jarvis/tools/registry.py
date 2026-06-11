@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 # Startup import-check: local tools are produced by @beta_async_tool, whose
 # .call() is awaited in dispatch(). This GUARDS the pinned SDK so a missing or
@@ -74,3 +75,39 @@ class ToolRegistry:
                 text = block.get("text")
             parts.append(text if text is not None else str(block))
         return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# 프로바이더 중립 도구 레지스트리 — Gemini/GPT 함수호출 루프가 jarvis 도구를
+# 재사용한다(Claude는 MCP 서버 경로). 같은 SdkMcpTool 객체에서 스펙을 뽑으므로
+# 도구 정의가 한 곳(jarvis_mcp)에만 산다.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class NeutralTool:
+    name: str
+    description: str
+    parameters: dict           # JSON schema (input_schema)
+    handler: Callable          # async (args: dict) -> {"content":[{"type":"text","text":str}]}
+
+    async def call(self, args: dict | None) -> str:
+        try:
+            res = await self.handler(args or {})
+        except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다(두뇌에 안내 회신)
+            return "도구 실행에 실패했습니다."
+        try:
+            blocks = (res or {}).get("content", [])
+            texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
+            return "".join(texts) or ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+
+def neutral_tools(memory: Any = None) -> list[NeutralTool]:
+    from .jarvis_mcp import build_tool_objects  # local import to avoid circular deps
+    out = []
+    for t in build_tool_objects(memory):
+        out.append(NeutralTool(name=t.name, description=t.description,
+                               parameters=getattr(t, "input_schema", {}) or {},
+                               handler=t.handler))
+    return out

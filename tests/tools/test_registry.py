@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from anthropic import beta_async_tool
 
-from jarvis.tools.registry import ToolRegistry
+from jarvis.tools.registry import NeutralTool, ToolRegistry, neutral_tools
 
 
 def test_register_local_tool_lists_and_dispatches():
@@ -62,3 +62,39 @@ def test_heterogeneous_tools_coexist():
     defs = reg.tools()
     assert len(defs) == 2
     assert {d.get("name") for d in defs} == {"get_x", "web_search"}
+
+
+# ---------------------------------------------------------------------------
+# NeutralTool / neutral_tools — Gemini/GPT 공유 레지스트리
+# ---------------------------------------------------------------------------
+
+def test_has_30_tools_with_specs():
+    tools = neutral_tools(memory=None)
+    assert len(tools) == 30
+    names = {t.name for t in tools}
+    assert {"get_time", "send_message", "open_app", "remember", "screen_control"} <= names
+    for t in tools:
+        assert isinstance(t.parameters, dict)
+
+
+def test_call_returns_handler_text():
+    tools = {t.name: t for t in neutral_tools()}
+    out = asyncio.run(tools["get_time"].call({}))
+    assert "시" in out or "년" in out  # Korean date/time string
+
+
+def test_call_swallows_handler_error():
+    async def boom(args):
+        raise RuntimeError("x")
+    t = NeutralTool("x", "d", {}, boom)
+    assert asyncio.run(t.call({})) == "도구 실행에 실패했습니다."
+
+
+def test_remember_tool_present_with_memory():
+    class _Mem:
+        def __init__(self): self.saved = []
+        def remember(self, note): self.saved.append(note)
+    m = _Mem()
+    tools = {t.name: t for t in neutral_tools(memory=m)}
+    asyncio.run(tools["remember"].call({"note": "테스트"}))
+    assert m.saved == ["테스트"]
