@@ -549,3 +549,18 @@ def test_control_command_checked_before_interpret(monkeypatch):
     asyncio.run(run())
     assert calls == ["enable"]
     assert orch.interpret_mode is True  # 통역 모드는 건드리지 않는다
+
+
+def test_format_latency_with_and_without_stt():
+    from jarvis.core.orchestrator import format_latency
+    assert format_latency(0.42, 1.31) == "[지연] STT 0.42s · 두뇌 첫문장 1.31s · 합계 1.73s"
+    assert format_latency(None, 1.31) == "[지연] 두뇌 첫문장 1.31s"
+
+
+def test_pipeline_text_prints_latency_line(capsys):
+    orch, _pb = _make()
+
+    async def run():
+        await orch._pipeline_text("안녕")
+    asyncio.run(run())
+    assert "[지연]" in capsys.readouterr().out

@@ -15,6 +15,14 @@ from .interpret import detect_lang, interpret_speak_korean
 _HUD_HOP_S = 0.1  # orb level update cadence (10 Hz)
 
 
+def format_latency(stt_s: float | None, first_s: float) -> str:
+    """튜닝용 한 줄 지연 로그 — 측정 없이는 반복(로드맵 4단계) 불가."""
+    if stt_s is None:
+        return f"[지연] 두뇌 첫문장 {first_s:.2f}s"
+    return (f"[지연] STT {stt_s:.2f}s · 두뇌 첫문장 {first_s:.2f}s"
+            f" · 합계 {stt_s + first_s:.2f}s")
+
+
 class Orchestrator:
     """Wires Activator -> capture -> STT -> Brain -> SentenceChunker -> TTS -> VC ->
     playback. Barge-in cancels the in-flight Brain pipeline Task (CancelledError
@@ -49,6 +57,7 @@ class Orchestrator:
         self._follow_up_until = 0.0
         # 에코 쿨다운: 자비스 발화 직후 잔향을 자기 목소리로 오인하지 않도록.
         self._wake_blocked_until = 0.0
+        self._last_stt_s: float | None = None
         # Speaking levels queue: _speak pushes per-hop levels; the pump publishes
         # them at playback cadence so the orb moves WITH the audio.
         self._spk_levels: asyncio.Queue[float] = asyncio.Queue()
@@ -129,7 +138,9 @@ class Orchestrator:
     async def _pipeline(self, pcm: np.ndarray) -> None:
         try:
             lang = None if self.interpret_mode else self.settings.language
+            t0 = asyncio.get_running_loop().time()
             text = await asyncio.to_thread(self.stt.transcribe, pcm, 16000, lang)
+            self._last_stt_s = asyncio.get_running_loop().time() - t0
             await self._pipeline_text(text)
         except Exception as exc:  # noqa: BLE001 - 한 턴의 실패가 상태를 가두면 안 된다
             print(f"[파이프라인] 오류(IDLE 복귀): {exc}")
@@ -152,13 +163,30 @@ class Orchestrator:
             return
         self.state = State.THINKING
         self._publish("thinking")
+        t_think = asyncio.get_running_loop().time()
+        first_done = False
+
+        def _mark_first() -> None:
+            nonlocal first_done
+            if first_done:
+                return
+            first_done = True
+            try:
+                dt = asyncio.get_running_loop().time() - t_think
+                print(format_latency(self._last_stt_s, dt))
+            except Exception:  # noqa: BLE001 - 계측이 턴을 깨면 안 된다
+                pass
+            self._last_stt_s = None
+
         if ack:
             await self._play_ack()  # "One moment, sir." — 능동 알림은 생략(아무도 안 기다림)
         async for delta in self.brain.respond(text):
             for sentence in self.chunker.feed(delta):
+                _mark_first()
                 await self._speak(sentence)
         tail = self.chunker.flush()
         if tail:
+            _mark_first()
             await self._speak(tail)
         # The Korean subtitle is only complete once the whole reply has streamed (the
         # '[KO]' part comes last). Publish it now and hold "speaking" until the queued
@@ -215,6 +243,7 @@ class Orchestrator:
     async def _handle_wake(self, pcm: np.ndarray, arrived: float | None = None) -> None:
         try:
             loop = asyncio.get_running_loop()
+            t0 = loop.time()
             # follow-up 판정은 발화가 '도착한' 시각 기준 — STT가 걸린 시간만큼
             # 창이 잠식되어 끝자락 follow-up이 조용히 버려지는 일을 막는다.
             ref = arrived if arrived is not None else loop.time()
@@ -239,6 +268,7 @@ class Orchestrator:
             if not command:
                 await self._wake_greet()  # "자비스"만 불렀다
                 return
+            self._last_stt_s = loop.time() - t0
             await self._pipeline_text(command)
         except Exception as exc:  # noqa: BLE001 - 웨이크 경로는 스스로 회복해야 한다
             print(f"[웨이크] 처리 오류(IDLE 복귀): {exc}")
@@ -353,6 +383,7 @@ class Orchestrator:
 
     async def announce(self, prompt: str) -> None:
         # 같은 루프에서 불린다. self._task로 돌려 PTT/웨이크가 평소처럼 끼어들 수 있게.
+        self._last_stt_s = None
         if not self._can_announce():
             return
         self.state = State.THINKING
