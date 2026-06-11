@@ -25,6 +25,8 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..core.control_gate import TRUST_GATE
+
 # Safety net: strip URLs and source/citation tails the model might still leak into the
 # subtitle ("(출처: ...)", "[1]", "https://...") so they don't show on screen.
 _URL_RE = re.compile(r"https?://\S+|www\.\S+")
@@ -176,6 +178,8 @@ class SubscriptionBrain:
         if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
             return PermissionResultAllow()
         base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용
+        if TRUST_GATE.is_on():
+            return PermissionResultAllow()  # 전권 위임 모드 — 확인 없이 실행
         if self._confirm is None:
             return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
         ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))

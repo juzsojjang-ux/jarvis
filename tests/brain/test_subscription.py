@@ -520,3 +520,46 @@ def test_can_use_tool_normal_mode_unchanged():
 
     res = asyncio.run(run())
     assert type(res).__name__ == "PermissionResultAllow"
+
+
+def test_trust_mode_allows_without_confirm(monkeypatch):
+    import asyncio
+    from jarvis.brain import subscription as sub
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    confirm_calls = []
+    async def confirm(p):
+        confirm_calls.append(p); return False  # 거부해도 전권이면 실행돼야
+
+    class _Gate:
+        def is_on(self): return True
+    monkeypatch.setattr(sub, "TRUST_GATE", _Gate())
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096, confirm=confirm)
+
+    async def run():
+        return await brain._can_use_tool("Bash", {"command": "rm x"}, None)
+    res = asyncio.run(run())
+    assert type(res).__name__ == "PermissionResultAllow"
+    assert confirm_calls == []
+
+
+def test_trust_mode_does_not_override_remote_readonly(monkeypatch):
+    import asyncio
+    from jarvis.brain import subscription as sub
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.core.config import Settings
+
+    class _Gate:
+        def is_on(self): return True
+    monkeypatch.setattr(sub, "TRUST_GATE", _Gate())
+
+    brain = SubscriptionBrain(Settings(), None, "p" * 4096)
+    brain.remote_mode = True  # 원격 + 전권 동시
+
+    async def run():
+        return await brain._can_use_tool("Bash", {"command": "rm x"}, None)
+    res = asyncio.run(run())
+    assert type(res).__name__ == "PermissionResultDeny"  # 원격은 전권 무시하고 차단
+    assert "원격" in res.message
