@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -246,6 +247,35 @@ def list_shortcuts_action(runner=subprocess.run) -> str:
     head = ", ".join(names[:20])
     more = f" 외 {len(names) - 20}개" if len(names) > 20 else ""
     return f"단축어 {len(names)}개: {head}{more}"
+
+
+_SCREENSHOT_PATH = Path.home() / ".jarvis" / "screenshots" / "shot.png"
+
+
+def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> str:
+    """화면을 무음 캡처해 파일로 저장하고 경로를 반환한다 — 두뇌가 Read로 본다.
+    레티나 캡처(2배 픽셀)를 포인트 크기로 줄여 이미지 좌표를 cliclick 좌표와
+    일치시킨다(보정 실패는 무시 — 캡처 자체는 유효)."""
+    target = Path(path) if path is not None else _SCREENSHOT_PATH
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        res = runner(["screencapture", "-x", str(target)],
+                     capture_output=True, text=True)
+        if getattr(res, "returncode", 1) != 0:
+            return ("화면 캡처에 실패했습니다. 시스템 설정의 화면 기록 권한을 "
+                    "확인해 주세요.")
+        try:
+            b = runner(["osascript", "-e",
+                        'tell application "Finder" to get bounds of window of desktop'],
+                       capture_output=True, text=True)
+            width = int(str(b.stdout).split(",")[2].strip())
+            runner(["sips", "--resampleWidth", str(width), str(target)],
+                   capture_output=True, text=True)
+        except Exception:  # noqa: BLE001 - 보정은 최선 노력
+            pass
+        return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
+    except Exception:  # noqa: BLE001 - 도구는 절대 raise하지 않는다
+        return "화면 캡처에 실패했습니다."
 
 
 _MUSIC_FIND = {
@@ -580,6 +610,13 @@ async def _list_timers(_args):
     return _text(list_timers_action(DEFAULT_BOARD))
 
 
+@tool("capture_screen",
+      "맥 화면을 캡처해 이미지 파일로 저장한다. 반환된 경로를 Read 도구로 읽으면 "
+      "지금 화면을 직접 볼 수 있다. 화면 조작 전 좌표 파악에도 쓴다.", {})
+async def _capture_screen(_args):
+    return _text(capture_screen_action())
+
+
 def build_jarvis_mcp_server(memory: Any = None):
     """In-process MCP server. `memory` (a MemoryStore) backs the remember tool."""
 
@@ -599,6 +636,7 @@ def build_jarvis_mcp_server(memory: Any = None):
              _clipboard_read, _clipboard_write, _run_shortcut, _list_shortcuts,
              _set_timer, _cancel_timer, _list_timers,
              _get_messages, _get_unread_mail,
+             _capture_screen,
              _remember]
     return create_sdk_mcp_server("jarvis", "1.0.0", tools=tools)
 
@@ -611,5 +649,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "clipboard_read", "clipboard_write", "run_shortcut", "list_shortcuts",
     "set_timer", "cancel_timer", "list_timers",
     "get_messages", "get_unread_mail",
+    "capture_screen",
     "remember",
 )]
