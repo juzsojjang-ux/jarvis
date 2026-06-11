@@ -127,6 +127,7 @@ class SubscriptionBrain:
         self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
         self._xlate: dict[str, Any] = {}  # 통역용 방향별 영속 클라이언트(콜드스타트 제거)
         self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(예열·턴 동시 호출 레이스 방지)
+        self.remote_mode = False  # 원격 턴 중 — 파괴 도구는 음성 확인 없이 즉시 거부
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
 
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
@@ -157,6 +158,9 @@ class SubscriptionBrain:
         if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
             return PermissionResultAllow()
         base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용
+        if self.remote_mode:
+            # 원격엔 음성 확인 채널이 없다 — 확인을 시도하지 말고 차단.
+            return PermissionResultDeny(message=f"{base}은 원격에서는 실행할 수 없습니다.")
         if self._confirm is None:
             return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
         ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))
