@@ -11,6 +11,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
+# 모듈 전역 — 테스트는 conftest autouse fixture로 이 경로를 임시 폴더로 패치해
+# 실제 홈 파일(~/.jarvis/history.jsonl)을 절대 건드리지 않는다.
+DEFAULT_HISTORY_PATH = Path.home() / ".jarvis" / "history.jsonl"
+
 
 class ConversationHistory:
     """Maintain a rolling window of the most-recent *max_turns* (user, assistant) pairs."""
@@ -21,7 +25,7 @@ class ConversationHistory:
         max_turns: int = 6,
     ) -> None:
         if path is None:
-            path = Path.home() / ".jarvis" / "history.jsonl"
+            path = DEFAULT_HISTORY_PATH
         self._path = Path(path)
         self._max_turns = max_turns
         self.turns: list[tuple[str, str]] = []
