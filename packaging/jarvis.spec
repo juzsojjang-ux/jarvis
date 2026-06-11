@@ -282,7 +282,7 @@ exe = EXE(                                               # noqa: F821
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # 메모리 절약 — UPX 압축은 폭발 위험
     console=True,       # Keep console: JARVIS prints status lines
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -300,7 +300,7 @@ coll = COLLECT(                                          # noqa: F821
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # 메모리 절약 — UPX 압축은 폭발 위험
     upx_exclude=[],
     name="JARVIS",
 )
