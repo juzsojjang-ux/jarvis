@@ -248,14 +248,18 @@ class SubscriptionBrain:
     def _options(self, thinking_tokens: int = 0, model: str = "") -> Any:
         from pathlib import Path
 
-        from jarvis.tools.jarvis_mcp import JARVIS_TOOL_NAMES, build_jarvis_mcp_server
+        from jarvis.tools.jarvis_mcp import build_jarvis_mcp_server
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt(),
-            # 전체 도구 사용 가능 — 읽기셋은 자동, Bash/파일수정은 _can_use_tool이
-            # 음성으로 확인. allowed_tools는 '확인 없이 바로'인 자동 허용 목록.
+            # allowed_tools에 든 도구는 SDK가 _can_use_tool을 건너뛰고 자동 승인한다
+            # (SDK 계약: "not invoked for tool calls already permitted by allowed_tools").
+            # 따라서 jarvis 도구는 여기 두지 않는다 — 전부 _can_use_tool을 단일 권위로
+            # 통과시켜야 발송 확인·원격 차단·전권 게이트가 실제로 작동한다. _can_use_tool이
+            # 읽기·무해 jarvis 도구를 자동 허용하므로 로컬 UX는 동일하다. 여기엔 무해한
+            # 읽기 빌트인만 둔다(콜백 절약).
             allowed_tools=["WebSearch", "WebFetch", "Read", "Glob", "Grep",
-                           "TodoWrite", *JARVIS_TOOL_NAMES],
+                           "TodoWrite"],
             can_use_tool=self._can_use_tool,
             mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
             setting_sources=[],

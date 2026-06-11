@@ -171,7 +171,9 @@ def test_options_isolated_streaming_and_key_stripped(monkeypatch):
         client = await b._ensure_client()
         kw = client.options.kw
         assert "WebSearch" in kw["allowed_tools"]
-        assert "mcp__jarvis__open_app" in kw["allowed_tools"]
+        # jarvis 도구는 allowed_tools에 두지 않는다 — 두면 SDK가 _can_use_tool을
+        # 건너뛰어 발송 확인·원격 차단이 무력화된다. 도구 가용성은 mcp_servers로 온다.
+        assert "mcp__jarvis__open_app" not in kw["allowed_tools"]
         assert "jarvis" in kw["mcp_servers"]
         # 풀 도구 개방 — disallowed_tools 삭제, can_use_tool 콜백이 음성 게이트 역할.
         assert "disallowed_tools" not in kw
@@ -684,3 +686,25 @@ def test_send_tools_denied_on_remote():
 def test_guidance_mentions_send_tools():
     from jarvis.brain.subscription import _GUIDANCE_EN, _GUIDANCE_KO
     assert "send_message" in _GUIDANCE_KO and "send_message" in _GUIDANCE_EN
+
+
+def test_options_does_not_autoallow_jarvis_tools():
+    """SDK는 allowed_tools의 도구에 _can_use_tool을 건너뛴다. 따라서 발송·위험
+    jarvis 도구가 allowed_tools에 있으면 게이트가 죽는다 — 전부 빠져 있어야 한다."""
+    captured = {}
+
+    class _Opts:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    brain = SubscriptionBrain(
+        types.SimpleNamespace(subscription_model=""),
+        None, "p" * 4096, options_cls=_Opts)
+    brain._options()
+    allowed = captured["allowed_tools"]
+    for name in ("mcp__jarvis__send_message", "mcp__jarvis__send_mail",
+                 "mcp__jarvis__control_mac", "mcp__jarvis__system_toggle",
+                 "mcp__jarvis__screen_control"):
+        assert name not in allowed, f"{name} 가 allowed_tools에 있으면 게이트 우회"
+    # 읽기 빌트인은 자동 허용 유지
+    assert "Read" in allowed and "WebSearch" in allowed
