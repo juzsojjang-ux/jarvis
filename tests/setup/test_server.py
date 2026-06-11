@@ -93,6 +93,12 @@ def test_get_root_contains_key_input(server):
     assert "keyInput" in html or "API 키" in html
 
 
+def test_get_root_contains_codex_subscription(server):
+    """GPT 카드는 codex / 구독 키워드를 포함해야 한다."""
+    _status, html = _get(server.port, "/")
+    assert "codex" in html or "구독" in html
+
+
 def test_get_unknown_path_404(server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         _get(server.port, "/unknown")
@@ -192,6 +198,51 @@ def test_post_empty_provider_fails(server):
     except urllib.error.HTTPError as e:
         # 400 경로도 허용
         assert e.code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /setup — GPT codex 구독 로그인
+# ---------------------------------------------------------------------------
+
+def test_post_gpt_no_key_validator_ok_returns_ok_true():
+    """provider=gpt + 키 없음 + validator(True,"ok") → ok:true."""
+    calls: list[tuple[str, str]] = []
+
+    async def _validator(provider, key, **kwargs):
+        return True, "ok"
+
+    def recording_store(provider, key):
+        calls.append((provider, key))
+
+    srv = SetupServer(
+        host="127.0.0.1", port=0, validator=_validator, store_save=recording_store
+    )
+    srv.start()
+    try:
+        status, body = _post_setup(srv.port, "gpt", key="")
+        assert status == 200
+        assert body["ok"] is True
+        assert calls == [("gpt", "")]
+    finally:
+        srv.stop()
+
+
+def test_post_gpt_no_key_validator_fail_returns_ok_false():
+    """provider=gpt + 키 없음 + validator(False,"codex login") → ok:false."""
+    async def _validator(provider, key, **kwargs):
+        return False, "codex login"
+
+    srv = SetupServer(
+        host="127.0.0.1", port=0, validator=_validator, store_save=_noop_store
+    )
+    srv.start()
+    try:
+        status, body = _post_setup(srv.port, "gpt", key="")
+        assert status == 200
+        assert body["ok"] is False
+        assert "error" in body
+    finally:
+        srv.stop()
 
 
 # ---------------------------------------------------------------------------

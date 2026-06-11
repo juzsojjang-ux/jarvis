@@ -116,6 +116,7 @@ SETUP_HTML = """\
   }
   .badge.free { background: #0d3a2a; color: #4ade80; }
   .badge.paid { background: #3a2a0d; color: #fbbf24; }
+  .badge.sub { background:#1e2a3a; color:#7dd3fc; }
   .card input[type="radio"] { display: none; }
   .key-section {
     width: 100%;
@@ -204,8 +205,8 @@ SETUP_HTML = """\
 
   <label class="card" data-provider="gpt">
     <input type="radio" name="provider" value="gpt">
-    <div class="provider-name">GPT <span class="badge paid">유료</span></div>
-    <div class="provider-note">OpenAI 유료 키 (토큰당 과금)<br>구독 연동 불가</div>
+    <div class="provider-name">GPT <span class="badge sub">구독</span></div>
+    <div class="provider-note">ChatGPT 구독 로그인 (codex)<br>터미널에서 codex login 후 선택</div>
   </label>
 
 </div>
@@ -213,6 +214,10 @@ SETUP_HTML = """\
 <div class="key-section" id="keySection">
   <label id="keyLabel">API 키</label>
   <input type="text" id="keyInput" placeholder="키를 여기에 붙여넣으세요" autocomplete="off" spellcheck="false">
+</div>
+
+<div id="gptNote" style="display:none; width:100%; max-width:440px; margin-bottom:1.5rem; font-size:0.85rem; color:#7dd3fc; text-align:center;">
+  codex login 필요 — 터미널에서 먼저 <code>codex login</code> 을 실행하세요
 </div>
 
 <button class="btn-start" id="btnStart">시작</button>
@@ -237,7 +242,6 @@ SETUP_HTML = """\
 
   const KEY_LABELS = {
     gemini: 'Google AI Studio API 키',
-    gpt: 'OpenAI API 키',
   };
 
   function selectedProvider() {
@@ -248,8 +252,10 @@ SETUP_HTML = """\
   function updateUI() {
     const prov = selectedProvider();
     cards.forEach(c => c.classList.toggle('selected', c.dataset.provider === prov));
-    const needsKey = prov === 'gemini' || prov === 'gpt';
+    const needsKey = prov === 'gemini';
     keySection.classList.toggle('visible', needsKey);
+    const gptNote = document.getElementById('gptNote');
+    if (gptNote) gptNote.style.display = prov === 'gpt' ? 'block' : 'none';
     if (needsKey) {
       keyLabel.textContent = KEY_LABELS[prov] || 'API 키';
       keyInput.placeholder = '키를 여기에 붙여넣으세요';
