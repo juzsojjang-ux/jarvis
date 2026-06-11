@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     brain_provider: str = "claude"  # 첫 실행에서 택1: claude/gemini/gpt
     gemini_model: str = "gemini-2.5-flash"  # Gemini 두뇌용 모델 이름
     gpt_model: str = "gpt-4o"              # GPT 두뇌용 모델 이름
+    gpt_auth: str = "subscription"         # "subscription"(ChatGPT 구독, codex login) | "api_key"(유료 키)
+    gpt_subscription_base_url: str = "https://chatgpt.com/backend-api/codex"
+    gpt_subscription_model: str = "gpt-5.5"
 
     # Brain backend: "subscription" (Claude Pro/Max login via claude-agent-sdk — NO API
     # key, no per-token bill) or "api" (Anthropic API key + local tool loop).

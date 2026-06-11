@@ -66,3 +66,10 @@ def test_remote_defaults():
 def test_trust_mode_default():
     s = Settings()
     assert s.trust_mode_ttl_s == 600.0
+
+
+def test_gpt_subscription_defaults():
+    f = Settings.model_fields
+    assert f["gpt_auth"].default == "subscription"
+    assert f["gpt_subscription_base_url"].default == "https://chatgpt.com/backend-api/codex"
+    assert f["gpt_subscription_model"].default == "gpt-5.5"
