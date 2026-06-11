@@ -137,3 +137,30 @@ def test_factory_gemini_builds_brain():
     b = make_brain(s, None, "p" * 4096)
     from jarvis.brain.gemini import GeminiBrain
     assert isinstance(b, GeminiBrain)
+
+
+def test_memory_text_in_system_prompt():
+    class _Mem:
+        def text(self): return "주인님은 매운 음식을 못 드신다."
+    b = _brain([], memory=_Mem())
+    sp = b._system_prompt()
+    assert "매운 음식" in sp and "# 기억" in sp
+
+
+def test_history_injected_and_saved(monkeypatch, tmp_path):
+    monkeypatch.setattr("jarvis.brain.history.DEFAULT_HISTORY_PATH", tmp_path / "h.jsonl")
+
+    # Turn 1: brain responds with a canned answer, history should be saved.
+    b = _brain([_resp([_part(text="First answer.[KO] 첫 번째 답변.")])])
+    asyncio.run(_collect(b.respond("첫 번째 질문")))
+    assert len(b._history.turns) == 1
+    assert b._history.turns[0] == ("첫 번째 질문", "First answer.")
+
+    # Turn 2: a NEW brain instance loads history from disk; its outgoing content must contain
+    # the context marker, confirming history was injected.
+    b2 = _brain([_resp([_part(text="Second answer.[KO] 두 번째 답변.")])])
+    asyncio.run(_collect(b2.respond("두 번째 질문")))
+    # The first call's contents[0] is the user Content whose part text should carry the context.
+    first_call_contents = b2._client().aio.models.calls[0]
+    injected_text = first_call_contents[0].parts[0].text
+    assert "이전 대화 맥락" in injected_text

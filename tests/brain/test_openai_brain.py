@@ -113,3 +113,30 @@ def test_protocol_and_factory():
         gpt_model="gpt-4o",
     )
     assert isinstance(make_brain(s, None, "p" * 4096), GPTBrain)
+
+
+def test_memory_text_in_system_prompt():
+    class _Mem:
+        def text(self): return "주인님은 매운 음식을 못 드신다."
+    b = _brain([], memory=_Mem())
+    sp = b._system_prompt()
+    assert "매운 음식" in sp and "# 기억" in sp
+
+
+def test_history_injected_and_saved(monkeypatch, tmp_path):
+    monkeypatch.setattr("jarvis.brain.history.DEFAULT_HISTORY_PATH", tmp_path / "h.jsonl")
+
+    # Turn 1: brain responds with a canned answer, history should be saved.
+    b = _brain([_resp(_msg(content="First answer.[KO] 첫 번째 답변."))])
+    asyncio.run(_collect(b.respond("첫 번째 질문")))
+    assert len(b._history.turns) == 1
+    assert b._history.turns[0] == ("첫 번째 질문", "First answer.")
+
+    # Turn 2: a NEW brain instance loads history from disk; its outgoing user message must
+    # contain the context marker, confirming history was injected.
+    b2 = _brain([_resp(_msg(content="Second answer.[KO] 두 번째 답변."))])
+    asyncio.run(_collect(b2.respond("두 번째 질문")))
+    # The first call's messages[1] is the user message — check its content.
+    first_call_messages = b2._client().chat.completions.calls[0]
+    user_content = next(m["content"] for m in first_call_messages if m["role"] == "user")
+    assert "이전 대화 맥락" in user_content

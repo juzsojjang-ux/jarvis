@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from .base import split_ko
+from .history import ConversationHistory
 from .tool_policy import decide
 from ..tools.registry import neutral_tools
 
@@ -41,6 +42,7 @@ class GeminiBrain:
         confirm: Any = None,
         client: Any = None,
         client_factory: Any = None,
+        history: Any = None,
     ) -> None:
         self.last_subtitle = ""
         self.remote_mode = False
@@ -64,6 +66,11 @@ class GeminiBrain:
 
         self._tool_obj: Any = None  # cached types.Tool
 
+        self._history: ConversationHistory = (
+            history if history is not None else ConversationHistory()
+        )
+        self._history.load()
+
     # ------------------------------------------------------------------
     # Brain protocol helpers
     # ------------------------------------------------------------------
@@ -74,7 +81,9 @@ class GeminiBrain:
 
     def _system_prompt(self) -> str:
         from jarvis.brain.subscription import _guidance_for  # noqa: PLC0415
-        return self._persona + "\n\n" + _guidance_for("en")
+        memory_text = self._memory.text().strip() if (self._memory is not None and hasattr(self._memory, "text")) else ""
+        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for("en")
+        return f"{self._persona}\n\n{tail}"
 
     def _function_tool(self) -> Any:
         if self._tool_obj is not None:
@@ -129,10 +138,12 @@ class GeminiBrain:
         try:
             from google.genai import types  # noqa: PLC0415
 
+            user_payload = (self._history.as_context() + user_text) if self._history.turns else user_text
+
             contents: list[Any] = [
                 types.Content(
                     role="user",
-                    parts=[types.Part.from_text(text=user_text)],
+                    parts=[types.Part.from_text(text=user_payload)],
                 )
             ]
 
@@ -200,6 +211,7 @@ class GeminiBrain:
 
         en, ko = split_ko(final_text or "")
         self.last_subtitle = ko
+        self._history.add(user_text, en)
         if en.strip():
             yield en
 

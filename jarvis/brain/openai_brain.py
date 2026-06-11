@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from .base import split_ko
+from .history import ConversationHistory
 from .tool_policy import decide
 from ..tools.registry import neutral_tools
 
@@ -42,6 +43,7 @@ class GPTBrain:
         confirm: Any = None,
         client: Any = None,
         client_factory: Any = None,
+        history: Any = None,
     ) -> None:
         self.last_subtitle = ""
         self.remote_mode = False
@@ -65,6 +67,11 @@ class GPTBrain:
 
         self._tools_cache: list[dict] | None = None  # cached OpenAI tools payload
 
+        self._history: ConversationHistory = (
+            history if history is not None else ConversationHistory()
+        )
+        self._history.load()
+
     # ------------------------------------------------------------------
     # Brain protocol helpers
     # ------------------------------------------------------------------
@@ -75,7 +82,9 @@ class GPTBrain:
 
     def _system_prompt(self) -> str:
         from jarvis.brain.subscription import _guidance_for  # noqa: PLC0415
-        return self._persona + "\n\n" + _guidance_for("en")
+        memory_text = self._memory.text().strip() if (self._memory is not None and hasattr(self._memory, "text")) else ""
+        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for("en")
+        return f"{self._persona}\n\n{tail}"
 
     def _tools_payload(self) -> list[dict]:
         if self._tools_cache is not None:
@@ -114,9 +123,10 @@ class GPTBrain:
         self.last_subtitle = ""
         final_text = ""
         try:
+            user_payload = (self._history.as_context() + user_text) if self._history.turns else user_text
             messages: list[dict] = [
                 {"role": "system", "content": self._system_prompt()},
-                {"role": "user", "content": user_text},
+                {"role": "user", "content": user_payload},
             ]
 
             for _iteration in range(8):
@@ -183,6 +193,7 @@ class GPTBrain:
 
         en, ko = split_ko(final_text or "")
         self.last_subtitle = ko
+        self._history.add(user_text, en)
         if en.strip():
             yield en
 
