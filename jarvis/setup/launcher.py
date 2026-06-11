@@ -16,14 +16,17 @@ def run_first_run_setup(
     opener   — 브라우저 열기 콜백(기본: webbrowser.open). 테스트에서 주입 가능.
     server_factory — SetupServer 생성 콜백. 테스트에서 가짜 서버 주입 가능.
     """
-    _opener = opener or webbrowser.open
-    server = server_factory() if server_factory else SetupServer()
-
+    open_fn = opener or webbrowser.open
+    make = server_factory or (lambda: SetupServer())
+    server = make()
     server.start()
+    print(f"[설정] 브라우저에서 다음 주소를 열어 두뇌를 선택하세요: {server.url}")
     try:
-        _opener(server.url)
-        server.done.wait()  # 사용자가 완료할 때까지 블록
-    finally:
-        server.stop()
-
+        opened = open_fn(server.url)
+    except Exception:  # noqa: BLE001
+        opened = False
+    if not opened:
+        print(f"[설정] 브라우저를 자동으로 열지 못했습니다. 위 주소를 직접 여세요: {server.url}")
+    server.done.wait()
+    server.stop()
     return server.chosen or "claude"
