@@ -503,6 +503,24 @@ def test_control_command_matching():
     assert orch._control_command("screen control on") is None
 
 
+def test_interpret_toggle_on_warms_translate():
+    orch, _pb = _make()
+    warmed = []
+
+    class _WarmBrain(_XlateBrain):
+        async def warm_interpret(self):
+            warmed.append(True)
+
+    orch.brain = _WarmBrain()
+
+    async def run():
+        await orch._pipeline_text("통역 모드 켜줘")
+        if orch._warm_task is not None:
+            await orch._warm_task
+    asyncio.run(run())
+    assert warmed == [True]
+
+
 def test_control_toggle_does_not_hijack_normal_turns(monkeypatch):
     """control 모드는 interpret과 달리 턴을 가로채지 않는다 — 토글 후 일반
     질문은 평소처럼 두뇌로 간다."""

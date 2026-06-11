@@ -63,6 +63,7 @@ class Orchestrator:
         self._spk_levels: asyncio.Queue[float] = asyncio.Queue()
         self._spk_pump: asyncio.Task | None = None
         self._attentive_timer: asyncio.Task | None = None
+        self._warm_task: asyncio.Task | None = None
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -313,6 +314,9 @@ class Orchestrator:
 
     async def _toggle_interpret(self, cmd: str) -> None:
         self.interpret_mode = (cmd == "on")
+        if self.interpret_mode and hasattr(self.brain, "warm_interpret"):
+            # 안내 발화가 나가는 동안 백그라운드 예열 — 첫 통역 턴 콜드스타트 제거.
+            self._warm_task = asyncio.create_task(self._warm_interpret_safe())
         en, ko = (("Interpreter mode on, sir.", "통역 모드를 켰습니다.")
                   if self.interpret_mode
                   else ("Interpreter mode off, sir.", "통역 모드를 껐습니다."))
@@ -323,6 +327,12 @@ class Orchestrator:
             self._enter_attentive()
         else:
             self._publish("idle")
+
+    async def _warm_interpret_safe(self) -> None:
+        try:
+            await self.brain.warm_interpret()
+        except Exception:  # noqa: BLE001 - 예열 실패는 무해
+            pass
 
     async def _interpret_turn(self, text: str) -> None:
         try:
