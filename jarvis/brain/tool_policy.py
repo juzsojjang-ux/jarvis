@@ -7,7 +7,7 @@ from typing import Awaitable, Callable, Optional
 READONLY = frozenset({
     "get_time", "get_weather", "battery_status", "get_reminders",
     "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
-    "clipboard_read", "capture_screen",
+    "clipboard_read", "remember",
 })
 GUARDED = frozenset({"send_message", "send_mail"})
 

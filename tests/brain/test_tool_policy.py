@@ -43,3 +43,14 @@ def test_guarded_no_confirm_denies():
 def test_normal_action_auto_allowed():
     ok, _ = _run(decide("open_app", {"app": "Safari"}, remote_mode=False, trust_on=False, confirm=None))
     assert ok is True
+
+
+def test_readonly_matches_claude_remote_allowlist():
+    from jarvis.brain.subscription import SubscriptionBrain
+    from jarvis.brain.tool_policy import READONLY
+    assert READONLY == SubscriptionBrain._REMOTE_SAFE_JARVIS
+
+
+def test_remote_blocks_capture_screen():
+    ok, why = _run(decide("capture_screen", {}, remote_mode=True, trust_on=False, confirm=None))
+    assert ok is False
