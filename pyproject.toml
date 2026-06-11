@@ -15,8 +15,16 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "anthropic[mcp]==0.107.1",
     "mcp==1.27.1",
-    "mlx-whisper==0.4.3",
-    "mlx==0.30.0",
+    "claude-agent-sdk==0.2.94",          # 구독 두뇌(Claude Pro/Max 로그인, node CLI 번들)
+    # mlx STT는 맥 애플 실리콘 전용 — 윈도우/리눅스 휠이 없어 조건부(없으면 pip 설치 실패)
+    "mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx==0.30.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # 크로스플랫폼 STT(비-맥 기본) — CTranslate2 기반 faster-whisper
+    "faster-whisper>=1.0; sys_platform != 'darwin'",
+    # 두뇌 프로바이더 SDK — 배포판이 Claude/Gemini/GPT 셋 다 지원하도록 메인 포함
+    "google-genai>=2.8,<3",
+    "openai>=2.0,<3",
+    "huggingface_hub>=0.20",             # RVC 공개 자산·모델 다운로드
     "sounddevice==0.5.5",
     "pynput==1.7.7",
     "numpy==2.1.3",
