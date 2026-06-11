@@ -26,6 +26,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from ..core.control_gate import TRUST_GATE
+from .history import ConversationHistory
 
 # Safety net: strip URLs and source/citation tails the model might still leak into the
 # subtitle ("(출처: ...)", "[1]", "https://...") so they don't show on screen.
@@ -116,6 +117,7 @@ class SubscriptionBrain:
         assistant_message: Any = None,
         stream_event: Any = None,
         confirm: Any = None,
+        history: Any = None,
     ) -> None:
         self._settings = settings
         self._memory = memory
@@ -131,6 +133,11 @@ class SubscriptionBrain:
         self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(예열·턴 동시 호출 레이스 방지)
         self.remote_mode = False  # 원격 턴 중 — 파괴 도구는 음성 확인 없이 즉시 거부
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
+        self._history: ConversationHistory = (
+            history if history is not None else ConversationHistory()
+        )
+        self._history.load()
+        self._primed = False
 
     # Saying any of these makes JARVIS think deeply for that one turn (slower, smarter).
     _DEEP_TRIGGERS = ("최대 사고", "깊게 생각", "깊이 생각", "심층", "딥씽킹", "곰곰이",
@@ -266,6 +273,7 @@ class SubscriptionBrain:
             await client.connect()
             self._client = client
             self._client_key = key
+            self._primed = False
         return self._client
 
     # Spoken the instant a web search starts, so there's no dead air while the search
@@ -305,7 +313,13 @@ class SubscriptionBrain:
     async def respond(self, user_text: str) -> AsyncIterator[str]:
         model, thinking = self._turn_config(user_text)
         client = await self._ensure_client(thinking, model)
-        await client.query(user_text)
+        # 맥락 주입: 새 client 직후 첫 질의에만 이전 대화 맥락을 prepend
+        if not self._primed and self._history.turns:
+            query_text = self._history.as_context() + user_text
+        else:
+            query_text = user_text
+        self._primed = True
+        await client.query(query_text)
         # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
         # shows it under SPEAKING while the English audio plays. Only the English (before
         # the marker) is ever yielded for speech.
@@ -315,6 +329,7 @@ class SubscriptionBrain:
         in_ko = False
         pending = ""  # buffer so a '[KO]' marker split across deltas is never spoken
         keep = len(self.KO_MARK) - 1
+        spoken_accumulator: list[str] = []  # 영어 발화 누적 → history 저장용
         async for msg in client.receive_response():
             if self._stream_event is not None and isinstance(msg, self._stream_event):
                 if not filler_sent and self._is_tool_start(msg):
@@ -334,11 +349,13 @@ class SubscriptionBrain:
                     self.last_subtitle = pending[mark + len(self.KO_MARK):]
                     pending = ""
                     if before:
+                        spoken_accumulator.append(before)
                         yield before
                     continue
                 if len(pending) > keep:           # hold back a possible marker prefix
                     emit, pending = pending[:-keep], pending[-keep:]
                     if emit:
+                        spoken_accumulator.append(emit)
                         yield emit
             elif isinstance(msg, self._assistant_message) and not streamed:
                 full = "".join(getattr(b, "text", "") or ""
@@ -346,10 +363,13 @@ class SubscriptionBrain:
                 spoken, _, ko = full.partition(self.KO_MARK)
                 self.last_subtitle = ko.strip()
                 if spoken.strip():
+                    spoken_accumulator.append(spoken)
                     yield spoken
         if not in_ko and pending:
+            spoken_accumulator.append(pending)
             yield pending
         self.last_subtitle = _strip_sources(self.last_subtitle)
+        self._history.add(user_text, "".join(spoken_accumulator).strip())
 
     async def _ensure_xlate(self, target_lang: str) -> Any:
         client = self._xlate.get(target_lang)

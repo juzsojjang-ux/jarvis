@@ -563,3 +563,76 @@ def test_trust_mode_does_not_override_remote_readonly(monkeypatch):
     res = asyncio.run(run())
     assert type(res).__name__ == "PermissionResultDeny"  # 원격은 전권 무시하고 차단
     assert "원격" in res.message
+
+
+# ---------------------------------------------------------------------------
+# 대화 기억·맥락 (Task 2) — 기존 _brain() / FakeClient 패턴 사용
+# ---------------------------------------------------------------------------
+
+def test_history_injected_on_first_query_then_not(tmp_path):
+    """첫 respond: history가 있으면 맥락 주입; 이후 respond: 그냥 user_text."""
+    import types
+    from jarvis.brain.history import ConversationHistory
+
+    hist = ConversationHistory(tmp_path / "h.jsonl")
+    hist.add("이전질문", "Previous, sir.")
+
+    FakeClient.instances = 0
+    b = SubscriptionBrain(
+        types.SimpleNamespace(subscription_model=""),
+        types.SimpleNamespace(text=lambda: ""),
+        "PERSONA가" * 10,
+        client_cls=FakeClient,
+        options_cls=FakeOptions,
+        assistant_message=FakeAssistant,
+        stream_event=FakeStreamEvent,
+        history=hist,
+    )
+
+    async def run():
+        client = await b._ensure_client()
+        client.script = [FakeAssistant("Hi, sir.")]
+        async for _ in b.respond("첫질문"):
+            pass
+        first_q = client.queries[-1]
+
+        client.script = [FakeAssistant("Done, sir.")]
+        async for _ in b.respond("둘째질문"):
+            pass
+        second_q = client.queries[-1]
+
+        return first_q, second_q
+
+    first_q, second_q = asyncio.run(run())
+    assert "이전 대화 맥락" in first_q and "첫질문" in first_q
+    assert second_q == "둘째질문"  # primed — 재주입 없음
+
+
+def test_respond_saves_turn(tmp_path):
+    """respond 완료 후 turn이 history에 저장된다."""
+    import types
+    from jarvis.brain.history import ConversationHistory
+
+    hist = ConversationHistory(tmp_path / "h.jsonl")
+
+    FakeClient.instances = 0
+    b = SubscriptionBrain(
+        types.SimpleNamespace(subscription_model=""),
+        types.SimpleNamespace(text=lambda: ""),
+        "PERSONA가" * 10,
+        client_cls=FakeClient,
+        options_cls=FakeOptions,
+        assistant_message=FakeAssistant,
+        stream_event=FakeStreamEvent,
+        history=hist,
+    )
+
+    async def run():
+        client = await b._ensure_client()
+        client.script = [FakeAssistant("Answer, sir.")]
+        async for _ in b.respond("질문이야"):
+            pass
+
+    asyncio.run(run())
+    assert hist.turns and hist.turns[-1][0] == "질문이야"
+    assert "Answer" in hist.turns[-1][1]
