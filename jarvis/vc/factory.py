@@ -41,6 +41,16 @@ def make_vc(settings) -> VoiceConversion:
     if backend == "null":
         from jarvis.vc.null_vc import NullVC
         return NullVC()
+    if backend == "onnx":
+        m = os.path.expanduser(settings.onnx_model_path)
+        cv = os.path.expanduser(settings.onnx_contentvec_path)
+        if os.path.exists(m) and os.path.exists(cv):
+            from jarvis.vc.onnx_rvc import OnnxRVCConversion
+            return OnnxRVCConversion(m, cv, sample_rate=settings.rvc_sample_rate,
+                                     f0_up=getattr(settings, "rvc_f0_up", 0))
+        from jarvis.vc.null_vc import NullVC
+        _log.warning("vc_backend=onnx but onnx models missing (%s / %s); NullVC.", m, cv)
+        return NullVC()
     if backend not in ("auto", "rvc"):
         raise ValueError(f"unknown vc_backend: {backend!r}")
 

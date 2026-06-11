@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     # model is missing). Drop-in readiness lives in jarvis/vc/resolve.py + factory.py.
     # "null" while tts="pocket" (Pocket already IS the JARVIS voice; RVC would wreck it).
     # Set "auto" to re-enable the Korean MeloTTS->RVC chain (needs tts="melotts"/"auto").
-    vc_backend: str = "null"          # "auto" | "null" | "rvc"
+    # "onnx": torch-free ONNX RVC (배포 번들 기본) — edge-tts → contentvec → synthesizer.
+    vc_backend: str = "null"          # "auto" | "null" | "rvc" | "onnx"
+    onnx_model_path: str = "~/jarvis/voice_models/jarvis.onnx"
+    onnx_contentvec_path: str = "~/jarvis/voice_models/vec-768-layer-12.onnx"
     tts_worker_python: str = "~/jarvis/.venv-tts/bin/python"
     # Isolated RVC inference interpreter (mirrors .venv-tts). The factory builds
     # rvc_cmd = [rvc_python, jarvis/vc/rvc_infer_cli.py]. Created by setup_rvc.sh.
