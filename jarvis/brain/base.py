@@ -19,6 +19,20 @@ BRAIN_PROVIDERS = ("claude", "gemini", "gpt")
 KO_MARK = "[KO]"
 
 
+def now_stamp(now=None) -> str:
+    """매 턴 사용자 입력 앞에 붙이는 실시간 타임스탬프.
+
+    LLM은 오늘 날짜를 모른다 — 도구(get_time)를 안 부르고 학습 시점 기억으로
+    추측하면 틀린 날짜를 말한다(실사용 보고 버그). 정답을 항상 입력에 실어보내
+    날짜/시간 질문이 도구 없이도 정확하게 한다."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now(ZoneInfo("Asia/Seoul"))
+    days = "월화수목금토일"
+    return (f"[지금: {now.year}-{now.month:02d}-{now.day:02d}({days[now.weekday()]}) "
+            f"{now.hour:02d}:{now.minute:02d} KST]")
+
+
 def split_ko(full_text: str) -> tuple[str, str]:
     """[KO] 마커로 영어 파트와 한국어 파트를 분리한다.
 

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
+import sys
 
 import numpy as np
 
 from ..audio.util import resample
 from ..audio.wake import match_wake
+from ..brain.usage import UsageTracker, is_limit_error
+from ..hud import notice_bus
 from ..hud.level import audio_level, chunk_levels
 from .control_gate import CONTROL_GATE, TRUST_GATE
 from .events import State
@@ -65,6 +69,12 @@ class Orchestrator:
         self._attentive_timer: asyncio.Task | None = None
         self._warm_task: asyncio.Task | None = None
         self._remote_busy = False
+        self.usage = UsageTracker()  # 토큰 사용량 집계(세션+누적)
+        self.last_bug: str | None = None  # 마지막 오류 상세 — "고쳐줘" 참조 + 우측 알림
+        self._panel_muted = False
+        self._ack_delay_s = 0.9  # 이 시간 안에 두뇌 첫 문장이 오면 "잠시만요" 필러 생략
+        # 두뇌의 show_panel/hide_panel 도구가 이 HUD에 닿도록 알림 싱크를 건다.
+        notice_bus.set_sink(self._panel_sink)
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -121,6 +131,28 @@ class Orchestrator:
             except Exception:
                 pass
 
+    def _notify(self, msg: str) -> None:
+        """우측 상단 알림 카드 갱신(오류/한도 같은 시스템 알림). 빈 문자열이면 끈다.
+        사용자가 "패널 꺼"로 음소거했으면 새 시스템 알림은 억제한다."""
+        if self._panel_muted and msg:
+            return
+        if self.hud is not None:
+            try:
+                self.hud.publish_notice(msg)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _panel_sink(self, msg: str) -> None:
+        """두뇌의 show_panel/hide_panel 경유 표시 — 사용자가 두뇌에게 직접 요청한
+        것이므로, 이전에 "패널 꺼"로 음소거했어도 표시 요청은 음소거를 푼다."""
+        if msg:
+            self._panel_muted = False
+        if self.hud is not None:
+            try:
+                self.hud.publish_notice(msg)
+            except Exception:  # noqa: BLE001
+                pass
+
     def _to_idle(self) -> None:
         # 상태 복귀와 HUD publish는 반드시 한 쌍이다 — 따로 쓰다 한쪽을 빼먹으면
         # 오브가 PROCESSING에 갇힌다(실제로 났던 버그). IDLE 복귀는 전부 여기로.
@@ -150,8 +182,7 @@ class Orchestrator:
             self._last_stt_s = asyncio.get_running_loop().time() - t0
             await self._pipeline_text(text)
         except Exception as exc:  # noqa: BLE001 - 한 턴의 실패가 상태를 가두면 안 된다
-            print(f"[파이프라인] 오류(IDLE 복귀): {exc}")
-            self._to_idle()
+            await self._announce_error(exc)
 
     async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
         if not text.strip():
@@ -168,6 +199,13 @@ class Orchestrator:
         cmd = self._interpret_command(text)
         if cmd is not None:
             await self._toggle_interpret(cmd)
+            return
+        if self._usage_command(text):
+            await self._report_usage()
+            return
+        pcmd = self._panel_command(text)
+        if pcmd is not None:
+            await self._toggle_panel(pcmd)
             return
         if self.interpret_mode:
             await self._interpret_turn(text)
@@ -189,20 +227,84 @@ class Orchestrator:
                 pass
             self._last_stt_s = None
 
+        # 필러("잠시만 기다려주세요")는 빠른 답엔 내보내지 않는다 — 두뇌가 실제로 늦을
+        # 때(도구 실행·긴 생각)만. 0.9초 안에 첫 문장이 오면 first_done이 서서 건너뛴다.
+        ack_task = None
         if ack:
-            await self._play_ack()  # "One moment, sir." — 능동 알림은 생략(아무도 안 기다림)
-        async for delta in self.brain.respond(text):
-            for sentence in self.chunker.feed(delta):
+            async def _delayed_ack() -> None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.sleep(self._ack_delay_s)
+                    if first_done:
+                        return
+                    en, ko = self.ACK_FILLERS[self._ack_i % len(self.ACK_FILLERS)]
+                    self._ack_i += 1
+                    out = await self._synth_phrase(en)
+                    # 합성하는 사이 첫 문장이 도착했으면 버린다 — 답변 뒤에 "잠시만요"가
+                    # 따라붙는 역전 재생을 막는다.
+                    if out is not None and not first_done:
+                        self._queue_audio(out, ko)
+            ack_task = asyncio.create_task(_delayed_ack())
+        # 두뇌 스트림 읽기(producer)와 합성·재생(consumer)을 분리한다. producer가 LLM
+        # 토큰을 앞서 읽어 문장을 큐에 쌓아두므로, LLM이 잠깐 끊겨도 합성이 굶지 않아
+        # 문장 사이 무음 끊김이 사라진다(끊김 방지). consumer는 재생 속도로 합성한다.
+        synth_q: asyncio.Queue = asyncio.Queue(maxsize=128)
+        prod_err: dict = {"exc": None}
+
+        async def _produce() -> None:
+            try:
+                async for delta in self.brain.respond(text):
+                    for sentence in self.chunker.feed(delta):
+                        await synth_q.put(sentence)
+                tail = self.chunker.flush()
+                if tail:
+                    await synth_q.put(tail)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 한도 초과 등은 아래에서 알린다
+                prod_err["exc"] = exc
+            finally:
+                await synth_q.put(None)  # 종료 신호(sentinel)
+
+        producer = asyncio.create_task(_produce())
+        spoken_parts: list[str] = []
+        try:
+            while True:
+                sentence = await synth_q.get()
+                if sentence is None:
+                    break
                 _mark_first()
+                spoken_parts.append(sentence)
+                # 발화 중엔 영어 자막을 띄우지 않는다(영어 자막 방지). 한국어 자막은
+                # 아래 _finish_speaking에서 짧게 끊어 순차로 보여준다.
                 await self._speak(sentence)
-        tail = self.chunker.flush()
-        if tail:
-            _mark_first()
-            await self._speak(tail)
-        # The Korean subtitle is only complete once the whole reply has streamed (the
-        # '[KO]' part comes last). Publish it now and hold "speaking" until the queued
-        # audio actually finishes playing — otherwise the orb/subtitle vanish mid-sentence.
-        await self._finish_speaking(getattr(self.brain, "last_subtitle", "") or "")
+        finally:
+            if not producer.done():
+                producer.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await producer
+            if ack_task is not None and not ack_task.done():
+                ack_task.cancel()  # 아주 빠른 답: 아직 자던 필러를 취소(뒤늦게 안 나오게)
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await ack_task
+        # 마지막 자막: 두뇌가 붙인 한국어 번역([KO])을 우선. 그게 비었으면(두뇌가 번역을
+        # 빼먹은 경우) 말한 내용을 한국어로 번역해 채운다 — '번역 안 된 영어 자막'을 막는다.
+        subtitle = await self._korean_subtitle(spoken_parts)
+        await self._finish_speaking(subtitle)
+        # 이번 턴 토큰 사용량 집계(있으면) — "사용량" 명령으로 조회한다.
+        try:
+            u = getattr(self.brain, "last_usage", None)
+            if u is not None:
+                self.usage.record(u)
+        except Exception:  # noqa: BLE001 - 사용량 집계가 턴을 깨면 안 된다
+            pass
+        # 한도/요금 초과로 실패했으면 조용히 넘기지 말고 화면+음성으로 알린다.
+        if getattr(self.brain, "last_error", None) == "limit" or is_limit_error(prod_err["exc"]):
+            await self._announce_limit()
+            return
+        # 그 외 두뇌 오류(버그)도 삼키지 말고 알린다 — 사용자가 수정 요청할 수 있게.
+        if prod_err["exc"] is not None:
+            await self._announce_error(prod_err["exc"])
+            return
         self.state = State.IDLE
         if self.wake is not None:
             self._enter_attentive()
@@ -211,17 +313,83 @@ class Orchestrator:
             # 죽은 창을 열지 않는다.
             self._publish("idle")
 
+    @staticmethod
+    def _has_hangul(s: str) -> bool:
+        return any("가" <= ch <= "힣" for ch in s)
+
+    async def _korean_subtitle(self, spoken_parts: list[str]) -> str:
+        """마무리 자막을 한국어로 보장한다. [KO] 번역이 있으면 그걸, 없으면 말한 내용을
+        번역해서. 두 경로 다 실패하면 말한 그대로(자막이 비는 일은 없게)."""
+        ko = (getattr(self.brain, "last_subtitle", "") or "").strip()
+        if ko:
+            return ko
+        spoken = " ".join(p.strip() for p in spoken_parts if p.strip()).strip()
+        if not spoken or self._has_hangul(spoken):
+            return spoken  # 이미 한국어거나 말한 게 없음 — 번역 불필요
+        # 번역 누락 → 말한 내용을 한국어 자막으로 번역(이 경우에만 추가 호출, 비용 최소)
+        try:
+            translated = await self.brain.translate(spoken, "ko")
+            return (translated or "").strip() or spoken
+        except Exception:  # noqa: BLE001 - 번역 실패해도 자막은 채운다
+            return spoken
+
+    @staticmethod
+    def _split_subtitle(text: str, max_len: int = 26) -> list[str]:
+        """긴 자막을 화면을 안 가리게 짧은 청크로 나눈다(문장→길면 공백/쉼표에서)."""
+        text = (text or "").strip()
+        if not text:
+            return []
+        parts = re.split(r"(?<=[.!?。…])\s+|\n+", text)
+        chunks: list[str] = []
+        for p in (s.strip() for s in parts if s and s.strip()):
+            while len(p) > max_len:
+                cut = max(p.rfind(" ", 0, max_len), p.rfind(",", 0, max_len),
+                          p.rfind("·", 0, max_len), p.rfind("、", 0, max_len))
+                if cut <= 0:
+                    cut = max_len
+                chunks.append(p[:cut].strip())
+                p = p[cut:].strip()
+            if p:
+                chunks.append(p)
+        return chunks
+
     async def _finish_speaking(self, subtitle: str) -> None:
-        if subtitle:
-            self._publish("speaking", 0.3, subtitle)  # show the subtitle under SPEAKING
-        # Wait out the audio: the speaking pump drains one queued level per hop (~the
-        # audio's length), and the playback ring must empty too.
+        # 자막을 한 번에 다 띄우면 길어서 화면을 가린다 — 짧은 청크로 나눠, 남은
+        # 오디오 길이에 맞춰 간격을 배분해 말하는 것과 같이 흘러가게 한다(동기).
+        chunks = self._split_subtitle(subtitle)
+        idx = 0
+        if chunks:
+            self._publish("speaking", 0.3, chunks[0])
+
+        def _remaining_audio_s() -> float:
+            pending = self.playback.pending() if hasattr(self.playback, "pending") else 0
+            return max(0.0, float(pending) / float(self.settings.playback_rate or 48000))
+
+        # 다음 청크로 넘어갈 시각: 남은오디오/남은청크 (1.0~3.0초로 클램프)
+        def _next_interval() -> float:
+            left = max(1, len(chunks) - 1 - idx)
+            return min(3.0, max(1.0, _remaining_audio_s() / left)) if chunks else 1.6
+
+        next_advance = _next_interval()
+        elapsed = 0.0
         for _ in range(int(30 / _HUD_HOP_S)):  # cap ~30s safety
             pump_busy = self._spk_pump is not None and not self._spk_pump.done()
             pending = self.playback.pending() if hasattr(self.playback, "pending") else 0
-            if not pump_busy and pending <= 0:
+            audio_done = not pump_busy and pending <= 0
+            elapsed += _HUD_HOP_S
+            if chunks and idx < len(chunks) - 1 and elapsed >= next_advance:
+                idx += 1
+                self._publish("speaking", 0.25, chunks[idx])
+                elapsed = 0.0
+                next_advance = _next_interval()
+            if audio_done:
                 break
             await asyncio.sleep(_HUD_HOP_S)
+        # 오디오가 끝났는데 남은 청크가 있으면 마저 짧게 보여준다.
+        while chunks and idx < len(chunks) - 1:
+            idx += 1
+            self._publish("speaking", 0.25, chunks[idx])
+            await asyncio.sleep(0.8)
 
     # ----- wake word (영화식 호출: 키 없이 "자비스") -----
     def _wake_gate(self) -> bool:
@@ -283,8 +451,7 @@ class Orchestrator:
             self._last_stt_s = loop.time() - t0
             await self._pipeline_text(command)
         except Exception as exc:  # noqa: BLE001 - 웨이크 경로는 스스로 회복해야 한다
-            print(f"[웨이크] 처리 오류(IDLE 복귀): {exc}")
-            self._to_idle()
+            await self._announce_error(exc)
 
     async def _wake_greet(self) -> None:
         await self._play_phrase("Yes, sir?", "네, 주인님?")
@@ -330,6 +497,104 @@ class Orchestrator:
         else:
             TRUST_GATE.disable()
             en, ko = ("Full authority revoked, sir.", "전권 모드를 껐습니다.")
+        await self._play_phrase(en, ko)
+        await self._finish_speaking("")
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
+
+    # ----- 사용량 확인 -----
+    def _usage_command(self, text: str) -> bool:
+        t = text.replace(" ", "")
+        return ("사용량" in t) or ("토큰" in t and ("얼마" in t or "확인" in t or "사용" in t))
+
+    async def _report_usage(self) -> None:
+        summary = self.usage.summary()
+        print(f"[사용량] {summary}")
+        await self._play_phrase("Here is your usage, sir.", summary)
+        await self._finish_speaking(summary)  # 자막으로 사용량을 띄워 둔다
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
+
+    async def _announce_limit(self) -> None:
+        """LLM 한도/요금 초과 — 조용히 죽지 말고 화면에 '한도 초과' + 음성으로 알린다."""
+        sub = "⚠ 한도 초과 — 잠시 후 다시 시도해 주세요."
+        print("[한도] LLM 사용 한도/요금 초과로 응답하지 못했습니다.")
+        self.state = State.SPEAKING
+        self._publish("speaking", 0.4, sub)
+        spoke = False
+        if sys.platform == "darwin":  # macOS는 한국어로 직접 말한다
+            try:
+                await asyncio.to_thread(
+                    interpret_speak_korean,
+                    "사용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.",
+                    self.settings.interpret_ko_voice)
+                spoke = True
+            except Exception:  # noqa: BLE001
+                spoke = False
+        if not spoke:  # 그 외 플랫폼: 자비스 영어 음성으로 알린다
+            await self._play_phrase(
+                "I've reached my usage limit, sir. Please try again shortly.", sub)
+        await self._finish_speaking(sub)
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
+
+    async def _announce_error(self, exc: Exception) -> None:
+        """버그/오류를 조용히 삼키지 말고 음성+우측 알림으로 알린다(수정 요청 가능하게)."""
+        detail = (str(exc).strip() or exc.__class__.__name__)
+        self.last_bug = detail
+        short = detail if len(detail) <= 140 else detail[:137] + "…"
+        print(f"[오류] {detail}")
+        self._notify(f"⚠ 오류\n{short}")
+        self.state = State.SPEAKING
+        self._publish("speaking", 0.3, "⚠ 오류가 발생했어요.")
+        spoke = False
+        if sys.platform == "darwin":
+            try:
+                await asyncio.to_thread(
+                    interpret_speak_korean,
+                    "오류가 발생했습니다. 오른쪽 위를 확인해 주세요.",
+                    self.settings.interpret_ko_voice)
+                spoke = True
+            except Exception:  # noqa: BLE001
+                spoke = False
+        if not spoke:
+            await self._play_phrase(
+                "Something went wrong, sir. Please check the top-right notice.",
+                "⚠ 오류가 발생했어요.")
+        await self._finish_speaking("")
+        self._to_idle()
+
+    # ----- 알림 패널 끄기/켜기 (순수 토글만 — 내용 요청은 두뇌의 show_panel로) -----
+    def _panel_command(self, text: str) -> str | None:
+        t = text.replace(" ", "")
+        if ("패널" not in t) and ("알림" not in t):
+            return None
+        if any(w in t for w in ("꺼", "끄", "닫", "없애", "치워", "숨겨")):
+            return "off"  # 끄기는 즉시·공격적으로(사용자 요구: 바로 끔)
+        # 켜기는 "패널 켜줘"처럼 짧은 순수 토글일 때만 가로챈다. "패널에 일정 보여줘"
+        # 같은 내용 요청을 여기서 삼키면 두뇌의 show_panel이 영영 못 뜬다(실제 버그).
+        if "켜" in t and len(t) <= 10:
+            return "on"
+        return None
+
+    async def _toggle_panel(self, cmd: str) -> None:
+        self._panel_muted = (cmd == "off")
+        if cmd == "off":
+            if self.hud is not None:
+                with contextlib.suppress(Exception):
+                    self.hud.publish_notice("")  # 즉시 끈다
+            en, ko = ("Notice panel off, sir.", "알림 패널을 껐습니다.")
+        else:
+            en, ko = ("Notice panel on, sir.", "알림 패널을 켰습니다.")
         await self._play_phrase(en, ko)
         await self._finish_speaking("")
         self.state = State.IDLE
@@ -396,13 +661,15 @@ class Orchestrator:
 
     # ----- 화면 제어 모드 (3c) -----
     def _control_command(self, text: str) -> str | None:
-        if "화면 제어" not in text and "화면제어" not in text:
+        # STT 띄어쓰기 변동("화면제어"/"화면 제어"/"제어 모드")에 강하게 — 공백 제거 비교.
+        t = text.replace(" ", "")
+        if "화면제어" not in t and "제어모드" not in t:
             return None
-        if any(w in text for w in self._INTERP_OFF):
+        if any(w in t for w in self._INTERP_OFF):
             return "off"
-        if "켜져" in text or "켜졌" in text:
+        if "켜져" in t or "켜졌" in t:
             return None  # 상태 질문("켜져 있어?") — 토글 아님, 두뇌로
-        if "켜" in text:
+        if "켜" in t:
             return "on"
         return None
 
@@ -463,7 +730,13 @@ class Orchestrator:
             self.brain.remote_mode = True
         try:
             parts: list[str] = []
-            async for delta in self.brain.respond(text):
+            # 원격 컨텍스트를 두뇌에 알린다 — 모르면 "보낼까요?" 같은 되묻기를 하는데,
+            # 원격엔 음성 확인 채널이 없어 약속이 공중에 뜬다(라이브 검증에서 발견).
+            remote_text = (
+                "[원격 텍스트 메시지 — 사용자는 지금 컴퓨터 앞에 없다. 발송·앱 실행·"
+                "화면 작업·패널 표시는 불가하니 약속하거나 되묻지 말고, 가능한 정보로 "
+                f"바로 답하라]\n{text}")
+            async for delta in self.brain.respond(remote_text):
                 parts.append(delta)
             en = "".join(parts).strip()
             ko = (getattr(self.brain, "last_subtitle", "") or "").strip()
@@ -533,9 +806,16 @@ class Orchestrator:
         if not sentence.strip():
             return
         self.state = State.SPEAKING
-        try:
-            audio = await self.tts.synth(sentence)                # at tts.sample_rate
-        except Exception:  # noqa: BLE001 - one bad sentence must not kill the answer
+        # 합성을 1회 재시도한다 — 일시적 TTS 오류로 문장을 통째로 잃으면(=말이 끊김)
+        # 안 되므로. 두 번 다 실패할 때만 포기한다.
+        audio = None
+        for _attempt in range(2):
+            try:
+                audio = await self.tts.synth(sentence)            # at tts.sample_rate
+                break
+            except Exception:  # noqa: BLE001 - 마지막 시도까지 실패하면 그 문장만 건너뜀
+                audio = None
+        if audio is None:
             return
         arr = np.asarray(audio, dtype=np.float32).reshape(-1)
         if arr.size == 0 or float(np.max(np.abs(arr))) < 1e-4:  # empty/silent crashes RVC

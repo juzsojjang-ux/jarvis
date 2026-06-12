@@ -20,3 +20,12 @@ voice_models/*.wav
 /build/
 /dist/
 *.spec.bak
+python-3.11.9-amd64.exe
+
+# 루트의 음성 샘플 산출물(재생성 가능) — 저장소 비대 방지
+/jarvis_*.wav
+
+# CI 빌드에 필요한 소형 자산은 추적한다(대형 4종은 GitHub Release 자산)
+!voice_models/silero_vad.onnx
+!voice_models/jarvis_en_ref.wav
+!voice_models/jarvis_ref.wav

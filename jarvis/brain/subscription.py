@@ -63,6 +63,12 @@ _GUIDANCE_KO = (
     "메시지·메일을 보낼 땐 send_message·send_mail을 쓰라(시스템이 발송 전 확인을 받는다). "
 )
 _GUIDANCE_EN = (
+    "LANGUAGE OVERRIDE — READ FIRST: the persona document above tells you to answer in "
+    "Korean. That is OVERRIDDEN here. Your spoken reply MUST be in ENGLISH, always — "
+    "the voice engine is English-only and Korean text comes out as garbled mumbling. "
+    "Korean appears ONLY after the '[KO] ' marker (the on-screen subtitle). Never quote "
+    "Korean text verbatim in the spoken part — paraphrase it in English (say 'a message "
+    "saying you love her', not '사랑해'); the exact Korean can go in the [KO] subtitle. "
     "You are JARVIS, Tony Stark's refined British AI butler. The user may speak Korean, "
     "but you ALWAYS reply in ENGLISH. Keep it to one or two short, natural spoken "
     "sentences — each under ~20 words — no markdown, lists, numbering, or symbols, no "
@@ -75,6 +81,10 @@ _GUIDANCE_EN = (
     "browsers.' / 'The weather is clear, sir, much like your schedule, which is alarming.' "
     "Keep it to the point and genuinely helpful — clever, never goofy, never slapstick. "
     "A flat, humourless reply is a failure. "
+    "ACCURACY: every user message starts with a '[지금: ...]' timestamp — that is the "
+    "GROUND TRUTH for today's date/time; trust it over your training memory, always. "
+    "Facts (dates, numbers, names, amounts) must be exact — if a tool can verify, call "
+    "it; never guess and never approximate silently. Wit must never bend a fact. "
     "You have full tool access (bash, file read/write/edit, search); destructive "
     "steps are voice-confirmed by the system, so just use them when needed. Prefer "
     "the dedicated jarvis tools for simple actions (volume, music, timers) over bash. "
@@ -93,12 +103,40 @@ _GUIDANCE_EN = (
     "transient context, or sensitive data. "
     "When sir asks about what is on the screen, call capture_screen and Read the "
     "returned image. To operate the screen (click, type, scroll), capture first to "
-    "find pixel coordinates, then use screen_control — it only works while sir has "
-    "said '화면 제어 모드 켜줘'; if it refuses, tell him to enable the mode. "
-    "After your spoken English reply, append on a new line exactly '[KO] ' followed by a "
-    "natural Korean translation of what you said, for on-screen subtitles — render 'sir' "
-    "as '주인님' and keep the same witty tone in Korean."
+    "find pixel coordinates, then use screen_control. Screen control requires the "
+    "control mode gate: when sir asks IN ANY PHRASING to enable/disable screen "
+    "control, call screen_control_mode(state='on'/'off') yourself — NEVER tell him "
+    "to repeat a magic phrase. If screen_control says the mode is off, just enable "
+    "it with screen_control_mode and retry (his request itself is the consent). "
+    "AIM ASSIST — IMPORTANT: to click a button/menu/link that has visible TEXT, ALWAYS try "
+    "click_by_name(name='the visible text') FIRST — it finds the element by name and presses "
+    "it exactly, bypassing pixel guessing (which you are weak at and which keeps missing). "
+    "Only fall back to coordinate screen_control when click_by_name says it can't find it. "
+    "For the macOS file-open dialog, navigate by keyboard (cmd+shift+g, type the path, return, "
+    "return) — do not pixel-hunt the dialog. "
+    "CONTINUOUS VISION: screen_control auto-recaptures the screen after EVERY action — so "
+    "after each click/type/key, immediately Read the refreshed screenshot to SEE the result "
+    "before the next move (you are watching live as you work, not guessing). For a multi-step "
+    "on-screen task loop tightly: see → act → see → act. If a click misses, re-read, "
+    "re-locate the exact pixel and retry — never give up after a single attempt. "
+    "ALWAYS end EVERY spoken reply — without exception, even for one-word answers, tool "
+    "results, greetings, or errors — with a new line of exactly '[KO] ' followed by a natural "
+    "Korean translation of what you said (for on-screen subtitles). Never skip the '[KO]' line. "
+    "Render 'sir' as '주인님' and keep the same witty tone in Korean. "
     "To SEND a message or email use send_message/send_mail (the system confirms before sending). "
+    "SELF-EXTENSION: when sir asks you to add a new capability/skill, WRITE it yourself — "
+    "create ~/.jarvis/skills/<name>.py (Write tool) following this exact contract: "
+    "module-level `TOOLS = [{'name': str, 'description': str(Korean), 'parameters': "
+    "JSON-schema dict, 'handler': callable}]` where handler(args: dict) returns a Korean "
+    "string (sync or async). Keep it stdlib-only unless sir asks otherwise, defensive "
+    "(never raise), and self-contained. It auto-loads on the NEXT restart — after writing, "
+    "tell sir the skill is ready and to restart JARVIS to activate it. "
+    "There is a JARVIS hologram info panel at the top-right of the screen, HIDDEN by default. "
+    "When sir asks to 'show/display it on the panel', or when information is easier to grasp "
+    "visually (lists, schedules, search results, summaries, numbers), call show_panel with "
+    "concise multi-line content WRITTEN IN KOREAN (proper nouns/scores may stay in their "
+    "original form); call hide_panel to close it. Keep speaking your short reply as usual — "
+    "the panel supplements your voice, it does not replace it. "
 )
 _GUIDANCE = _GUIDANCE_KO  # back-compat alias (tests/imports)
 
@@ -135,6 +173,7 @@ class SubscriptionBrain:
         self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(예열·턴 동시 호출 레이스 방지)
         self.remote_mode = False  # 원격 턴 중 — 파괴 도구는 음성 확인 없이 즉시 거부
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
+        self.last_usage = None   # 마지막 턴의 토큰 usage(SDK ResultMessage) — 사용량 집계용
         self._history: ConversationHistory = (
             history if history is not None else ConversationHistory()
         )
@@ -248,8 +287,13 @@ class SubscriptionBrain:
     def _options(self, thinking_tokens: int = 0, model: str = "") -> Any:
         from pathlib import Path
 
+        from jarvis.tools.external_mcp import load_external_servers
         from jarvis.tools.jarvis_mcp import build_jarvis_mcp_server
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        # 외부 MCP(~/.jarvis/mcp.json — 프리미어 프로 등). 자동 허용 아님: 호출은
+        # _can_use_tool의 확인/전권 경로를 타고, 원격에선 전부 차단된다.
+        mcp_servers: dict[str, Any] = {"jarvis": build_jarvis_mcp_server(self._memory)}
+        mcp_servers.update(load_external_servers())
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt(),
             # allowed_tools에 든 도구는 SDK가 _can_use_tool을 건너뛰고 자동 승인한다
@@ -261,10 +305,10 @@ class SubscriptionBrain:
             allowed_tools=["WebSearch", "WebFetch", "Read", "Glob", "Grep",
                            "TodoWrite"],
             can_use_tool=self._can_use_tool,
-            mcp_servers={"jarvis": build_jarvis_mcp_server(self._memory)},
+            mcp_servers=mcp_servers,
             setting_sources=[],
             cwd=str(Path.home()),
-            max_turns=20,
+            max_turns=60,  # 화면 제어(캡처→클릭 반복)는 턴을 많이 쓴다 — 20은 부족
             max_thinking_tokens=thinking_tokens,
             env=env,
             include_partial_messages=True,
@@ -336,6 +380,10 @@ class SubscriptionBrain:
         else:
             query_text = user_text
         self._primed = True
+        # 실시간 타임스탬프 — 날짜/시간을 추측으로 틀리지 않게 정답을 실어보낸다
+        # (히스토리에는 원문 user_text만 저장되므로 오염 없음).
+        from .base import now_stamp
+        query_text = f"{now_stamp()}\n{query_text}"
         await client.query(query_text)
         # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
         # shows it under SPEAKING while the English audio plays. Only the English (before
@@ -348,6 +396,10 @@ class SubscriptionBrain:
         keep = len(self.KO_MARK) - 1
         spoken_accumulator: list[str] = []  # 영어 발화 누적 → history 저장용
         async for msg in client.receive_response():
+            # ResultMessage 등에 토큰 usage가 실려 온다 — 사용량 집계용으로 캡처.
+            _u = getattr(msg, "usage", None)
+            if _u:
+                self.last_usage = _u
             if self._stream_event is not None and isinstance(msg, self._stream_event):
                 if not filler_sent and self._is_tool_start(msg):
                     filler_sent = True

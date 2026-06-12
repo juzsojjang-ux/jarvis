@@ -63,6 +63,20 @@ datas_raw = [
 
     # Setup UI HTML (first-run provider selection screen)
     _data(REPO_ROOT / "jarvis" / "setup" / "index.html", "jarvis/setup"),
+
+    # --- 하이브리드 '개인용 풀음성 업그레이드' 자산 ---------------------------
+    # 사용자가 셋업 UI에서 업그레이드를 누르면 upgrade_full_voice 스크립트가
+    # 이 자산들로 torch venv(Pocket / RVC)를 깐다. 번들 자체는 실행하지 않는다.
+    #   • voice_full_src/jarvis : 워커 venv가 import할 jarvis 소스(.pth로 연결)
+    #   • voice_full_assets     : 음색 모델/레퍼런스(개인용과 동일 자산)
+    #   • upgrade_full_voice.*   : 설치 스크립트(번들 루트)
+    _data(REPO_ROOT / "jarvis", "voice_full_src/jarvis"),
+    _data(REPO_ROOT / "voice_models" / "jarvis_en_ref.wav", "voice_full_assets"),
+    _data(REPO_ROOT / "voice_models" / "jarvis_ref.wav", "voice_full_assets"),
+    _data(REPO_ROOT / "voice_models" / "jarvis.pth", "voice_full_assets"),
+    _data(REPO_ROOT / "voice_models" / "jarvis.index", "voice_full_assets"),
+    _data(REPO_ROOT / "packaging" / "upgrade_full_voice.sh", "."),
+    _data(REPO_ROOT / "packaging" / "upgrade_full_voice.ps1", "."),
 ]
 
 # ---------------------------------------------------------------------------
@@ -161,6 +175,15 @@ hiddenimports = [
 
     # Tools
     "jarvis.tools.win_control",        # Windows-only but import must not fail on Mac
+
+    # HUD 오버레이 + 상태 아이콘(런타임에 플랫폼별로 spawn — 정적 추적 안 됨)
+    "jarvis.hud.overlay_mac",
+    "jarvis.hud.overlay_win",
+    "jarvis.hud.tray",
+    "pystray",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageDraw",
 
     # Third-party runtime deps imported lazily
     "edge_tts",
@@ -293,6 +316,7 @@ exe = EXE(                                               # noqa: F821
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,   # None = native arch of build machine
+    icon=str(REPO_ROOT / "packaging" / "jarvis.ico"),  # Windows .exe 아이콘
     codesign_identity=None,      # Set to your Apple Developer ID for signing
     entitlements_file=None,      # Add entitlements.plist for Hardened Runtime
 )
@@ -320,7 +344,7 @@ if sys.platform == "darwin":
     app = BUNDLE(                                        # noqa: F821
         coll,
         name="JARVIS.app",
-        icon=None,          # TODO: supply an .icns file via icon="path/to/jarvis.icns"
+        icon=str(REPO_ROOT / "packaging" / "jarvis.icns"),  # 자비스 오브 앱 아이콘
         bundle_identifier="com.jarvis.assistant",
         version="0.1.0",
         info_plist={

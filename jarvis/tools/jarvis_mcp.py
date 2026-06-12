@@ -301,11 +301,116 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
 _CLICK_PREFIX = {"click": "c", "double_click": "dc", "right_click": "rc", "move": "m"}
 
 
+# 조준 보조(접근성 클릭): 픽셀이 아니라 '이름'으로 UI 요소를 찾아 누른다. 두뇌의 약한
+# 좌표 조준을 우회한다 — 특히 메뉴·버튼·macOS 파일창에서 강력하다. AXPress가 되면
+# 좌표 없이 누르고, 안 되면 요소 중심 좌표를 돌려준다(cliclick로 클릭).
+_AX_CLICK_SCRIPT = '''on run argv
+  set q to item 1 of argv
+  set wantRole to ""
+  if (count of argv) > 1 then set wantRole to item 2 of argv
+  with timeout of 18 seconds
+    tell application "System Events"
+      try
+        set p to first application process whose frontmost is true
+      on error
+        return "NOAPP"
+      end try
+      tell p
+        try
+          set w to window 1
+        on error
+          return "NOWIN"
+        end try
+        set cands to {}
+        try
+          set cands to entire contents of w
+        end try
+        repeat with el in cands
+          try
+            if wantRole is not "" then
+              if (role of el) is not wantRole then error "skip"
+            end if
+            set nm to ""
+            try
+              set nm to (title of el) as text
+            end try
+            if nm is "" then
+              try
+                set nm to (description of el) as text
+              end try
+            end if
+            if nm is "" then
+              try
+                set nm to (name of el) as text
+              end try
+            end if
+            set hv to ""
+            try
+              set hv to (help of el) as text
+            end try
+            if (nm contains q) or (hv contains q) then
+              try
+                perform action "AXPress" of el
+                return "PRESSED:" & nm
+              on error
+                set pos to position of el
+                set sz to size of el
+                set cx to (item 1 of pos) + ((item 1 of sz) div 2)
+                set cy to (item 2 of pos) + ((item 2 of sz) div 2)
+                return "POS:" & cx & "," & cy
+              end try
+            end if
+          end try
+        end repeat
+      end tell
+    end tell
+  end timeout
+  return "NOTFOUND"
+end run'''
+
+
+def ui_click_action(label: str, role: str = "", gate=None, runner=subprocess.run) -> str:
+    """화면 요소를 '이름'으로 찾아 누른다(조준 보조). 게이트 필요(화면 제어 모드)."""
+    g = gate if gate is not None else CONTROL_GATE
+    if not g.is_on():
+        return "화면 제어 모드가 꺼져 있습니다. 먼저 화면 제어 모드를 켜주세요."
+    label = str(label or "").strip()
+    if not label:
+        return "누를 요소의 이름(보이는 글자)을 알려주세요."
+    if not _is_mac():
+        return "조준 보조 클릭은 현재 macOS에서만 지원합니다(윈도우는 좌표 클릭 사용)."
+    try:
+        res = runner(["osascript", "-e", _AX_CLICK_SCRIPT, label, str(role or "")],
+                     capture_output=True, text=True, timeout=25)
+    except subprocess.TimeoutExpired:
+        return f"'{label}' 탐색이 오래 걸려 멈췄습니다 — 좌표 클릭으로 시도하세요."
+    except Exception:  # noqa: BLE001
+        return "조준 보조 클릭에 실패했습니다(손쉬운 사용 권한 확인)."
+    out = (getattr(res, "stdout", "") or "").strip()
+    if out.startswith("PRESSED:"):
+        return f"'{out[8:].strip() or label}'을(를) 눌렀습니다."
+    if out.startswith("POS:"):
+        try:
+            xs, ys = out[4:].split(",")
+            runner(["cliclick", f"c:{int(float(xs))},{int(float(ys))}"],
+                   capture_output=True, text=True, timeout=5)
+            return f"'{label}' 위치를 눌렀습니다."
+        except Exception:  # noqa: BLE001
+            return f"'{label}'을 찾았으나 클릭에 실패했습니다."
+    if out in ("NOWIN", "NOAPP"):
+        return "현재 활성 창을 찾지 못했습니다 — 대상 앱을 앞으로 가져와 주세요."
+    return (f"'{label}' 라는 요소를 화면에서 못 찾았습니다. 보이는 정확한 글자로 "
+            "다시 시도하거나, 좌표 클릭(screen_control)을 쓰세요.")
+
+
 def screen_control_action(action: str, x: Any = None, y: Any = None, text: str = "",
                           key: str = "", amount: Any = None,
-                          gate=None, runner=subprocess.run) -> str:
+                          gate=None, runner=subprocess.run, watch: bool = True) -> str:
     """좌표 기반 화면 조작(cliclick). '화면 제어 모드' 게이트가 꺼져 있으면 거부 —
-    모드 진입 자체가 사용자 동의라서 모드 안에서는 동작별 음성 확인 없이 실행한다."""
+    모드 진입 자체가 사용자 동의라서 모드 안에서는 동작별 음성 확인 없이 실행한다.
+
+    watch=True면 동작 직후 화면을 자동 재캡처해 결과를 바로 '보게' 한다(계속 보면서
+    작업). 별도 capture 턴이 필요 없어 두뇌가 see→act→see 루프를 빠르게 돈다."""
     g = gate if gate is not None else CONTROL_GATE
     if not g.is_on():
         return ("화면 제어 모드가 꺼져 있습니다. 먼저 '화면 제어 모드 켜줘'라고 "
@@ -360,6 +465,14 @@ def screen_control_action(action: str, x: Any = None, y: Any = None, text: str =
             perform(action, x=x, y=y, text=text, key=key, amount=amount)
         except Exception:  # noqa: BLE001
             return "화면 조작에 실패했습니다. 접근성/입력 권한을 확인해 주세요."
+    if watch:
+        # 동작 결과를 즉시 다시 본다 — 잠깐 렌더 대기 후 자동 재캡처(계속 보기).
+        import time
+        time.sleep(0.35)
+        shot = capture_screen_action(runner=runner)
+        if "캡처했습니다" in shot:
+            return (f"{done}. 결과 화면을 갱신했습니다 — 반드시 Read 도구로 "
+                    f"{_SCREENSHOT_PATH} 를 다시 보고 다음 동작을 결정하세요.")
     return f"{done}."
 
 
@@ -796,6 +909,72 @@ async def _screen_control(args):
         str(a.get("text") or ""), str(a.get("key") or ""), a.get("amount")))
 
 
+@tool("click_by_name", "화면 제어의 '조준 보조' — 픽셀 좌표 대신 버튼/메뉴/링크를 보이는 "
+      "글자(이름)로 찾아 누른다. 좌표 클릭(screen_control)보다 훨씬 정확하니, 누를 대상에 "
+      "글자가 있으면 이걸 먼저 써라(예: name='새로 만들기', name='파일 업로드', name='열기'). "
+      "못 찾으면 그때 capture+screen_control 좌표로 폴백. role로 종류 한정 가능(AXButton/"
+      "AXMenuItem/AXMenuButton/AXStaticText 등). 화면 제어 모드가 켜져 있어야 한다.",
+      {"type": "object", "properties": {"name": {"type": "string"},
+       "role": {"type": "string"}}, "required": ["name"]})
+async def _click_by_name(args):
+    a = args or {}
+    return _text(ui_click_action(str(a.get("name", "")), role=str(a.get("role", ""))))
+
+
+@tool("show_panel", "화면 오른쪽 위 정보 패널(자비스 홀로그램)에 내용을 띄운다. 사용자가 "
+      "'패널에 보여줘/띄워줘'라고 하거나, 목록·일정·요약·표처럼 눈으로 보면 좋은 정보를 "
+      "전할 때 쓴다. content는 반드시 **한국어**로, 줄바꿈으로 또박또박 정리한다(고유명사/"
+      "스코어 등 원어가 자연스러우면 그대로). 패널은 내용 양에 따라 자동으로 커진다 — "
+      "짧은 알림은 작게, 긴 목록/표/상세 정보는 아주 크게(필요하면 스크롤). 그러니 정보가 "
+      "많으면 줄이지 말고 풍부하게 정리해 넣어도 된다. 패널은 기본 숨김이니 도움될 때만 띄운다.",
+      {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]})
+async def _show_panel(args):
+    from ..hud import notice_bus
+    content = str((args or {}).get("content", "")).strip()
+    if not content:
+        return _text("무엇을 패널에 보여드릴까요?")
+    ok = notice_bus.show(content)
+    return _text("패널에 표시했습니다." if ok else "지금은 패널을 띄울 수 없습니다.")
+
+
+@tool("hide_panel", "오른쪽 위 정보 패널을 닫는다(사용자가 '패널 꺼/닫아'라고 할 때).", {})
+async def _hide_panel(_args):
+    from ..hud import notice_bus
+    notice_bus.hide()
+    return _text("패널을 닫았습니다.")
+
+
+@tool("screen_control_mode", "화면 제어 모드를 켜거나 끈다. 사용자가 어떤 표현으로든 "
+      "화면 제어(클릭/입력 조작)를 켜 달라고 하면 state='on'으로 호출한다 — 사용자에게 "
+      "특정 문구를 다시 말하라고 하지 말 것. 몇 분 후 자동으로 꺼진다.",
+      {"type": "object", "properties": {"state": {"type": "string", "enum": ["on", "off"]}},
+       "required": ["state"]})
+async def _screen_control_mode(args):
+    state = str((args or {}).get("state", "")).strip().lower()
+    if state == "on":
+        CONTROL_GATE.enable(300.0)
+        return _text("화면 제어 모드를 켰습니다. 몇 분 후 자동으로 꺼집니다.")
+    if state == "off":
+        CONTROL_GATE.disable()
+        return _text("화면 제어 모드를 껐습니다.")
+    return _text("state는 on 또는 off로 알려주세요.")
+
+
+def _skill_sdk_tools():
+    """~/.jarvis/skills/*.py 의 사용자/자비스 작성 스킬을 SDK 도구로 감싼다.
+
+    스킬은 NeutralTool(파이썬 객체)로 로드되는데, Claude 구독 두뇌의 인프로세스
+    MCP 서버는 @tool(SdkMcpTool)만 받는다 — 여기서 감싸지 않으면 클로드 두뇌만
+    스킬을 못 쓰는 비대칭이 생긴다(자가 코딩 시연에서 발견된 통합 구멍)."""
+    from .skills import load_skill_tools
+    out = []
+    for nt in load_skill_tools():
+        async def _h(args, _nt=nt):
+            return _text(await _nt.call(args or {}))
+        out.append(tool(nt.name, nt.description, nt.parameters)(_h))
+    return out
+
+
 def build_tool_objects(memory: Any = None):
     """30개 SdkMcpTool 객체 리스트를 반환한다.
 
@@ -821,8 +1000,10 @@ def build_tool_objects(memory: Any = None):
             _set_timer, _cancel_timer, _list_timers,
             _get_messages, _get_unread_mail,
             _send_message, _send_mail,
-            _capture_screen, _screen_control,
-            _remember]
+            _capture_screen, _screen_control, _screen_control_mode, _click_by_name,
+            _show_panel, _hide_panel,
+            _remember,
+            *_skill_sdk_tools()]  # 자가 확장 스킬 — 모든 두뇌(클로드 포함)가 사용
 
 
 def build_jarvis_mcp_server(memory: Any = None):

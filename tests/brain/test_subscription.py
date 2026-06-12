@@ -85,7 +85,7 @@ def test_streams_partial_deltas_and_skips_final_duplicate():
         ])
         # marker-buffering may re-chunk, but the spoken text concatenation is exact
         assert "".join(out) == "안녕하세요"
-        assert client.queries == ["안녕"]
+        assert [q.split("\n", 1)[-1] for q in client.queries] == ["안녕"]  # [지금:] 스탬프 제외
     asyncio.run(run())
 
 
@@ -607,7 +607,8 @@ def test_history_injected_on_first_query_then_not(tmp_path):
 
     first_q, second_q = asyncio.run(run())
     assert "이전 대화 맥락" in first_q and "첫질문" in first_q
-    assert second_q == "둘째질문"  # primed — 재주입 없음
+    assert first_q.startswith("[지금: ")              # 실시간 타임스탬프 동봉
+    assert second_q.split("\n", 1)[-1] == "둘째질문"   # primed — 재주입 없음(스탬프 제외)
 
 
 def test_respond_saves_turn(tmp_path):

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
         env_prefix="JARVIS_", extra="ignore", protected_namespaces=()
     )
 
+    # 어시스턴트 이름 — 웨이크워드·HUD 라벨·자칭에 쓰인다(첫 설정에서 변경 가능)
+    assistant_name: str = "자비스"
+
     # 두뇌 프로바이더: 첫 실행에서 택1. "claude"(기본) | "gemini" | "gpt"
     # Gemini/GPT는 다음 sub-project에서 구현 예정 — 지금은 claude만 동작.
     brain_provider: str = "claude"  # 첫 실행에서 택1: claude/gemini/gpt
@@ -25,10 +28,9 @@ class Settings(BaseSettings):
     # Brain backend: "subscription" (Claude Pro/Max login via claude-agent-sdk — NO API
     # key, no per-token bill) or "api" (Anthropic API key + local tool loop).
     brain_backend: str = "subscription"
-    # Opus for accuracy (user preferred its quality over Sonnet). The instant spoken
-    # acknowledgement masks Opus's first-token latency; "최대 사고/think hard" adds
-    # extended thinking on top.
-    subscription_model: str = "claude-opus-4-8"
+    # 기본 대화는 Sonnet(사용자 선택 — 빠른 첫음성, 실측 2.8s→1.3s). 깊은 사고가
+    # 필요한 요청("최대 사고/think hard")만 deep_model(Opus)로 올린다.
+    subscription_model: str = "claude-sonnet-4-6"
     deep_model: str = "claude-opus-4-8"
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
@@ -118,6 +120,12 @@ class Settings(BaseSettings):
     # --- 크로스플랫폼 STT ---
     # "mlx": 애플 실리콘 최속(맥 기본). "faster": CTranslate2 CPU/CUDA(윈도우·리눅스).
     stt_backend: str = "mlx"
+    # Whisper initial_prompt — 여기 등장한 어휘를 우선해 받아적는다(명령어 인식률↑).
+    # 자비스 호출어·모드 명령·자주 쓰는 도구 표현을 나열한다.
+    stt_initial_prompt: str = (
+        "자비스, 화면 제어 모드 켜줘. 전권 위임 모드. 통역 모드. 패널에 보여줘. "
+        "패널 꺼줘. 사용량 알려줘. 타이머. 미리알림. 캘린더. 클릭해줘. 입력해줘."
+    )
     # faster-whisper 전용 quantization — int8(기본, 빠름) | float16 | float32
     faster_whisper_compute: str = "int8"
 
@@ -130,8 +138,10 @@ class Settings(BaseSettings):
     hud_enabled: bool = True           # run the local HUD server (state/level over SSE)
     hud_host: str = "127.0.0.1"
     hud_port: int = 8787
-    hud_overlay: bool = True           # native macOS overlay (transparent) — not a browser
+    hud_overlay: bool = True           # 네이티브 오버레이(맥 WKWebView/윈도우 전용 창)
     hud_open_browser: bool = False     # fallback: open the HUD in the default browser
+    # 메뉴 막대(맥)/시스템 트레이(윈도우)에 '자비스 실행 중' 상태 아이콘 표시.
+    tray_enabled: bool = True
 
     @property
     def api_key(self) -> str:

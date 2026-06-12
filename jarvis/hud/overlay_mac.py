@@ -71,6 +71,9 @@ def main(url: str) -> int:
     win.setContentView_(web)
     web.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
     win.orderFrontRegardless()
+    # 메인 자비스가 죽으면(kill -9/크래시 포함) 유령 HUD로 남지 않게 자기 종료.
+    from jarvis.hud.procwatch import watch_parent
+    watch_parent()
     app.run()
     return 0
 

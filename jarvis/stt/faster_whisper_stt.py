@@ -2,6 +2,7 @@
 같은 Whisper 모델이라 mlx-whisper와 인식 품질 동일(런타임만 다름). MLXWhisperSTT의
 _UNSET 센티넬·자동감지(None 보존) 계약을 그대로 따른다(통역 모드 필수)."""
 from __future__ import annotations
+
 import numpy as np
 
 _UNSET = object()  # 미지정과 '의도적 None(자동감지)' 구분
@@ -9,13 +10,15 @@ _UNSET = object()  # 미지정과 '의도적 None(자동감지)' 구분
 
 class FasterWhisperSTT:
     def __init__(self, repo: str, language: str = "ko", compute_type: str = "int8",
-                 device: str = "cpu", model_factory=None):
+                 device: str = "cpu", model_factory=None,
+                 initial_prompt: str | None = None):
         self._repo = repo
         self._language = language
         self._compute = compute_type
         self._device = device
         self._model_factory = model_factory  # 주입(테스트) — None이면 실제 로드
         self._model = None
+        self._initial_prompt = initial_prompt  # 도메인 용어 바이어스(명령어 인식률↑)
 
     def _ensure(self):
         if self._model is None:
@@ -39,7 +42,11 @@ class FasterWhisperSTT:
         audio = np.asarray(pcm, dtype=np.float32).reshape(-1)
         try:
             model = self._ensure()
-            segments, _info = model.transcribe(audio, language=lang)
+            kw = {}
+            if self._initial_prompt and lang == self._language:
+                kw["initial_prompt"] = self._initial_prompt  # 통역 자동감지 땐 미적용
+            segments, _info = model.transcribe(
+                audio, language=lang, condition_on_previous_text=False, **kw)
             return "".join(getattr(s, "text", "") for s in segments).strip()
         except Exception:  # noqa: BLE001 - 전사 실패는 빈 문자열(상위가 IDLE 처리)
             return ""

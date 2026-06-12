@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable
+from pathlib import Path
 
-from .validate import validate as _default_validate
+from .shortcut import create_desktop_shortcut as _default_shortcut
 from .store import save_key, save_setup
+from .validate import validate as _default_validate
 
 # ---------------------------------------------------------------------------
 # 설정 HTML — 영화풍 다크 테마, 세 카드, 한국어 레이블
@@ -180,6 +184,72 @@ SETUP_HTML = """\
   .done-box .checkmark { font-size: 2.5rem; }
   .done-box p { color: var(--ok); font-size: 1rem; letter-spacing: 0.04em; }
   .done-box small { color: var(--dim); font-size: 0.8rem; }
+  .voice-panel {
+    width: 100%; max-width: 480px; margin-top: 2.2rem;
+    border-top: 1px solid var(--border); padding-top: 1.4rem;
+  }
+  .voice-panel h2 {
+    font-size: 0.95rem; font-weight: 600; letter-spacing: 0.12em;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 0.5rem;
+  }
+  .voice-panel .vp-note {
+    font-size: 0.8rem; color: var(--dim); line-height: 1.5; margin-bottom: 0.9rem;
+  }
+  .vp-modes { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.9rem; }
+  .vp-modes label { font-size: 0.82rem; color: var(--text); cursor: pointer; }
+  .vp-modes input { margin-right: 0.5rem; accent-color: var(--accent); }
+  .btn-upgrade {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent2);
+    border-radius: 8px; padding: 0.6rem 1.6rem; font-size: 0.88rem; cursor: pointer;
+    letter-spacing: 0.04em; transition: background 0.2s, opacity 0.2s;
+  }
+  .btn-upgrade:hover { background: var(--card-selected); }
+  .btn-upgrade:disabled { opacity: 0.45; cursor: default; }
+  .vp-log {
+    display: none; margin-top: 1rem; max-height: 220px; overflow-y: auto;
+    background: #06080c; border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.7rem 0.9rem; font-family: "SF Mono", "Menlo", monospace;
+    font-size: 0.72rem; color: var(--dim); white-space: pre-wrap; line-height: 1.45;
+  }
+  .vp-log.visible { display: block; }
+  .opt-row {
+    display: flex; align-items: center; gap: 0.5rem; cursor: pointer;
+    margin-bottom: 1.2rem; font-size: 0.85rem; color: var(--text); user-select: none;
+  }
+  .opt-row input { accent-color: var(--accent); width: 1rem; height: 1rem; }
+  .voice-pick {
+    width: 100%; max-width: 460px; margin-bottom: 1.3rem; text-align: left;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem 1.2rem;
+  }
+  .voice-pick h3 {
+    font-size: 0.85rem; color: var(--accent); letter-spacing: 0.1em;
+    text-transform: uppercase; font-weight: 600; margin-bottom: 0.7rem;
+  }
+  .vp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem 1rem; }
+  .vp-grid label { font-size: 0.82rem; color: var(--text); cursor: pointer; }
+  .vp-grid input { accent-color: var(--accent); margin-right: 0.4rem; }
+  .name-row { margin-top: 0.9rem; }
+  .name-row label { display: block; font-size: 0.8rem; color: var(--dim); margin-bottom: 0.35rem; }
+  .name-row input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 0.55rem 0.8rem; font-size: 0.95rem;
+  }
+  .name-row input:focus { border-color: var(--accent); outline: none; }
+  .name-row small { display: block; margin-top: 0.35rem; color: var(--dim); font-size: 0.72rem; }
+  .manual {
+    margin-top: 1.2rem; max-width: 460px; text-align: left;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.3rem;
+  }
+  .manual h3 {
+    font-size: 0.9rem; color: var(--accent); letter-spacing: 0.08em;
+    margin-bottom: 0.7rem; text-transform: uppercase; font-weight: 600;
+  }
+  .manual ul { list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+  .manual li { font-size: 0.82rem; color: var(--text); line-height: 1.5; }
+  .manual b { color: var(--accent); font-weight: 600; }
+  .manual small { display: block; margin-top: 0.9rem; color: var(--dim); font-size: 0.75rem; }
 </style>
 </head>
 <body>
@@ -220,6 +290,28 @@ SETUP_HTML = """\
   codex login 필요 — 터미널에서 먼저 <code>codex login</code> 을 실행하세요
 </div>
 
+<div class="voice-pick" id="voicePick">
+  <h3>목소리</h3>
+  <div class="vp-grid">
+    <label><input type="radio" name="vchoice" value="jarvis" checked> 자비스(영화 클론) · 영어</label>
+    <label><input type="radio" name="vchoice" value="butler_en"> 영국 집사 · 영어</label>
+    <label><input type="radio" name="vchoice" value="male_us"> 남성 · 영어(미국)</label>
+    <label><input type="radio" name="vchoice" value="female_us"> 여성 · 영어(미국)</label>
+    <label><input type="radio" name="vchoice" value="male_ko"> 남성 · 한국어</label>
+    <label><input type="radio" name="vchoice" value="female_ko"> 여성 · 한국어</label>
+  </div>
+  <div class="name-row">
+    <label for="aiName">어시스턴트 이름</label>
+    <input type="text" id="aiName" value="자비스" maxlength="12" spellcheck="false">
+    <small>부르는 말(웨이크워드)과 화면 표시가 이 이름으로 바뀝니다</small>
+  </div>
+</div>
+
+<label class="opt-row" id="shortcutRow">
+  <input type="checkbox" id="deskShortcut" checked>
+  <span>바탕화면에 자비스 아이콘(바로가기) 만들기</span>
+</label>
+
 <button class="btn-start" id="btnStart">시작</button>
 
 <div id="msg"></div>
@@ -227,7 +319,36 @@ SETUP_HTML = """\
 <div class="done-box" id="doneBox">
   <div class="checkmark">✓</div>
   <p>설정 완료 — 자비스를 시작합니다</p>
-  <small>이 창을 닫으셔도 됩니다</small>
+  <div class="manual">
+    <h3>자비스 사용법</h3>
+    <ul>
+      <li><b>부르기</b> — "자비스"라고 부르거나, 오른쪽 <b>Option</b> 키를 누른 채 말하세요.</li>
+      <li><b>대화</b> — 그냥 말하면 됩니다. 답이 끝나면 잠깐은 부르지 않아도 이어 말할 수 있어요.</li>
+      <li><b>통역 모드</b> — "통역 켜" / "통역 꺼" (한↔영 통역).</li>
+      <li><b>전권 위임</b> — "전권 켜" (확인 없이 작업 수행, 일정 시간 후 자동 해제).</li>
+      <li><b>화면 제어</b> — "화면 제어 켜" (화면을 보고 클릭·입력).</li>
+      <li><b>사용량 확인</b> — "사용량"이라고 하면 토큰 사용량을 알려줍니다.</li>
+      <li><b>풀음성 업그레이드</b> — 위 <b>음성</b> 칸에서 개인용과 동일한 음색을 설치할 수 있어요.</li>
+      <li><b>실행 표시</b> — 메뉴 막대(맥)/트레이(윈도우)의 자비스 아이콘으로 실행 중을 확인하고, 거기서 종료할 수 있습니다.</li>
+    </ul>
+    <small>이 창은 닫으셔도 됩니다.</small>
+  </div>
+</div>
+
+<div class="voice-panel" id="voicePanel">
+  <h2>음성</h2>
+  <p class="vp-note">
+    기본은 가볍고 안 멈추는 torch-free 음색(edge-tts → ONNX). 개인용과 <b>100% 동일한</b>
+    음성을 원하면 아래 업그레이드를 누르세요 — 이 컴퓨터에 설치되며 수 분 걸립니다.
+  </p>
+  <div class="vp-modes">
+    <label><input type="radio" name="vmode" value="pocket" checked>
+      Pocket — 개인용 <b>기본</b> 음성(영어 자비스, 그대로) · HF 토큰 1회 필요</label>
+    <label><input type="radio" name="vmode" value="rvc">
+      RVC — 한국어 음색(torch, 무거움 · 고급)</label>
+  </div>
+  <button id="btnUpgrade" class="btn-upgrade">개인용 풀음성으로 업그레이드</button>
+  <pre id="vpLog" class="vp-log"></pre>
 </div>
 
 <script>
@@ -280,10 +401,16 @@ SETUP_HTML = """\
     btnStart.disabled = true;
 
     try {
+      const deskEl = document.getElementById('deskShortcut');
+      const vEl = document.querySelector('input[name="vchoice"]:checked');
+      const nEl = document.getElementById('aiName');
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: prov, key }),
+        body: JSON.stringify({ provider: prov, key,
+                               desktop_shortcut: deskEl ? deskEl.checked : false,
+                               voice: vEl ? vEl.value : 'jarvis',
+                               name: nEl ? nEl.value.trim() : '' }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -300,6 +427,59 @@ SETUP_HTML = """\
       msgEl.textContent = '서버에 연결할 수 없습니다.';
       msgEl.className = 'fail';
       btnStart.disabled = false;
+    }
+  });
+
+  // --- 개인용 풀음성 업그레이드 ---
+  const btnUpgrade = document.getElementById('btnUpgrade');
+  const vpLog = document.getElementById('vpLog');
+  let pollTimer = null;
+
+  function vmode() {
+    const c = document.querySelector('input[name="vmode"]:checked');
+    return c ? c.value : 'pocket';
+  }
+
+  async function pollStatus() {
+    try {
+      const res = await fetch('/upgrade-status');
+      const s = await res.json();
+      if (s.log) { vpLog.textContent = s.log; vpLog.scrollTop = vpLog.scrollHeight; }
+      if (s.state === 'done') {
+        clearInterval(pollTimer); pollTimer = null;
+        btnUpgrade.disabled = false;
+        btnUpgrade.textContent = '✓ 완료 — 자비스를 재시작하세요';
+      } else if (s.state === 'error') {
+        clearInterval(pollTimer); pollTimer = null;
+        btnUpgrade.disabled = false;
+        btnUpgrade.textContent = '실패 — 다시 시도';
+      }
+    } catch (e) { /* keep polling */ }
+  }
+
+  if (btnUpgrade) btnUpgrade.addEventListener('click', async () => {
+    btnUpgrade.disabled = true;
+    btnUpgrade.textContent = '설치 중… (수 분 소요)';
+    vpLog.classList.add('visible');
+    vpLog.textContent = '시작하는 중…';
+    try {
+      const res = await fetch('/upgrade-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: vmode() }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        btnUpgrade.disabled = false;
+        btnUpgrade.textContent = '개인용 풀음성으로 업그레이드';
+        vpLog.textContent = data.error || '시작 실패';
+        return;
+      }
+      if (!pollTimer) pollTimer = setInterval(pollStatus, 2000);
+    } catch (e) {
+      btnUpgrade.disabled = false;
+      btnUpgrade.textContent = '개인용 풀음성으로 업그레이드';
+      vpLog.textContent = '서버에 연결할 수 없습니다.';
     }
   });
 
@@ -337,15 +517,64 @@ class SetupServer:
         port: int = 0,
         validator: Callable | None = None,
         store_save: Callable | None = None,
+        upgrade_cmd: Callable[[str], list[str]] | None = None,
+        shortcut_fn: Callable | None = None,
     ) -> None:
         self._host = host
         self.port = port
         self._validator = validator or _default_validate
         self._store_save = store_save or _default_store_save
+        self._upgrade_cmd = upgrade_cmd or _default_upgrade_cmd
+        self._shortcut_fn = shortcut_fn or _default_shortcut
         self.done = threading.Event()
         self.chosen: str | None = None
         self._httpd: _Server | None = None
         self._thread: threading.Thread | None = None
+        # 풀음성 업그레이드 진행 상태(UI가 /upgrade-status로 폴링).
+        self._upgrade: dict[str, str] = {"state": "idle", "log": ""}
+        self._upgrade_lock = threading.Lock()
+
+    # --- 개인용 풀음성 업그레이드 ------------------------------------------
+    def upgrade_status(self) -> dict[str, str]:
+        with self._upgrade_lock:
+            return dict(self._upgrade)
+
+    def _start_upgrade(self, mode: str) -> tuple[bool, str]:
+        """업그레이드 스크립트를 백그라운드로 실행. (시작됨?, 메시지)."""
+        if mode not in ("pocket", "rvc"):
+            return False, "알 수 없는 음성 모드입니다."
+        with self._upgrade_lock:
+            if self._upgrade["state"] == "running":
+                return False, "이미 설치가 진행 중입니다."
+            self._upgrade = {"state": "running", "log": "시작하는 중…\n"}
+        cmd = self._upgrade_cmd(mode)
+
+        def _run() -> None:
+            import subprocess
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                lines: list[str] = []
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    lines.append(line)
+                    if len(lines) > 200:
+                        lines = lines[-200:]
+                    with self._upgrade_lock:
+                        self._upgrade["log"] = "".join(lines)
+                rc = proc.wait()
+                with self._upgrade_lock:
+                    self._upgrade["state"] = "done" if rc == 0 else "error"
+                    if rc != 0:
+                        self._upgrade["log"] += f"\n[종료 코드 {rc}]"
+            except Exception as e:  # noqa: BLE001
+                with self._upgrade_lock:
+                    self._upgrade = {"state": "error", "log": f"실행 실패: {e}"}
+
+        threading.Thread(target=_run, name="jarvis-voice-upgrade", daemon=True).start()
+        return True, "started"
 
     @property
     def url(self) -> str:
@@ -375,10 +604,24 @@ class SetupServer:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+                elif path == "/upgrade-status":
+                    self._send_json(200, outer.upgrade_status())
                 else:
                     self.send_error(404)
 
             def do_POST(self) -> None:  # noqa: N802
+                if self.path == "/upgrade-voice":
+                    try:
+                        n = int(self.headers.get("Content-Length", "0"))
+                        data = json.loads(self.rfile.read(n) or b"{}")
+                        mode = str(data.get("mode", "pocket")).strip()
+                    except Exception:  # noqa: BLE001
+                        self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
+                        return
+                    ok, msg = outer._start_upgrade(mode)
+                    self._send_json(200 if ok else 409,
+                                    {"ok": ok, "error": None if ok else msg})
+                    return
                 if self.path != "/setup":
                     self.send_error(404)
                     return
@@ -387,6 +630,9 @@ class SetupServer:
                     data = json.loads(self.rfile.read(n) or b"{}")
                     provider = str(data.get("provider", "")).strip()
                     key = str(data.get("key", "")).strip()
+                    want_shortcut = bool(data.get("desktop_shortcut"))
+                    voice = str(data.get("voice", "") or "jarvis").strip()
+                    name = str(data.get("name", "") or "").strip()
                 except Exception:  # noqa: BLE001
                     self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
                     return
@@ -403,10 +649,21 @@ class SetupServer:
 
                 if ok:
                     try:
-                        outer._store_save(provider, key)
+                        try:
+                            outer._store_save(provider, key, voice=voice, name=name)
+                        except TypeError:
+                            # 구형 시그니처(provider, key)만 받는 주입 콜백 호환
+                            outer._store_save(provider, key)
                     except Exception:  # noqa: BLE001
                         self._send_json(500, {"ok": False, "error": "설정 저장 중 오류가 났습니다."})
                         return
+                    if want_shortcut:
+                        try:
+                            s_ok, s_msg = outer._shortcut_fn()
+                            if s_msg:
+                                msg = f"{msg} · {s_msg}"
+                        except Exception:  # noqa: BLE001 - 바로가기는 옵션, 실패해도 진행
+                            pass
                     outer.chosen = provider
                     outer.done.set()
                     self._send_json(200, {"ok": True, "message": msg})
@@ -431,7 +688,25 @@ class SetupServer:
 # 기본 store_save 구현
 # ---------------------------------------------------------------------------
 
-def _default_store_save(provider: str, key: str) -> None:
-    save_setup(provider)
+def _default_store_save(provider: str, key: str, *,
+                        voice: str | None = None, name: str | None = None) -> None:
+    save_setup(provider, voice=voice, name=name)
     if key:
         save_key(provider, key)
+
+
+def _default_upgrade_cmd(mode: str) -> list[str]:
+    """풀음성 업그레이드 스크립트 실행 커맨드.
+
+    프로즌 번들이면 JARVIS_BUNDLE_ROOT(launcher가 export)에 스크립트가 있고,
+    dev면 repo의 packaging/ 에 있다. 플랫폼별로 bash(.sh) / powershell(.ps1).
+    """
+    bundle = os.environ.get("JARVIS_BUNDLE_ROOT")
+    repo_pkg = Path(__file__).resolve().parents[2] / "packaging"
+    base = Path(bundle) if bundle else repo_pkg
+    if sys.platform.startswith("win"):
+        script = base / "upgrade_full_voice.ps1"
+        return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                "-Mode", mode]
+    script = base / "upgrade_full_voice.sh"
+    return ["bash", str(script), "--mode", mode]

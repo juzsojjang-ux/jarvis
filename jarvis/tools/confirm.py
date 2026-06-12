@@ -58,15 +58,31 @@ class VoiceConfirm:
         self._window_s = window_s
 
     async def confirm(self, prompt: str) -> bool:
-        await self._speak(
-            f"{prompt} 진행하려면 '네', 취소하려면 '아니오'라고 말씀해 주세요."
-        )
+        # 영어 전용 음성(Pocket/edge)에 한국어를 넣으면 웅얼거림으로 뭉개진다 —
+        # 영어 음성 모드에선 영어로 묻고, 한국어 상세는 우측 패널에 띄운다(영화식).
+        english_voice = str(getattr(self._settings, "reply_language", "ko")
+                            ).lower().startswith("en")
+        try:
+            from jarvis.hud import notice_bus
+            notice_bus.show(f"확인 필요\n{prompt}\n('네' / '아니오')")
+        except Exception:  # noqa: BLE001 - 패널은 보조, 확인 흐름을 막지 않는다
+            pass
+        if english_voice:
+            await self._speak("Confirmation needed, sir — yes or no?")
+        else:
+            # 짧게 — 긴 안내문은 Pocket TTS 토큰 한도(50)를 넘겨 단어가 잘렸다.
+            await self._speak(f"{prompt} 네 또는 아니오로 답해 주세요.")
         self._capture.start()
         await asyncio.sleep(self._window_s)
         pcm = self._capture.stop()
         text = await asyncio.to_thread(
             self._stt.transcribe, pcm, 16000, self._settings.language
         )
+        try:
+            from jarvis.hud import notice_bus
+            notice_bus.hide()  # 확인 패널 정리(응답을 받았으니)
+        except Exception:  # noqa: BLE001
+            pass
         return parse_korean_confirmation(text) is True
 
     async def _speak(self, text: str) -> None:

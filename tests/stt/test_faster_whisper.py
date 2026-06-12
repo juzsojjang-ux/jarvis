@@ -7,9 +7,12 @@ class _Seg:
 
 
 class _FakeModel:
-    def __init__(self): self.last_lang = "SENTINEL"
-    def transcribe(self, audio, language=None):
+    def __init__(self):
+        self.last_lang = "SENTINEL"
+        self.last_kwargs = {}
+    def transcribe(self, audio, language=None, **kw):
         self.last_lang = language
+        self.last_kwargs = kw
         return [_Seg("안녕"), _Seg(" 하세요")], object()
 
 
@@ -39,7 +42,16 @@ def test_explicit_none_preserved_for_autodetect():
 def test_transcribe_failure_returns_empty():
     def boom_factory(r, d, c):
         class _M:
-            def transcribe(self, audio, language=None): raise RuntimeError("x")
+            def transcribe(self, audio, language=None, **kw): raise RuntimeError("x")
         return _M()
     s = FasterWhisperSTT("repo", model_factory=boom_factory)
     assert s.transcribe(np.zeros(16000, dtype=np.float32)) == ""
+
+
+def test_initial_prompt_applied_for_default_language_only():
+    s, fake = _stt(language="ko", initial_prompt="자비스, 화면 제어 모드")
+    s.transcribe(np.zeros(8000, dtype=np.float32))
+    assert fake.last_kwargs.get("initial_prompt") == "자비스, 화면 제어 모드"
+    # 통역 자동감지(None)나 다른 언어엔 한국어 프롬프트를 적용하지 않는다.
+    s.transcribe(np.zeros(8000, dtype=np.float32), language=None)
+    assert "initial_prompt" not in fake.last_kwargs

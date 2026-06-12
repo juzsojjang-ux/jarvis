@@ -6,9 +6,12 @@ _UNSET = object()  # 미지정과 '의도적 None(자동감지)'를 구분하기
 
 
 class MLXWhisperSTT:
-    def __init__(self, repo: str, language: str = "ko"):
+    def __init__(self, repo: str, language: str = "ko", initial_prompt: str | None = None):
         self._repo = repo
         self._language = language
+        # 도메인 용어 바이어스 — Whisper는 initial_prompt에 등장한 어휘를 우선해
+        # 받아적는다. "자비스/화면 제어 모드/전권 위임" 같은 명령어 인식률이 오른다.
+        self._initial_prompt = initial_prompt
 
     def warm(self) -> None:
         # First call caches/loads weights; transcribe 1s of silence.
@@ -20,7 +23,12 @@ class MLXWhisperSTT:
         # 않는다). 인자를 안 주면(_UNSET) 기본 언어를 쓴다.
         lang = self._language if language is _UNSET else language
         audio = np.asarray(pcm, dtype=np.float32)
+        kw = {}
+        if self._initial_prompt and lang == self._language:
+            kw["initial_prompt"] = self._initial_prompt  # 통역 자동감지 땐 미적용
         result = mlx_whisper.transcribe(
-            audio, path_or_hf_repo=self._repo, language=lang
+            audio, path_or_hf_repo=self._repo, language=lang,
+            condition_on_previous_text=False,  # 이전 텍스트 조건화로 인한 환각 방지
+            **kw,
         )
         return result["text"].strip()

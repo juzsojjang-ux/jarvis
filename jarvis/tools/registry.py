@@ -104,6 +104,8 @@ class NeutralTool:
 
 
 def neutral_tools(memory: Any = None) -> list[NeutralTool]:
+    # 자가 확장 스킬(~/.jarvis/skills)은 build_tool_objects에 합류해 있다 —
+    # 여기서 또 더하면 중복 등록된다(클로드 두뇌 누락 버그 고치며 일원화).
     from .jarvis_mcp import build_tool_objects  # local import to avoid circular deps
     out = []
     for t in build_tool_objects(memory):

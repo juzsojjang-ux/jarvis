@@ -15,6 +15,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
+
+
+def _apply_assistant_name(body: bytes) -> bytes:
+    """이름 변경 반영 — orb.html의 'J.A.R.V.I.S' 라벨을 설정된 이름으로 치환.
+    영문 이름은 점 구분 대문자(F.R.I.D.A.Y 풍), 한글 등은 그대로 표시한다."""
+    import os
+    name = (os.environ.get("JARVIS_ASSISTANT_NAME") or "").strip()
+    if not name or name == "자비스":
+        return body
+    display = ".".join(name.upper()) if name.isascii() and name.isalpha() else name
+    return body.replace(b"J.A.R.V.I.S", display.encode("utf-8"))
 _VALID_STATES = ("idle", "attentive", "listening", "thinking", "speaking")
 
 
@@ -25,7 +36,8 @@ class OrbHub:
         self._clients: set[queue.Queue] = set()
         self._lock = threading.Lock()
         self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
-        self._last = {"state": "idle", "level": 0.0, "text": ""}
+        self._notice = ""  # 우측 상단 알림(진행중/확인필요/오류) — 명시적으로 비울 때까지 유지
+        self._last = {"state": "idle", "level": 0.0, "text": "", "notice": ""}
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=64)
@@ -38,7 +50,8 @@ class OrbHub:
         with self._lock:
             self._clients.discard(q)
 
-    def publish(self, state: str, level: float = 0.0, text: str | None = None) -> dict:
+    def publish(self, state: str, level: float = 0.0, text: str | None = None,
+                notice: str | None = None) -> dict:
         if state not in _VALID_STATES:
             state = "idle"
         # Subtitle lifecycle: set when given; cleared whenever JARVIS isn't speaking.
@@ -46,8 +59,19 @@ class OrbHub:
             self._text = text
         if state != "speaking":
             self._text = ""
+        if notice is not None:
+            self._notice = notice
+        return self._emit(state, level)
+
+    def publish_notice(self, notice: str | None) -> dict:
+        """우측 상단 알림만 갱신(현재 상태/자막은 그대로 유지)."""
+        self._notice = notice or ""
+        last = self._last
+        return self._emit(last.get("state", "idle"), last.get("level", 0.0))
+
+    def _emit(self, state: str, level: float) -> dict:
         evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4),
-               "text": self._text}
+               "text": self._text, "notice": self._notice}
         self._last = evt
         with self._lock:
             clients = list(self._clients)
@@ -91,6 +115,7 @@ def _make_handler(hub: OrbHub):
             except OSError:
                 self.send_error(500)
                 return
+            body = _apply_assistant_name(body)
             self._serve_bytes(body, "text/html; charset=utf-8")
 
         def _serve_bytes(self, body: bytes, ctype: str) -> None:
@@ -150,8 +175,12 @@ class OrbServer:
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
 
-    def publish(self, state: str, level: float = 0.0, text: str | None = None) -> None:
-        self.hub.publish(state, level, text)
+    def publish(self, state: str, level: float = 0.0, text: str | None = None,
+                notice: str | None = None) -> None:
+        self.hub.publish(state, level, text, notice)
+
+    def publish_notice(self, notice: str | None) -> None:
+        self.hub.publish_notice(notice)
 
     def stop(self) -> None:
         if self._httpd is not None:

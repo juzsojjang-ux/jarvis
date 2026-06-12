@@ -94,11 +94,29 @@ def test_play_ack_speaks_immediately_and_caches():
     assert len(pb.feeds) == 2 and len(orch._ack_cache) == 2
 
 
-def test_pipeline_emits_ack_before_answer():
+def test_fast_reply_skips_ack_filler():
+    # 개선된 동작: 빠른 답에는 "잠시만 기다려주세요" 필러를 내보내지 않는다.
     orch, pb = _make()
     asyncio.run(orch._pipeline(np.zeros(16000, dtype=np.float32)))
-    # ack + the two answer sentences -> at least three audio chunks fed
-    assert len(pb.feeds) >= 3
+    assert orch._ack_cache == {}          # 필러 합성·재생 자체를 안 함
+    assert len(pb.feeds) >= 1             # 답변은 정상 출력
+    assert orch.state == State.IDLE
+
+
+def test_slow_reply_plays_ack_filler():
+    # 두뇌가 늦으면(도구·긴 생각) 그제서야 필러를 내보낸다.
+    orch, pb = _make()
+    orch._ack_delay_s = 0.02
+
+    class _SlowBrain:
+        async def respond(self, user_text):
+            await asyncio.sleep(0.15)
+            for d in ["안녕하", "세요. 무엇을 ", "도와드릴까요?"]:
+                yield d
+
+    orch.brain = _SlowBrain()
+    asyncio.run(orch._pipeline(np.zeros(16000, dtype=np.float32)))
+    assert orch._ack_cache != {}          # 필러가 합성·재생됨
     assert orch.state == State.IDLE
 
 
@@ -158,7 +176,7 @@ def test_wake_command_runs_pipeline():
         await orch._task
 
     asyncio.run(run())
-    assert len(pb.feeds) >= 3          # 즉답 필러 + 답변 문장들
+    assert len(pb.feeds) >= 1          # 답변이 음성으로 나간다(빠른 답이면 필러 생략)
     assert orch.state == State.IDLE
 
 
@@ -200,7 +218,7 @@ def test_follow_up_accepts_command_without_wake_word():
         await orch._task
 
     asyncio.run(run())
-    assert len(pb.feeds) >= 3
+    assert len(pb.feeds) >= 1
 
 
 def test_pipeline_reopens_follow_up_window():
@@ -340,15 +358,7 @@ def test_announce_speaks_without_ack_filler():
 
     in_window = asyncio.run(run())
     assert len(pb.feeds) >= 1                 # 본문은 나간다
-    # 같은 가짜 두뇌로 ack 포함 경로(_pipeline)와 비교해 필러 한 개가 빠졌는지 확인
-    orch2, pb2 = _make()
-    orch2.wake = object()
-
-    async def run2():
-        await orch2._pipeline(np.zeros(16000, dtype=np.float32))
-
-    asyncio.run(run2())
-    assert len(pb2.feeds) == len(pb.feeds) + 1  # ack 필러 정확히 1개 차이
+    assert orch._ack_cache == {}              # 능동 알림은 "잠시만요" 필러 없음
     assert orch.state == State.IDLE
     assert in_window                      # 알림 후에도 되묻기 창이 열린다
 
@@ -711,4 +721,269 @@ def test_toggle_trust_enables_gate(monkeypatch):
     asyncio.run(run())
     assert calls == [("enable", orch.settings.trust_mode_ttl_s), ("disable",)]
     assert len(pb.feeds) >= 1
+    assert orch.state == State.IDLE
+
+
+# ----- 자막 바로바로 + 사용량 + 한도 초과 알림 -----
+class _CapHud:
+    def __init__(self):
+        self.texts = []
+
+    def publish(self, state, level=0.0, text=None):
+        if text:
+            self.texts.append(text)
+
+
+def test_subtitle_published_per_sentence_live():
+    # 문장이 말해질 때마다 자막이 올라와야 한다(끝에 한 번이 아니라).
+    orch, _pb = _make()
+    orch.hud = _CapHud()
+    asyncio.run(orch._pipeline_text("안녕", ack=False))
+    assert len(orch.hud.texts) >= 2
+
+
+def test_usage_command_shows_usage_subtitle():
+    orch, _pb = _make()
+    orch.hud = _CapHud()
+    orch.usage.session = {"input": 111, "output": 22, "turns": 3}
+    asyncio.run(orch._pipeline_text("사용량 알려줘", ack=False))
+    assert any("111" in t for t in orch.hud.texts)
+
+
+def test_limit_error_announces_on_screen(monkeypatch):
+    import jarvis.core.orchestrator as om
+    monkeypatch.setattr(om, "interpret_speak_korean", lambda *a, **k: None)
+    orch, _pb = _make()
+    orch.hud = _CapHud()
+
+    class _LimitBrain:
+        last_error = None
+
+        async def respond(self, user_text):
+            if False:
+                yield ""
+            raise RuntimeError("429 Too Many Requests: rate_limit exceeded")
+
+    orch.brain = _LimitBrain()
+    asyncio.run(orch._pipeline_text("안녕", ack=False))
+    assert any("한도 초과" in t for t in orch.hud.texts)
+
+
+def test_usage_command_matcher():
+    orch, _pb = _make()
+    assert orch._usage_command("사용량") is True
+    assert orch._usage_command("토큰 얼마나 썼어") is True
+    assert orch._usage_command("오늘 날씨 어때") is False
+
+
+# ----- 알림 패널 + 오류 음성화 -----
+class _NoticeHud:
+    def __init__(self):
+        self.texts = []
+        self.notices = []
+
+    def publish(self, state, level=0.0, text=None, notice=None):
+        if text:
+            self.texts.append(text)
+
+    def publish_notice(self, notice):
+        self.notices.append(notice)
+
+
+def test_panel_command_matcher():
+    orch, _pb = _make()
+    assert orch._panel_command("패널 꺼") == "off"
+    assert orch._panel_command("알림 닫아줘") == "off"
+    assert orch._panel_command("패널 켜") == "on"
+    assert orch._panel_command("오늘 날씨") is None
+
+
+def test_panel_off_clears_notice_immediately():
+    orch, _pb = _make()
+    orch.hud = _NoticeHud()
+    asyncio.run(orch._pipeline_text("패널 꺼", ack=False))
+    assert "" in orch.hud.notices
+    assert orch._panel_muted is True
+
+
+def test_brain_error_announced_and_notified(monkeypatch):
+    import jarvis.core.orchestrator as om
+    monkeypatch.setattr(om, "interpret_speak_korean", lambda *a, **k: None)
+    orch, _pb = _make()
+    orch.hud = _NoticeHud()
+
+    class _BadBrain:
+        async def respond(self, user_text):
+            if False:
+                yield ""
+            raise RuntimeError("boom")
+
+    orch.brain = _BadBrain()
+    asyncio.run(orch._pipeline_text("안녕", ack=False))
+    assert orch.last_bug == "boom"
+    assert any("오류" in n for n in orch.hud.notices)
+
+
+def test_panel_muted_suppresses_notices():
+    orch, _pb = _make()
+    orch.hud = _NoticeHud()
+    orch._panel_muted = True
+    orch._notify("⚠ 오류 무언가")
+    assert orch.hud.notices == []  # 음소거 중엔 새 알림 억제
+
+
+# ----- 자막 한국어 보장(번역 누락 폴백) -----
+def test_korean_subtitle_prefers_ko_marker():
+    orch, _pb = _make()
+
+    class _B:
+        last_subtitle = "안녕하세요, 주인님."
+
+        async def translate(self, t, lang):
+            return "SHOULD_NOT"
+
+    orch.brain = _B()
+    out = asyncio.run(orch._korean_subtitle(["Hello, sir."]))
+    assert out == "안녕하세요, 주인님."
+
+
+def test_korean_subtitle_translates_when_ko_missing():
+    orch, _pb = _make()
+
+    class _B:
+        last_subtitle = ""
+
+        async def translate(self, t, lang):
+            return "번역됨: " + t
+
+    orch.brain = _B()
+    out = asyncio.run(orch._korean_subtitle(["Good evening, sir."]))
+    assert out.startswith("번역됨: Good evening")
+
+
+def test_korean_subtitle_keeps_korean_spoken_no_translate():
+    orch, _pb = _make()
+
+    class _B:
+        last_subtitle = ""
+
+        async def translate(self, t, lang):
+            raise AssertionError("한국어인데 번역하면 안 됨")
+
+    orch.brain = _B()
+    out = asyncio.run(orch._korean_subtitle(["안녕하세요 주인님"]))
+    assert out == "안녕하세요 주인님"
+
+
+def test_korean_subtitle_falls_back_to_spoken_on_translate_error():
+    orch, _pb = _make()
+
+    class _B:
+        last_subtitle = ""
+
+        async def translate(self, t, lang):
+            raise RuntimeError("translate down")
+
+    orch.brain = _B()
+    out = asyncio.run(orch._korean_subtitle(["Hello sir"]))
+    assert out == "Hello sir"  # 번역 실패해도 자막은 채운다
+
+
+# ----- 전면 점검 배치: 화면제어/패널/자막동기/STT -----
+def test_control_command_space_insensitive():
+    orch, _pb = _make()
+    assert orch._control_command("화면 제어 모드 켜줘") == "on"
+    assert orch._control_command("화면제어모드 켜 줘") == "on"
+    assert orch._control_command("제어 모드 켜줘") == "on"
+    assert orch._control_command("화면 제어 모드 꺼줘") == "off"
+    assert orch._control_command("화면 제어 켜져 있어?") is None
+    assert orch._control_command("오늘 날씨") is None
+
+
+def test_panel_content_request_goes_to_brain():
+    # "패널에 X 보여줘"를 로컬 토글이 가로채면 안 된다(두뇌의 show_panel로 가야).
+    orch, _pb = _make()
+    assert orch._panel_command("패널에 오늘 일정 보여줘") is None
+    assert orch._panel_command("패널에 날씨 띄워줘") is None
+    assert orch._panel_command("패널 켜줘") == "on"     # 순수 토글만 로컬
+    assert orch._panel_command("패널 꺼") == "off"
+    assert orch._panel_command("알림 패널 닫아줘") == "off"
+
+
+def test_tool_show_unmutes_panel():
+    # "패널 꺼" 후에도 사용자가 두뇌에게 보여달라고 하면 떠야 한다.
+    orch, _pb = _make()
+    orch.hud = _NoticeHud()
+    orch._panel_muted = True
+    orch._panel_sink("오늘 일정 3건")
+    assert orch._panel_muted is False
+    assert orch.hud.notices[-1] == "오늘 일정 3건"
+
+
+def test_tool_hide_does_not_unmute():
+    orch, _pb = _make()
+    orch.hud = _NoticeHud()
+    orch._panel_muted = True
+    orch._panel_sink("")
+    assert orch._panel_muted is True
+    assert orch.hud.notices[-1] == ""
+
+
+# ----- 자막 타이밍: 말하는 동안 함께 흘러가고, 말 끝과 같이 끝나는지 -----
+def test_subtitle_chunks_pace_with_audio():
+    import time as _time
+
+    class _TimedPlayback(_FakePlayback):
+        """실시간으로 오디오가 소모되는 가짜 재생기 — pending이 시간에 따라 준다."""
+        def __init__(self, seconds, rate=48000):
+            super().__init__()
+            self.rate = rate
+            self.t0 = _time.monotonic()
+            self.total = int(seconds * rate)
+
+        def pending(self):
+            consumed = int((_time.monotonic() - self.t0) * self.rate)
+            return max(0, self.total - consumed)
+
+    pb = _TimedPlayback(seconds=2.4)
+    orch, _ = _make(playback=pb)
+    shown = []  # (시각, 자막)
+
+    class _TimingHud:
+        def publish(self, state, level=0.0, text=None):
+            if text:
+                shown.append((_time.monotonic() - pb.t0, text))
+
+    orch.hud = _TimingHud()
+    # 3청크짜리 자막(각 ≤26자) — 오디오 2.4초에 맞춰 배분되어야 한다
+    subtitle = "첫 번째 자막 조각입니다. 두 번째 자막 조각입니다. 세 번째 자막 조각입니다."
+    asyncio.run(orch._finish_speaking(subtitle))
+    texts = [t for _, t in shown]
+    assert len(texts) >= 3                       # 모든 청크가 표시됨
+    assert texts[0].startswith("첫 번째")          # 즉시 첫 청크
+    assert shown[0][0] < 0.3                     # 시작과 동시에
+    # 청크들이 오디오 구간(0~2.4s+여유) 안에서 순차 표시 — 한 번에 다 안 띄움
+    gaps = [shown[i+1][0] - shown[i][0] for i in range(len(shown)-1)]
+    assert all(g >= 0.7 for g in gaps), f"간격이 너무 촘촘함: {gaps}"
+    assert shown[-1][0] <= 2.4 + 1.2, f"마지막 청크가 너무 늦음: {shown[-1][0]:.1f}s"
+
+
+def test_remote_turn_includes_remote_context_marker():
+    # 원격 턴은 두뇌에 '원격(부재중·발송 불가)' 컨텍스트를 알린다 — 모르면
+    # "보낼까요?"처럼 응답 불가능한 되묻기를 한다(라이브 검증에서 발견).
+    orch, _pb = _make()
+    seen = {}
+
+    class _RecBrain:
+        last_subtitle = "원격 응답입니다."
+        remote_mode = False
+
+        async def respond(self, user_text):
+            seen["text"] = user_text
+            yield "Remote reply."
+
+    orch.brain = _RecBrain()
+    out = asyncio.run(orch.remote_turn("엄마한테 메시지 보내줘"))
+    assert "[원격" in seen["text"] and "엄마한테 메시지 보내줘" in seen["text"]
+    assert out["reply"] == "원격 응답입니다."
     assert orch.state == State.IDLE

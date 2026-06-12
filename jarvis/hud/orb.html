@@ -11,19 +11,91 @@
   canvas { position: fixed; inset: 0; display: block; }
   /* Korean subtitle of what JARVIS is saying — under the orb. */
   #subtitle {
-    position: fixed; left: 50%; bottom: 9vh; transform: translateX(-50%);
-    max-width: 72vw; text-align: center; color: #eaf8ff; opacity: 0;
+    position: fixed; left: 50%; bottom: 8vh; transform: translateX(-50%);
+    max-width: 80vw; text-align: center; opacity: 0;
     transition: opacity .25s; pointer-events: none;
-    font: 500 clamp(15px, 2.1vw, 26px)/1.5 -apple-system, "Apple SD Gothic Neo", sans-serif;
-    text-shadow: 0 1px 12px rgba(0,0,0,.85), 0 0 22px rgba(70,230,255,.35);
+    /* 한국어 줄바꿈: 어절(공백) 단위로만 끊고 음절 중간에서 자르지 않는다.
+       (keep-all 없으면 "기분이"가 "기분/이"로 깨짐 — 한글 웹조판 필수) */
+    word-break: keep-all; overflow-wrap: break-word; line-break: strict;
+    white-space: normal;
+  }
+  /* 넷플릭스풍 자막: 글자 뒤에 반투명 검정 박스 — 줄마다 박스가 따라붙어 가독성↑.
+     box-decoration-break:clone 으로 여러 줄일 때 각 줄에 박스가 그려진다. */
+  #subtext {
+    color: #f6fcff;
+    font: 600 clamp(16px, 2.2vw, 28px)/1.7 -apple-system, "Apple SD Gothic Neo",
+          "Malgun Gothic", "Noto Sans KR", "Segoe UI", sans-serif;
+    background: rgba(0,0,0,.62);
+    padding: .15em .55em; border-radius: 7px;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
+    text-shadow: 0 1px 6px rgba(0,0,0,.9);
     letter-spacing: .01em;
   }
+  /* 우측 상단 정보 패널 — 아이언맨 홀로그램(검정 바탕 + 시안). 내용따라 유동 크기. */
+  #notice {
+    position: fixed; top: 20px; right: 20px;
+    /* 내용에 따라 유동: 짧으면 작게, 길면 아주 크게(우측 화면 대부분까지) + 스크롤 */
+    width: max-content; min-width: 170px; max-width: min(72vw, 760px);
+    max-height: 84vh; overflow-y: auto; overflow-x: hidden;
+    background: rgba(0,4,8,.9);                 /* 검정 바탕 */
+    border: 1px solid rgba(94,224,255,.55); border-radius: 3px;
+    padding: .7rem .9rem .8rem; opacity: 0; transform: translateY(-8px) scale(.98);
+    transition: opacity .3s ease, transform .3s ease; pointer-events: none;
+    color: #aef1ff; scrollbar-width: thin; scrollbar-color: rgba(94,224,255,.4) transparent;
+    box-shadow: 0 0 0 1px rgba(94,224,255,.10), 0 0 22px rgba(94,224,255,.28),
+                0 10px 34px rgba(0,0,0,.6), inset 0 0 30px rgba(94,224,255,.10);
+    text-shadow: 0 0 9px rgba(94,224,255,.45);  /* 홀로그램 글로우 */
+  }
+  #notice::-webkit-scrollbar { width: 6px; }
+  #notice::-webkit-scrollbar-thumb { background: rgba(94,224,255,.35); border-radius: 3px; }
+  /* 큰 내용일 때 글자/여백을 조금 키워 가독성↑ (자비스가 클래스로 토글) */
+  #notice.big { padding: 1rem 1.2rem 1.1rem; }
+  #notice.big .nbody { font-size: 15px; line-height: 1.65; }
+  #notice.huge { padding: 1.2rem 1.4rem; }
+  #notice.huge .nbody { font-size: 16.5px; line-height: 1.7; }
+  #notice.show { opacity: 1; transform: translateY(0) scale(1); }
+  /* 홀로그램 스캔라인 오버레이 */
+  #notice .nbody::after { content: none; }
+  #notice::after {
+    content: ""; position: absolute; inset: 0; border-radius: 3px; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(94,224,255,.05) 0 1px, transparent 1px 3px);
+    mix-blend-mode: screen; opacity: .5;
+  }
+  /* 코너 브래킷(시안) — 좌상/우하 */
+  #notice::before {
+    content: ""; position: absolute; top: -1px; left: -1px; width: 14px; height: 14px;
+    border-top: 2px solid #6fe6ff; border-left: 2px solid #6fe6ff;
+    box-shadow: -1px -1px 8px rgba(94,224,255,.6);
+  }
+  #notice .nhead {
+    font: 700 10px/1 "SF Mono", "Menlo", monospace; letter-spacing: .3em;
+    color: #7fe9ff; text-transform: uppercase; margin-bottom: .5rem;
+    display: flex; align-items: center; gap: .45rem;
+    text-shadow: 0 0 10px rgba(94,224,255,.7);
+  }
+  #notice .nhead::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: #7fe9ff; box-shadow: 0 0 10px #7fe9ff, 0 0 4px #fff;
+    animation: nblink 1.5s ease-in-out infinite;
+  }
+  @keyframes nblink { 0%,100%{opacity:1} 50%{opacity:.3} }
+  #notice .nbody {
+    font: 500 13.5px/1.55 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+    color: #d8f6ff; white-space: pre-wrap; word-break: keep-all; position: relative; z-index: 1;
+  }
+  #notice.warn { border-color: rgba(255,176,46,.6); color: #ffd591;
+    box-shadow: 0 0 22px rgba(255,176,46,.28), 0 10px 34px rgba(0,0,0,.6); }
+  #notice.warn::before { border-color: #ffb02e; box-shadow: -1px -1px 8px rgba(255,176,46,.6); }
+  #notice.warn .nhead { color: #ffc55e; text-shadow: 0 0 10px rgba(255,176,46,.7); }
+  #notice.warn .nhead::before { background: #ffc55e; box-shadow: 0 0 10px #ffc55e; }
+  #notice.warn .nbody { color: #ffe2b0; }
 </style>
 </head>
 <body>
   <div id="bg"></div>
   <canvas id="hud"></canvas>
-  <div id="subtitle"></div>
+  <div id="subtitle"><span id="subtext"></span></div>
+  <div id="notice"><div class="nhead">J.A.R.V.I.S</div><div class="nbody"></div></div>
 <script>
 // JARVIS ring HUD — composed to match the reference plate. Pure Canvas2D (offline),
 // transparent background for the native macOS overlay. Reactive to {state, level}.
@@ -37,11 +109,55 @@ addEventListener("resize",resize); resize();
 
 const PRES={idle:0.0,attentive:0.35,listening:0.6,thinking:0.78,speaking:1.0};
 const LABEL={idle:"STANDBY",attentive:"LISTENING",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
-let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true,spin=0,_pt=0;
+let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true,spin=0,_pt=0,bootT=-1;
+
+// 화면 네 모서리 HUD 프레임 — 코너 브래킷 + 가장자리 데이터 틱(아이언맨 화면 구성).
+function drawScreenFrame(a, lv){
+  if(a<0.01) return;
+  ctx.save();
+  const m=Math.round(Math.min(W,H)*0.045)+16, L=Math.round(Math.min(W,H)*0.07);
+  ctx.strokeStyle=BR; ctx.lineWidth=1.5; ctx.globalAlpha=0.55*a;
+  ctx.shadowColor=BR; ctx.shadowBlur=8*a;
+  const corners=[[m,m,1,1],[W-m,m,-1,1],[m,H-m,1,-1],[W-m,H-m,-1,-1]];
+  for(const [cx,cy,sx,sy] of corners){
+    ctx.beginPath();
+    ctx.moveTo(cx, cy+sy*L); ctx.lineTo(cx, cy); ctx.lineTo(cx+sx*L, cy); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx+sx*7, cy+sy*7, 2.2, 0, TAU);
+    ctx.fillStyle=GD; ctx.globalAlpha=0.7*a; ctx.fill(); ctx.globalAlpha=0.55*a;
+  }
+  // 좌/우 가장자리 음량 막대(스펙트럼 느낌)
+  ctx.globalAlpha=(0.18+0.5*lv)*a; ctx.strokeStyle=GD; ctx.lineWidth=2;
+  for(let i=0;i<14;i++){ const yy=H*0.3+i*(H*0.4/13);
+    const len=8+40*lv*Math.abs(Math.sin(i*1.3+performance.now()/180));
+    ctx.beginPath(); ctx.moveTo(m-6,yy); ctx.lineTo(m-6-len,yy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W-m+6,yy); ctx.lineTo(W-m+6+len,yy); ctx.stroke(); }
+  ctx.restore();
+}
 const subEl=document.getElementById("subtitle");
+const subTextEl=document.getElementById("subtext");
+const noticeEl=document.getElementById("notice");
+const noticeBody=noticeEl?noticeEl.querySelector(".nbody"):null;
+let shownNotice="", noticeKeepUntil=0;
 function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
-  if(text!==undefined){ subEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
-try{ const es=new EventSource("/events"); es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);}; }catch(_){}
+  if(text!==undefined){ subTextEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
+function showNotice(n){ if(!noticeEl||!noticeBody) return; n=n||"";
+  if(!n){ shownNotice=""; noticeEl.classList.remove("show"); return; }
+  noticeBody.textContent=n;
+  noticeEl.classList.toggle("warn", n.indexOf("⚠")>=0||n.indexOf("오류")>=0);
+  // 유동 크기: 내용 양(글자수·줄수)에 따라 일반/big/huge — 클수록 패널이 커진다.
+  const lines=n.split("\n").length, len=n.length;
+  noticeEl.classList.toggle("big",  (len>120||lines>=4) && !(len>360||lines>=9));
+  noticeEl.classList.toggle("huge", len>360||lines>=9);
+  if(n!==shownNotice){ shownNotice=n;            // 새 내용일 때만 표시(부활 방지)
+    // 읽는 시간 자동 연장 — 내용 길수록 오래 띄운다(8s + 글자당 ~45ms, 최대 45s).
+    noticeKeepUntil=performance.now()+Math.min(45000, 8000+len*45);
+    noticeEl.classList.add("show"); noticeEl.scrollTop=0; } }
+try{ const es=new EventSource("/events");
+  es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);showNotice(d.notice);};
+  // 자비스(서버)가 죽으면 유령 HUD로 남지 않게 모든 요소를 즉시 숨긴다.
+  es.onerror=()=>{ state="idle"; targetLevel=0; demo=false;
+    subEl.style.opacity=0; if(noticeEl) noticeEl.classList.remove("show"); };
+}catch(_){}
 
 const TAU=Math.PI*2, TOP=-Math.PI/2;
 function ringC(r,w,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;
@@ -71,11 +187,22 @@ function frame(){
   spin += (0.08 + level*1.6)*dt;       // ring spin accelerates with loudness
   document.getElementById("bg").style.opacity = demo?0:"";
   ctx.clearRect(0,0,W,H);
-  if(presence<0.01){ setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 렌더 절전
-  ctx.save(); ctx.translate(W/2,H/2);
+  if(presence<0.01){
+    // 자비스가 화면에서 사라질 때 패널도 함께 사라진다(새 알림 10초 보장 후).
+    if(noticeEl && performance.now()>noticeKeepUntil) noticeEl.classList.remove("show");
+    bootT=-1;  // 다음 등장에 부팅 스윕을 다시 재생
+    setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 렌더 절전
   const P=presence, lv=level;
+  // 화면 코너 HUD 프레임(아이언맨 풍) — 등장할 때 부팅 스윕으로 그려진다.
+  if(bootT<0) bootT=t; const boot=Math.min(1,(t-bootT)/0.9);
+  drawScreenFrame(P*boot, lv);
+
+  ctx.save(); ctx.translate(W/2,H/2);
   const R=Math.min(W,H)*(0.215+0.04*lv);
-  ctx.scale(1+lv*0.06, 1+lv*0.06);     // whole HUD pulses with the voice
+  // 부팅 스윕: 처음 0.9초 동안 작게→정상 크기로 확장 + 회전 가속
+  ctx.rotate((1-boot)*0.9);
+  ctx.scale((0.82+0.18*boot)*(1+lv*0.06), (0.82+0.18*boot)*(1+lv*0.06));
+  ctx.globalAlpha=1;
   ctx.lineCap="butt"; ctx.shadowColor=BR; ctx.shadowBlur=(12+26*lv)*P;
 
   // outer fine tick scale (slow drift) + thin guide

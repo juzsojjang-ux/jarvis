@@ -1,0 +1,124 @@
+================================================================
+ 자비스(JARVIS) 윈도우 포팅 — 클로드 코드 인수인계 문서
+ 작성: 2026-06-12 / 맥(M4) 세션에서 윈도우 세션으로 이관
+================================================================
+
+【이 문서의 목적】
+사용자(이성재)가 맥에서 개발한 한국어 음성비서 "자비스"를 윈도우에서
+완성하는 작업을 이어받는다. 맥 세션에서 윈도우 크래시 5종을 원격으로
+고쳤고, 마지막 로그 기준 부팅은 성공했다. 남은 일은 아래 [남은 작업]
+참조. 사용자는 한국어로 대화하며, 빠른 결과를 원한다. 한 번에 하나씩
+고치는 핑퐁을 매우 싫어하니, 문제가 보이면 전수 검사로 한꺼번에 고칠 것.
+
+
+【프로젝트 개요】
+- 영화 아이언맨의 자비스를 복제하는 콘셉트의 개인용 음성비서.
+- 이 폴더(jarvis/)가 소스 전체다. 파이썬 3.11 전용(3.12+ 불가).
+- 구조: 음성 입력(sounddevice+웨이크워드 ONNX+STT) → 두뇌(Claude
+  구독(claude-agent-sdk)/Gemini/GPT 선택) → TTS(배포판은 edge-tts,
+  맥 개인용은 Pocket+RVC 음색클론) → HUD(localhost:8787, orb.html,
+  아이언맨 홀로그램 스타일) + 오버레이 창 + 트레이 아이콘.
+- 진입점: 개발 실행 = python -m jarvis / 배포 빌드 진입점 =
+  packaging/jarvis_launch.py (PyInstaller, packaging/jarvis.spec)
+- 설정: pydantic-settings, 환경변수 JARVIS_* 접두사.
+  첫 실행 설정 UI(브라우저)에서 두뇌/보이스/이름 선택.
+- 자가확장: ~/.jarvis/skills/*.py 를 도구로 자동 로드,
+  ~/.jarvis/mcp.json 으로 외부 MCP 연결.
+- 아이폰 원격: http://0.0.0.0:8790/ask (토큰 ~/.jarvis/remote_token,
+  읽기전용 허용목록 — 원격에서 파괴/전송/화면 도구 차단 유지할 것)
+- 테스트: pytest (맥 기준 719개 전부 통과 상태로 이관).
+  ※ 윈도우에서 일부 맥 전용 테스트가 깨질 수 있음 — 그 경우
+  sys.platform 가드/skipif를 추가하지, 기능 코드를 되돌리지 말 것.
+
+【빌드/실행 (윈도우)】
+- BUILD_JARVIS.bat 더블클릭 = venv 생성 + 의존성 + PyInstaller 빌드
+  → dist\JARVIS\JARVIS.exe 생성. (동봉 python-3.11.9-amd64.exe 로
+  3.11 자동 설치, 3.14 등 다른 버전 무시하고 3.11을 찾아 씀)
+- RUN_JARVIS_LOG.bat = 실행 + 전체 출력 jarvis_run.log 기록 + 메모장.
+- 상시 로그: C:\Users\<사용자>\.jarvis\logs\jarvis.log,
+  크래시는 같은 폴더 crash.log (jarvis_launch.py가 기록).
+- 개발 모드로 빠르게 확인: .venv\Scripts\python.exe -m jarvis
+  (PyInstaller 재빌드 없이 코드 수정 즉시 반영 — 디버깅은 이쪽이 빠름)
+- 재빌드 전 반드시: taskkill /F /IM JARVIS.exe
+
+【이미 고친 윈도우 크래시 5종 — 절대 되돌리지 말 것】
+1. WinError 50 (전 subprocess 실패): sounddevice가 import 시
+   os.dup/dup2로 stderr를 돌리는데 PyInstaller 번들에서 CRT 핸들
+   테이블이 깨짐(공식 이슈 spatialaudio/python-sounddevice#461,
+   0.5.5에도 미수정). → jarvis_launch.py의 "0)~3)" 구획에서 frozen
+   윈도우일 때 os.dup을 임시로 막고 sounddevice를 선임포트.
+2. AttributeError signal.SIGHUP: 유닉스 전용. →
+   __main__._install_exit_signals()가 getattr로 있는 신호만 등록.
+3. 포크폭탄(자비스 1→2→4 증식): frozen에서 sys.executable이 본체
+   EXE라 오버레이/트레이 스폰(-m)이 본체를 재귀 부팅. →
+   __main__._child_cmd()가 frozen이면 --child=모듈 플래그 사용,
+   jarvis_launch.py 최상단 디스패치가 허용목록 3개 모듈만 runpy 실행.
+4. 중복 부팅: __main__._acquire_singleton() — 127.0.0.1:48799 바인드
+   잠금. 이미 떠 있으면 새 인스턴스는 즉시 종료.
+   (JARVIS_SINGLETON_PORT=0 으로 비활성 가능)
+5. 두뇌 예열 실패가 전체 강제종료: _amain의 warm gather가
+   return_exceptions=True — 실패해도 부팅 계속.
+→ 회귀 테스트: tests/test_win_boot.py (7개)
+
+【마지막 윈도우 로그(20:56) 상태 — 출발점】
+부팅 성공. HUD/오버레이/트레이/아이폰원격/음성합성 전부 켜짐.
+"자비스 준비 완료"까지 출력되고 살아 있음. 단:
+ a) "[능동] SessionMonitor 폴링 오류(계속): No module named 'Quartz'"
+    가 반복 출력 — 맥 전용 감시자가 윈도우에서 돌고 있었음.
+    ★이 부분은 이관 직전에 수정 완료★: proactive/monitors.py의
+    build_monitors()가 darwin에서만 맥 감시자 4종(Battery/Session/
+    Reminders/Calendar)을 넣게 바꿈. 이 zip에 반영돼 있으니
+    재빌드만 하면 사라져야 함. 윈도우용 대체 감시자(배터리는
+    psutil.sensors_battery, 잠금감지는 WTSRegisterSessionNotification
+    등)는 미구현 — 원하면 추가.
+ b) 두뇌(Claude) 연결 실패: "Command failed with exit code 1".
+    claude CLI가 실행은 되는데 비정상 종료 — 거의 확실히 미로그인.
+    [남은 작업 1] 참조.
+
+【남은 작업 (우선순위순)】
+1. Claude 두뇌 살리기:
+   - 윈도우에 claude CLI 설치: PowerShell에서
+     irm https://claude.ai/install.ps1 | iex
+   - 사용자가 직접 `claude` 실행해 구독 계정 로그인(자격증명 입력은
+     반드시 사용자 본인이).
+   - 그 후 자비스 재실행 → "[두뇌] 예열 실패"가 사라져야 함.
+   - 실패 지속 시: claude --version 확인, 자비스 brain/subscription.py
+     의 _ensure_client 경로에서 CLI 탐색이 윈도우 PATH(claude.cmd/
+     claude.exe)를 찾는지 확인. claude-agent-sdk-python 이슈 #252
+     (claude.cmd 미탐지) 참고 — 필요시 ClaudeAgentOptions(cli_path=...)
+     명시.
+2. 음성 루프 실전 검증(아직 윈도우에서 한 번도 안 해봄):
+   - 마이크 입력(웨이크워드 "자비스"), PTT(우측 Alt — 코드상 alt_r),
+     STT 인식, edge-tts 발화(인터넷 필요), HUD 자막/입모양 동기.
+   - "준비 완료" 문구가 "오른쪽 옵션 키"라고 나옴 — 윈도우에선
+     "오른쪽 Alt 키"로 문구 분기(코스메틱).
+3. 잔여 코스메틱/마무리:
+   - 음성 안내의 경로 표기 "C:\Users\juzso/jarvis/..." 슬래시 혼용.
+   - 두뇌 예열 실패 메시지에 해결 힌트 추가(예: "claude 로그인 필요").
+   - "Fatal error in message reader" — claude SDK의 stderr 노이즈.
+     로그인 후에도 나오면 SDK stderr 콜백 등록해 숨기기 가능.
+4. (선택) 윈도우 전용 능동 감시자 구현 — 위 a) 참조.
+5. (선택) 전체 pytest를 윈도우에서 돌려 맥 전용 테스트에 skipif 부착.
+
+【중요 제약 — 반드시 유지】
+- 개인용·비공개 한정. 판매/배포 금지(폴 베타니 음성 클론 = 퍼블리시티권,
+  자비스 이름/페르소나 = 마블/디즈니 IP). 사용자도 "안 팔 것" 확인함.
+- 로그인/자격증명/API키 입력은 항상 사용자가 직접.
+- 아이폰 원격 턴은 읽기전용 허용목록 유지(파괴/전송/화면 도구 차단).
+- 페르소나(brain/persona_ko.md)는 4096토큰급 실문서 — 임의 축약 금지.
+- 자막 채널은 [KO] 마커 규약, 발화 채널은 reply_language를 따름
+  (배포판 기본 en — _GUIDANCE_EN 맨 앞의 LANGUAGE OVERRIDE가 핵심,
+  지우면 TTS가 한국어를 읽다 뭉개지는 버그가 재발한다).
+
+【과거 삽질 기록 (같은 함정에 빠지지 말 것)】
+- bat 파일은 반드시 CP949+CRLF로 저장(UTF-8이면 한국어 윈도우에서
+  줄 중간부터 명령 실행되는 괴현상). chcp 65001을 bat 중간에 넣지 말 것.
+- pip install -e ".[dev]"에 PyInstaller는 없음 — BUILD bat이 별도 설치.
+- 윈도우 zip을 다시 만들 일이 있으면 압축 루트가 jarvis/ 폴더를
+  포함하게(상위 폴더에서) 묶을 것.
+- 빌드는 반드시 Python 3.11 (pyproject가 <3.12 강제).
+
+【사용자 정보】
+- 이성재. 한국어. 결과 지향, 자세한 기술 설명보다 "되게 만드는 것" 우선.
+- 호칭/톤: 평범한 한국어 존댓말. 자비스 본체의 페르소나는 집사 톤.
+================================================================

@@ -20,15 +20,55 @@ def load_setup(path: Path | None = None) -> dict:
         return {}
 
 
-def save_setup(provider: str, path: Path | None = None) -> None:
+def save_setup(provider: str, path: Path | None = None, *,
+               voice: str | None = None, name: str | None = None) -> None:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
+    data = load_setup(p)
+    data.update({"brain_provider": provider, "configured": True})
+    if voice is not None:
+        data["voice"] = voice           # "jarvis" | VOICE_PRESETS의 키
+    if name is not None:
+        data["assistant_name"] = name.strip() or "자비스"
     tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps({"brain_provider": provider, "configured": True}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
+
+
+# 보이스 프리셋 — 셋업 UI 선택지. "jarvis"는 기본 체인(개인=Pocket 클론,
+# 배포=edge→ONNX 음색)을 그대로 둔다. 나머지는 edge-tts 단독(음색 변환 없음).
+VOICE_PRESETS: dict[str, dict[str, str]] = {
+    "jarvis": {},
+    "butler_en": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
+                  "JARVIS_EDGE_TTS_VOICE": "en-GB-RyanNeural",
+                  "JARVIS_REPLY_LANGUAGE": "en"},
+    "male_us": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
+                "JARVIS_EDGE_TTS_VOICE": "en-US-GuyNeural",
+                "JARVIS_REPLY_LANGUAGE": "en"},
+    "female_us": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
+                  "JARVIS_EDGE_TTS_VOICE": "en-US-AriaNeural",
+                  "JARVIS_REPLY_LANGUAGE": "en"},
+    "male_ko": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
+                "JARVIS_EDGE_TTS_VOICE": "ko-KR-InJoonNeural",
+                "JARVIS_REPLY_LANGUAGE": "ko"},
+    "female_ko": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
+                  "JARVIS_EDGE_TTS_VOICE": "ko-KR-SunHiNeural",
+                  "JARVIS_REPLY_LANGUAGE": "ko"},
+}
+
+
+def apply_setup_env(environ=None, path: Path | None = None) -> None:
+    """저장된 보이스/이름 선택을 환경변수로 적용(부팅 시 1회). setdefault라
+    사용자가 직접 지정한 JARVIS_* env가 항상 우선한다."""
+    target = os.environ if environ is None else environ
+    s = load_setup(path)
+    for k, v in VOICE_PRESETS.get(s.get("voice", "jarvis"), {}).items():
+        target.setdefault(k, v)
+    name = (s.get("assistant_name") or "").strip()
+    if name and name != "자비스":
+        target.setdefault("JARVIS_ASSISTANT_NAME", name)
+        # 웨이크워드도 새 이름으로(pydantic은 env의 JSON 리스트를 읽는다)
+        target.setdefault("JARVIS_WAKE_WORDS", json.dumps([name], ensure_ascii=False))
 
 
 def save_key(provider: str, key: str) -> None:

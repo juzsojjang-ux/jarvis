@@ -85,7 +85,7 @@ def _gate(on=True):
 def test_control_refused_when_gate_off():
     calls = []
     out = screen_control_action("click", x=10, y=20, gate=_gate(on=False),
-                                runner=_runner(calls))
+                                runner=_runner(calls), watch=False)
     assert "화면 제어 모드" in out
     assert calls == []  # 절대 실행되지 않는다
 
@@ -93,7 +93,7 @@ def test_control_refused_when_gate_off():
 def test_control_click_dispatch():
     calls = []
     out = screen_control_action("click", x=10, y=20, gate=_gate(),
-                                runner=_runner(calls))
+                                runner=_runner(calls), watch=False)
     assert calls == [["cliclick", "c:10,20"]]
     assert "클릭" in out
 
@@ -101,34 +101,34 @@ def test_control_click_dispatch():
 def test_control_double_right_move_dispatch():
     for action, prefix in (("double_click", "dc"), ("right_click", "rc"), ("move", "m")):
         calls = []
-        screen_control_action(action, x=5, y=7, gate=_gate(), runner=_runner(calls))
+        screen_control_action(action, x=5, y=7, gate=_gate(), runner=_runner(calls), watch=False)
         assert calls == [["cliclick", f"{prefix}:5,7"]]
 
 
 def test_control_type_dispatch():
     calls = []
-    screen_control_action("type", text="안녕 jarvis", gate=_gate(), runner=_runner(calls))
+    screen_control_action("type", text="안녕 jarvis", gate=_gate(), runner=_runner(calls), watch=False)
     assert calls == [["cliclick", "t:안녕 jarvis"]]
 
 
 def test_control_key_dispatch():
     calls = []
-    screen_control_action("key", key="return", gate=_gate(), runner=_runner(calls))
+    screen_control_action("key", key="return", gate=_gate(), runner=_runner(calls), watch=False)
     assert calls == [["cliclick", "kp:return"]]
 
 
 def test_control_scroll_maps_to_page_keys():
     calls = []
-    screen_control_action("scroll", amount=-2, gate=_gate(), runner=_runner(calls))
+    screen_control_action("scroll", amount=-2, gate=_gate(), runner=_runner(calls), watch=False)
     assert calls == [["cliclick", "kp:page-down", "kp:page-down"]]
     calls.clear()
-    screen_control_action("scroll", amount=3, gate=_gate(), runner=_runner(calls))
+    screen_control_action("scroll", amount=3, gate=_gate(), runner=_runner(calls), watch=False)
     assert calls == [["cliclick", "kp:page-up"] + ["kp:page-up"] * 2]
 
 
 def test_control_scroll_caps_repeats():
     calls = []
-    screen_control_action("scroll", amount=-99, gate=_gate(), runner=_runner(calls))
+    screen_control_action("scroll", amount=-99, gate=_gate(), runner=_runner(calls), watch=False)
     assert len(calls[0]) == 1 + 10  # cliclick + 최대 10회
 
 

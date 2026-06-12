@@ -13,10 +13,11 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..tools.registry import neutral_tools
 from .base import split_ko
 from .history import ConversationHistory
 from .tool_policy import decide
-from ..tools.registry import neutral_tools
+from .usage import is_limit_error
 
 
 def _gpt_key(settings: Any) -> str | None:
@@ -50,6 +51,8 @@ class GPTBrain:
         history: Any = None,
     ) -> None:
         self.last_subtitle = ""
+        self.last_usage = None  # 마지막 턴 토큰 usage(response.usage) — 사용량 집계용
+        self.last_error = None  # "limit" 등 — 한도 초과 알림용
         self.remote_mode = False
         self._settings = settings
         self._memory = memory
@@ -148,8 +151,9 @@ class GPTBrain:
         if self._client_instance is not None:
             return self._client_instance
         if self._auth_mode == "subscription":
-            from jarvis.brain.codex_auth import get_access  # noqa: PLC0415
             from openai import AsyncOpenAI  # noqa: PLC0415
+
+            from jarvis.brain.codex_auth import get_access  # noqa: PLC0415
             token, acct = await get_access()
             self._client_instance = AsyncOpenAI(
                 base_url=self._sub_base,
@@ -172,10 +176,13 @@ class GPTBrain:
 
     async def respond(self, user_text: str) -> AsyncIterator[str]:  # type: ignore[override]
         self.last_subtitle = ""
+        self.last_error = None
         client = await self._ensure_client()
         user_payload = (
             (self._history.as_context() + user_text) if self._history.turns else user_text
         )
+        from .base import now_stamp
+        user_payload = f"{now_stamp()}\n{user_payload}"  # 날짜/시간 정답 동봉
         if self._auth_mode == "subscription":
             async for chunk in self._run_responses(client, user_payload, user_text):
                 yield chunk
@@ -201,6 +208,7 @@ class GPTBrain:
                     tools=self._tools_payload(),
                     tool_choice="auto",
                 )
+                self.last_usage = getattr(resp, "usage", None) or self.last_usage
                 msg = resp.choices[0].message
 
                 if not msg.tool_calls:
@@ -249,6 +257,8 @@ class GPTBrain:
                     })
 
         except Exception as exc:  # noqa: BLE001
+            if is_limit_error(exc):
+                self.last_error = "limit"
             print(f"[GPT] 오류: {exc}")
             return
 
@@ -277,6 +287,7 @@ class GPTBrain:
             return text, calls
         # 비스트림(가짜 테스트/호환)
         resp = result
+        self.last_usage = getattr(resp, "usage", None) or self.last_usage
         calls = [it for it in (getattr(resp, "output", None) or [])
                  if getattr(it, "type", None) == "function_call"]
         text = getattr(resp, "output_text", None) or ""
@@ -347,6 +358,8 @@ class GPTBrain:
                     })
 
         except Exception as exc:  # noqa: BLE001
+            if is_limit_error(exc):
+                self.last_error = "limit"
             print(f"[GPT] 오류: {exc}")
             return
 

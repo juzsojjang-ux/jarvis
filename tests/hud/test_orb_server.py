@@ -12,7 +12,7 @@ def test_subscribe_replays_current_state():
     hub = OrbHub()
     hub.publish("thinking", 0.4)
     q = hub.subscribe()
-    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": ""}
+    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": ""}
 
 
 def test_publish_fans_out_to_clients():
@@ -20,7 +20,7 @@ def test_publish_fans_out_to_clients():
     q = hub.subscribe()
     q.get_nowait()  # drop the replayed idle
     hub.publish("speaking", 0.7, "안녕하세요")
-    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요"}
+    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": ""}
 
 
 def test_subtitle_persists_then_clears_when_not_speaking():
@@ -92,3 +92,15 @@ def test_sse_streams_published_events(server):
     assert b'"state": "speaking"' in buf
     payloads = [ln.strip() for ln in buf.split(b"\n") if ln.strip().startswith(b"data:")]
     assert any(json.loads(p[5:].decode())["level"] == 0.55 for p in payloads)
+
+
+def test_assistant_name_injected_into_html(monkeypatch):
+    from jarvis.hud.orb_server import _apply_assistant_name
+    body = b"<h1>J.A.R.V.I.S</h1> fillText(\"J.A.R.V.I.S\")"
+    monkeypatch.setenv("JARVIS_ASSISTANT_NAME", "friday")
+    out = _apply_assistant_name(body)
+    assert b"F.R.I.D.A.Y" in out and b"J.A.R.V.I.S" not in out
+    monkeypatch.setenv("JARVIS_ASSISTANT_NAME", "맥스")
+    assert "맥스".encode() in _apply_assistant_name(body)
+    monkeypatch.delenv("JARVIS_ASSISTANT_NAME")
+    assert _apply_assistant_name(body) == body  # 기본명은 무변경

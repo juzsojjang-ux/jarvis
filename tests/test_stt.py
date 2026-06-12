@@ -7,7 +7,7 @@ from jarvis.stt.mlx_whisper import MLXWhisperSTT
 def test_transcribe_passes_repo_and_language(monkeypatch):
     seen = {}
 
-    def fake_transcribe(audio, path_or_hf_repo, language):
+    def fake_transcribe(audio, path_or_hf_repo, language, **kw):
         seen["audio_len"] = len(audio)
         seen["repo"] = path_or_hf_repo
         seen["language"] = language
@@ -26,7 +26,7 @@ def test_warm_runs_on_silence(monkeypatch):
     calls = []
     monkeypatch.setattr(
         stt_mod.mlx_whisper, "transcribe",
-        lambda audio, path_or_hf_repo, language: calls.append(len(audio)) or {"text": ""},
+        lambda audio, path_or_hf_repo, language, **kw: calls.append(len(audio)) or {"text": ""},
     )
     MLXWhisperSTT("repo").warm()
     assert calls == [16000]
@@ -35,7 +35,7 @@ def test_warm_runs_on_silence(monkeypatch):
 def test_transcribe_forwards_explicit_none_for_autodetect(monkeypatch):
     seen = {}
 
-    def fake(audio, path_or_hf_repo=None, language=None):
+    def fake(audio, path_or_hf_repo=None, language=None, **kw):
         seen["language"] = language
         return {"text": "hi"}
 
@@ -48,7 +48,7 @@ def test_transcribe_forwards_explicit_none_for_autodetect(monkeypatch):
 def test_transcribe_default_uses_configured_language(monkeypatch):
     seen = {}
 
-    def fake(audio, path_or_hf_repo=None, language=None):
+    def fake(audio, path_or_hf_repo=None, language=None, **kw):
         seen["language"] = language
         return {"text": "안녕"}
 

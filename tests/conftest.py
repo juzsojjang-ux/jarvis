@@ -8,3 +8,11 @@ import pytest
 def _isolate_conversation_history(monkeypatch, tmp_path):
     monkeypatch.setattr("jarvis.brain.history.DEFAULT_HISTORY_PATH",
                         tmp_path / "history.jsonl", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_skills(monkeypatch, tmp_path):
+    # 실제 ~/.jarvis/skills(사용자/자비스 작성 스킬)이 도구 개수·동작 테스트에
+    # 새지 않게 — 스킬 테스트는 load_skill_tools(경로)로 명시 주입한다.
+    monkeypatch.setattr("jarvis.tools.skills.DEFAULT_SKILLS_DIR",
+                        tmp_path / "no_skills", raising=False)

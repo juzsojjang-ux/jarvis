@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import time
 from datetime import date, datetime
 
@@ -217,15 +218,22 @@ class TimerMonitor:
                 for lb in self._board.pop_due()]
 
 
-def build_monitors(settings, timers=None) -> list:
-    """설정으로 감시자 세트를 조립한다(엔진/배선에서 호출)."""
-    mons: list = [
-        BatteryMonitor(levels=settings.battery_warn_levels),
-        SessionMonitor(greet_cooldown_s=settings.greet_cooldown_h * 3600,
-                       briefing_expire_s=settings.briefing_expire_h * 3600),
-        RemindersMonitor(lead_s=settings.reminder_lead_min * 60),
-        CalendarMonitor(lead_s=settings.event_lead_min * 60),
-    ]
+def build_monitors(settings, timers=None, platform: str | None = None) -> list:
+    """설정으로 감시자 세트를 조립한다(엔진/배선에서 호출).
+
+    맥 전용 감시자(잠금화면 Quartz·미리알림/캘린더 osascript·배터리 pmset)는
+    darwin에서만 — 다른 플랫폼에선 폴링마다 'No module named Quartz' 류가
+    로그를 도배한다(2026-06-12 윈도우 배포에서 확인)."""
+    sysname = platform if platform is not None else sys.platform
+    mons: list = []
+    if sysname == "darwin":
+        mons += [
+            BatteryMonitor(levels=settings.battery_warn_levels),
+            SessionMonitor(greet_cooldown_s=settings.greet_cooldown_h * 3600,
+                           briefing_expire_s=settings.briefing_expire_h * 3600),
+            RemindersMonitor(lead_s=settings.reminder_lead_min * 60),
+            CalendarMonitor(lead_s=settings.event_lead_min * 60),
+        ]
     if timers is not None:
         mons.append(TimerMonitor(timers))
     if settings.proactive_late_night:
