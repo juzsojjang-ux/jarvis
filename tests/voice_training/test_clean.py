@@ -1,4 +1,7 @@
 import numpy as np
+import pytest
+
+pytest.importorskip("noisereduce", reason="[voice] 옵션 의존성 — CI 기본 설치엔 없음")
 
 from voice_training import clean
 

@@ -1,4 +1,9 @@
 import types
+
+import pytest
+
+pytest.importorskip("mlx_whisper", reason="mlx는 애플 실리콘 전용 — 윈도우 CI 스킵")
+
 from jarvis.stt.factory import make_stt
 from jarvis.stt.mlx_whisper import MLXWhisperSTT
 from jarvis.stt.faster_whisper_stt import FasterWhisperSTT

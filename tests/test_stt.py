@@ -1,4 +1,7 @@
 import numpy as np
+import pytest
+
+pytest.importorskip("mlx_whisper", reason="mlx는 애플 실리콘 전용 — 윈도우 CI 스킵")
 
 import jarvis.stt.mlx_whisper as stt_mod
 from jarvis.stt.mlx_whisper import MLXWhisperSTT
