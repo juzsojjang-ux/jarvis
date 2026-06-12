@@ -69,6 +69,7 @@ class Orchestrator:
         self._attentive_timer: asyncio.Task | None = None
         self._warm_task: asyncio.Task | None = None
         self._remote_busy = False
+        self._watch_task = None  # 화면 감시 모드 루프
         self.usage = UsageTracker()  # 토큰 사용량 집계(세션+누적)
         self.last_bug: str | None = None  # 마지막 오류 상세 — "고쳐줘" 참조 + 우측 알림
         self._panel_muted = False
@@ -206,6 +207,10 @@ class Orchestrator:
         if self._selfcheck_command(text):
             await self._run_selfcheck()
             return
+        wcmd = self._watch_command(text)
+        if wcmd is not None:
+            await self._toggle_watch(wcmd)
+            return
         pcmd = self._panel_command(text)
         if pcmd is not None:
             await self._toggle_panel(pcmd)
@@ -215,6 +220,7 @@ class Orchestrator:
             return
         self.state = State.THINKING
         self._publish("thinking")
+        text = self._watch_context() + text
         t_think = asyncio.get_running_loop().time()
         first_done = False
 
@@ -512,6 +518,51 @@ class Orchestrator:
     def _usage_command(self, text: str) -> bool:
         t = text.replace(" ", "")
         return ("사용량" in t) or ("토큰" in t and ("얼마" in t or "확인" in t or "사용" in t))
+
+    # ----- 화면 상시 인지(감시 모드) -----
+    def _watch_command(self, text: str) -> bool | None:
+        t = text.replace(" ", "")
+        off_words = ("화면그만", "화면감시꺼", "그만봐")
+        on_words = ("화면봐줘", "화면봐", "화면지켜봐", "화면같이보자", "화면감시켜")
+        if "화면" in t and any(w in t for w in off_words):
+            return False
+        if any(w in t for w in on_words):
+            return True
+        return None
+
+    async def _toggle_watch(self, on: bool) -> None:
+        if on and self._watch_task is None:
+            self._watch_task = asyncio.get_running_loop().create_task(self._watch_loop())
+            await self._play_phrase("Keeping an eye on your screen, sir.",
+                                    "화면을 계속 보고 있겠습니다.")
+        elif not on and self._watch_task is not None:
+            self._watch_task.cancel()
+            self._watch_task = None
+            await self._play_phrase("Standing down the watch, sir.",
+                                    "화면 감시를 껐습니다.")
+        else:
+            sub = "이미 보고 있습니다." if on else "지금은 화면을 보고 있지 않습니다."
+            await self._play_phrase("Very well, sir.", sub)
+        self._to_idle()
+
+    async def _watch_loop(self) -> None:
+        """5초마다 화면을 캡처해 두뇌가 항상 최신 화면을 Read할 수 있게 한다."""
+        from ..tools.jarvis_mcp import capture_screen_action
+        interval = float(getattr(self.settings, "watch_interval_s", 5.0))
+        with contextlib.suppress(asyncio.CancelledError):
+            while True:
+                try:
+                    await asyncio.to_thread(capture_screen_action)
+                except Exception:  # noqa: BLE001 - 캡처 한 번 실패는 무시
+                    pass
+                await asyncio.sleep(interval)
+
+    def _watch_context(self) -> str:
+        """감시 모드 중이면 두뇌 입력 앞에 최신 화면 안내를 깔아준다."""
+        if self._watch_task is None:
+            return ""
+        return ("[화면 감시 중 — 최신 화면이 ~/.jarvis/screenshots/shot.png 에 5초마다 "
+                "갱신된다. '지금 화면/이거' 류 질문이면 Read로 보고 답하라]\n")
 
     # ----- 백그라운드 자율 작업 -----
     async def _run_bg_task(self, desc: str) -> str:

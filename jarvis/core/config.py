@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     think_budget_deep: int = 24000
     # 비맥 아침 브리핑 시각(시) — 맥은 첫 잠금해제가 브리핑을 겸한다
     briefing_hour: int = 8
+    # 화면 감시 모드('화면 봐줘') 캡처 주기
+    watch_interval_s: float = 5.0
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
     ptt_key: str = "alt_r"

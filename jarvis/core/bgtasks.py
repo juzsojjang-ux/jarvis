@@ -10,9 +10,10 @@ notice_bus와 같은 모듈 싱글턴 브릿지 패턴 — 도구는 start()/sta
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 MAX_CONCURRENT = 2
 
@@ -43,7 +44,8 @@ class BgTaskManager:
         if not desc:
             return "무엇을 해둘지 알려주세요."
         if self.running_count() >= self._max:
-            return f"이미 백그라운드 작업 {self.running_count()}개가 돌고 있습니다 — 끝나면 시켜주세요."
+            n = self.running_count()
+            return f"이미 백그라운드 작업 {n}개가 돌고 있습니다 — 끝나면 시켜주세요."
         task = BgTask(id=len(self._tasks) + 1, desc=desc)
         self._tasks.append(task)
         fut = asyncio.get_running_loop().create_task(self._run(task))
@@ -74,7 +76,7 @@ class BgTaskManager:
         return "\n".join(lines)
 
 
-_manager: Optional[BgTaskManager] = None
+_manager: BgTaskManager | None = None
 
 
 def configure(runner, on_done, max_concurrent: int = MAX_CONCURRENT) -> None:

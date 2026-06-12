@@ -51,6 +51,8 @@ def test_concurrency_limit():
         assert "시작" in m.start("b")
         msg = m.start("c")
         assert "이미" in msg
+        for f in m._futures:  # 루프 종료 전 정리(경고 방지)
+            f.cancel()
     run(main())
 
 

@@ -1003,6 +1003,85 @@ async def _recall_memory(args):
              for h in hits]
     return _text("\n".join(lines))
 
+@tool("web_open", "자비스 전용 크롬(별도 프로필 — 사용자 크롬과 무관)으로 URL을 연다. "
+      "웹 작업(업로드/폼/사이트 조작)은 픽셀 클릭(screen_control) 대신 반드시 이 web_* "
+      "도구들을 써라 — DOM을 직접 다뤄 빗나가지 않는다. 결과로 페이지의 클릭 가능한 "
+      "요소 번호 목록이 온다. 로그인이 필요한 사이트는 사용자가 그 창에서 직접 한 번 "
+      "로그인하게 안내하라(세션은 유지된다).",
+      {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]})
+async def _web_open(args):
+    from .webdrive import DRIVER
+    try:
+        return _text(await DRIVER.open(str((args or {}).get("url", ""))))
+    except Exception as exc:
+        return _text(f"웹 열기 실패: {exc}")
+
+
+@tool("web_read", "현재 웹페이지의 제목/URL/클릭 가능한 요소 번호 목록을 다시 읽는다 — "
+      "클릭/입력 후 상태 확인용.", {})
+async def _web_read(_args):
+    from .webdrive import DRIVER
+    try:
+        return _text(await DRIVER.read())
+    except Exception as exc:
+        return _text(f"웹 읽기 실패: {exc}")
+
+
+@tool("web_click", "web_read 목록의 [번호] 요소를 클릭한다. 클릭 후 갱신된 요소 목록을 "
+      "돌려준다.",
+      {"type": "object", "properties": {"index": {"type": "integer"}},
+       "required": ["index"]})
+async def _web_click(args):
+    from .webdrive import DRIVER
+    try:
+        return _text(await DRIVER.click(int((args or {}).get("index", -1))))
+    except Exception as exc:
+        return _text(f"웹 클릭 실패: {exc}")
+
+
+@tool("web_type", "web_read 목록의 [번호] 입력칸에 텍스트를 넣는다. submit=true면 Enter.",
+      {"type": "object", "properties": {
+          "index": {"type": "integer"}, "text": {"type": "string"},
+          "submit": {"type": "boolean"}},
+       "required": ["index", "text"]})
+async def _web_type(args):
+    from .webdrive import DRIVER
+    a = args or {}
+    try:
+        return _text(await DRIVER.type(int(a.get("index", -1)), str(a.get("text", "")),
+                                       bool(a.get("submit", False))))
+    except Exception as exc:
+        return _text(f"웹 입력 실패: {exc}")
+
+
+@tool("web_upload", "현재 페이지에 파일을 업로드한다(구글 드라이브 등) — 파일 선택 창 "
+      "없이 DOM에 직접 꽂아 100% 결정적. index는 업로드 관련 요소 번호(모르면 0), "
+      "paths는 절대경로 목록.",
+      {"type": "object", "properties": {
+          "index": {"type": "integer"},
+          "paths": {"type": "array", "items": {"type": "string"}}},
+       "required": ["paths"]})
+async def _web_upload(args):
+    from .webdrive import DRIVER
+    a = args or {}
+    try:
+        return _text(await DRIVER.upload(int(a.get("index", 0)),
+                                         [str(x) for x in (a.get("paths") or [])]))
+    except Exception as exc:
+        return _text(f"웹 업로드 실패: {exc}")
+
+
+@tool("web_screenshot", "자비스 크롬 페이지를 스크린샷으로 저장하고 경로를 돌려준다 — "
+      "Read 도구로 보면서 시각 확인.", {})
+async def _web_screenshot(_args):
+    from .webdrive import DRIVER
+    try:
+        path = await DRIVER.screenshot()
+        return _text(f"저장했습니다 — Read 도구로 보세요: {path}")
+    except Exception as exc:
+        return _text(f"웹 스크린샷 실패: {exc}")
+
+
 
 
 
@@ -1066,6 +1145,7 @@ def build_tool_objects(memory: Any = None):
             _show_panel, _hide_panel,
             _self_check, _consult_brain,
             _background_task, _background_status, _recall_memory,
+            _web_open, _web_read, _web_click, _web_type, _web_upload, _web_screenshot,
             _remember,
             *_skill_sdk_tools()]  # 자가 확장 스킬 — 모든 두뇌(클로드 포함)가 사용
 
@@ -1087,5 +1167,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "capture_screen", "screen_control",
     "self_check", "consult_brain",
     "background_task", "background_status", "recall_memory",
+    "web_open", "web_read", "web_click", "web_type", "web_upload", "web_screenshot",
     "remember",
 )]

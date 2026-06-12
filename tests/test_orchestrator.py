@@ -1001,3 +1001,16 @@ def test_selfcheck_command_matches():
     assert m(T(), "셀프 체크")
     assert not m(T(), "오늘 날씨 어때")
     assert not m(T(), "상태가 어떤 것 같아?")
+
+
+def test_watch_command_matches():
+    from jarvis.core.orchestrator import Orchestrator
+    m = Orchestrator._watch_command
+    class T:
+        pass
+    assert m(T(), "화면 봐줘") is True
+    assert m(T(), "화면 지켜봐") is True
+    assert m(T(), "화면 그만 봐") is False
+    assert m(T(), "화면 감시 꺼") is False
+    assert m(T(), "화면 캡처해줘") is None     # 일반 캡처 요청은 두뇌로
+    assert m(T(), "오늘 날씨 어때") is None
