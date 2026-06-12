@@ -22,7 +22,7 @@ class ConversationHistory:
     def __init__(
         self,
         path: Optional[Path] = None,
-        max_turns: int = 6,
+        max_turns: int = 10,
     ) -> None:
         if path is None:
             path = DEFAULT_HISTORY_PATH

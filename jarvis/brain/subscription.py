@@ -51,10 +51,10 @@ _GUIDANCE_KO = (
     "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라. "
     "시간·날씨·앱 실행·볼륨 조절·기억은 네게 주어진 도구로 직접 처리하고, 최신 정보는 "
     "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라. "
-    "보조 두뇌: consult_brain(gemini|gpt)으로 다른 LLM에게 자문을 구할 수 있다 — 사용자가 "
-    "모델 이름을 대거나 교차 검증을 원하면 반드시 쓰고, 중요한 사실 판단은 스스로도 자문해 "
-    "보강하라(출처를 밝혀 전한다). 자가진단: '뭐가 문제야/상태 점검'이면 self_check를 돌려 "
-    "보고서를 패널에 띄우고 요점만 말하라. "
+    "판단은 항상 네가 한다 — consult_brain(gemini|gpt)은 사용자가 명시적으로 다른 모델 "
+    "의견을 원할 때만 쓰고 출처를 밝혀 전한다. 실속 있는 요청은 도구를 연쇄로 써서(검색→"
+    "확인→재시도) 깊게 일하고, 사실은 웹 검색으로 검증한 뒤 말하라. 자가진단: '뭐가 "
+    "문제야/상태 점검'이면 self_check를 돌려 보고서를 패널에 띄우고 요점만 말하라. "
     "사용자 메시지가 '[SYSTEM EVENT]'로 시작하면 누가 물은 게 아니라 네가 먼저 알리는 "
     "것이다(배터리·일정·브리핑·인사): 한두 문장으로 짧게 위트 있게 알리고, 뭘 도울지 "
     "되묻지 마라. 브리핑 이벤트면 날씨·미리알림·캘린더 도구를 먼저 호출해 요약하라. "
@@ -128,12 +128,15 @@ _GUIDANCE_EN = (
     "Korean translation of what you said (for on-screen subtitles). Never skip the '[KO]' line. "
     "Render 'sir' as '주인님' and keep the same witty tone in Korean. "
     "To SEND a message or email use send_message/send_mail (the system confirms before sending). "
-    "MULTI-BRAIN: other LLMs are connected as consultants via consult_brain "
-    "(provider: gemini|gpt). Use it EAGERLY: whenever sir names a model ('제미나이한테 "
-    "물어봐', 'GPT 의견은?', '교차 검증해'), and ALSO on your own for important factual "
-    "claims, contested judgments, or design decisions — get a second opinion and weave it "
-    "in, attributing the source ('제미나이는 …라고 합니다'). Consultants answer text only; "
-    "they cannot touch this computer. "
+    "MULTI-BRAIN: consult_brain (gemini|gpt) exists for when sir EXPLICITLY asks to "
+    "hear another model ('제미나이한테 물어봐', 'GPT 의견은?'). Only then — judgment is "
+    "YOURS; do not outsource it. Attribute relayed answers ('제미나이는 …라고 합니다'). "
+    "DEEP WORK: you are sir's primary engine — use yourself fully. For any substantive "
+    "request, WORK the problem: chain tools (search, read, verify, retry), cross-check "
+    "facts with WebSearch before asserting them, iterate until the result is actually "
+    "good, and prefer doing over describing. Never one-shot a hard question you could "
+    "verify with tools. Use the panel generously for rich results, and remember() what "
+    "you learn about sir. "
     "SELF-DIAGNOSIS: when sir asks what's wrong, why something failed, or to check status "
     "('뭐가 문제야', '상태 점검'), call self_check, show the full report on the panel "
     "(show_panel), and speak only the key findings. If a capability keeps failing "
@@ -263,14 +266,19 @@ class SubscriptionBrain:
 
     def _deep_tokens(self, user_text: str) -> int:
         low = user_text.lower()
-        return 12000 if any(k in user_text or k in low for k in self._DEEP_TRIGGERS) else 0
+        if any(k in user_text or k in low for k in self._DEEP_TRIGGERS):
+            return int(getattr(self._settings, "think_budget_deep", 24000) or 24000)
+        return 0
 
     def _turn_config(self, user_text: str) -> tuple[str, int]:
-        """(model, thinking_tokens) for this turn: fast Sonnet normally, deep Opus +
-        extended thinking when the user asks JARVIS to think hard."""
-        if self._deep_tokens(user_text):
-            return (getattr(self._settings, "deep_model", "") or "claude-opus-4-8", 12000)
-        return (getattr(self._settings, "subscription_model", "") or "", 0)
+        """(model, thinking_tokens) for this turn. 연동된 두뇌를 깊게 쓴다:
+        평소에도 사고 예산을 깔고(think_budget_normal — 모든 턴 동일 키라 재연결
+        없음), 딥 트리거('최대 사고' 등)는 Opus + 큰 예산으로 올린다."""
+        deep = self._deep_tokens(user_text)
+        if deep:
+            return (getattr(self._settings, "deep_model", "") or "claude-opus-4-8", deep)
+        normal = int(getattr(self._settings, "think_budget_normal", 4000) or 0)
+        return (getattr(self._settings, "subscription_model", "") or "", normal)
 
     def _ensure_sdk(self) -> None:
         if self._client_cls and self._options_cls and self._assistant_message:
@@ -323,7 +331,7 @@ class SubscriptionBrain:
             mcp_servers=mcp_servers,
             setting_sources=[],
             cwd=str(Path.home()),
-            max_turns=60,  # 화면 제어(캡처→클릭 반복)는 턴을 많이 쓴다 — 20은 부족
+            max_turns=100,  # 깊은 에이전트 작업(화면 제어·검증 루프) 여유 확보
             max_thinking_tokens=thinking_tokens,
             env=env,
             include_partial_messages=True,
@@ -332,8 +340,13 @@ class SubscriptionBrain:
             kw["model"] = model
         return self._options_cls(**kw)
 
-    async def _ensure_client(self, thinking_tokens: int = 0, model: str | None = None) -> Any:
+    async def _ensure_client(self, thinking_tokens: int | None = None,
+                             model: str | None = None) -> Any:
         self._ensure_sdk()
+        if thinking_tokens is None:
+            # 기본값 = 평소 사고 예산 — warm()이 예열한 클라이언트를 첫 턴이
+            # 그대로 쓰게(예산 불일치 재연결로 예열이 날아가지 않게) 맞춘다.
+            thinking_tokens = int(getattr(self._settings, "think_budget_normal", 4000) or 0)
         if model is None:
             model = getattr(self._settings, "subscription_model", "") or ""
         key = (thinking_tokens, model)

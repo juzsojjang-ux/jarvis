@@ -32,8 +32,12 @@ class Settings(BaseSettings):
     # 필요한 요청("최대 사고/think hard")만 deep_model(Opus)로 올린다.
     subscription_model: str = "claude-sonnet-4-6"
     deep_model: str = "claude-opus-4-8"
-    # 앙상블: deep=딥씽킹 턴에서 보조 두뇌 병렬 자문(기본) / always / off
-    ensemble_mode: str = "deep"
+    # 앙상블(보조 두뇌 병렬 자문): off 기본 — 판단은 연동된 메인 두뇌가 한다.
+    # 원하면 JARVIS_ENSEMBLE_MODE=deep(딥씽킹 턴)/always 로 켤 수 있다.
+    ensemble_mode: str = "off"
+    # 메인 두뇌 심화 사용: 평소 사고 예산 / 딥 트리거('최대 사고') 예산
+    think_budget_normal: int = 4000
+    think_budget_deep: int = 24000
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
     ptt_key: str = "alt_r"

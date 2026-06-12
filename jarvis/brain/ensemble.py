@@ -3,7 +3,7 @@
 
 "클로드 + 보좌 둘"이 아니라 두뇌 자체의 상향 — 메인이 입과 손(도구·페르소나·맥락)을
 맡고, 판단은 셋이 같이 한다. 모드(JARVIS_ENSEMBLE_MODE):
-  deep(기본) = 딥씽킹 턴에서 자동 / always = 모든 두뇌 턴 / off = 끔
+  off(기본) = 끔(판단은 메인 두뇌) / deep = 딥씽킹 턴 자동 / always = 모든 턴
 실패·미연동 보조는 조용히 빠진다 — 앙상블이 턴을 깨는 일은 없다.
 """
 from __future__ import annotations
@@ -19,8 +19,8 @@ _LABEL = {"gemini": "제미나이", "gpt": "GPT"}
 def mode(settings: Any = None) -> str:
     import os
     m = (os.environ.get("JARVIS_ENSEMBLE_MODE")
-         or getattr(settings, "ensemble_mode", None) or "deep").strip().lower()
-    return m if m in ("deep", "always", "off") else "deep"
+         or getattr(settings, "ensemble_mode", None) or "off").strip().lower()
+    return m if m in ("deep", "always", "off") else "off"
 
 
 async def gather_opinions(question: str, *, settings: Any = None,

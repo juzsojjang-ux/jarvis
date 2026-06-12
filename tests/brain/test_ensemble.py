@@ -66,10 +66,10 @@ def test_format_context_empty():
     assert mod.format_context([]) == ""
 
 
-def test_mode_default_and_env(monkeypatch):
+def test_mode_default_off_and_env(monkeypatch):
     monkeypatch.delenv("JARVIS_ENSEMBLE_MODE", raising=False)
-    assert mod.mode(object()) == "deep"
+    assert mod.mode(object()) == "off"  # 판단은 메인 두뇌 — 자동 앙상블 기본 꺼짐
     monkeypatch.setenv("JARVIS_ENSEMBLE_MODE", "always")
     assert mod.mode(object()) == "always"
     monkeypatch.setenv("JARVIS_ENSEMBLE_MODE", "괴상한값")
-    assert mod.mode(object()) == "deep"
+    assert mod.mode(object()) == "off"

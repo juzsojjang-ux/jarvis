@@ -121,14 +121,14 @@ def test_deep_trigger_switches_to_deep_model_and_thinking():
         s = types.SimpleNamespace(subscription_model="claude-sonnet-4-6",
                                   deep_model="claude-opus-4-8")
         b = _brain(s)
-        assert b._turn_config("안녕") == ("claude-sonnet-4-6", 0)
-        assert b._turn_config("최대 사고로 진행해") == ("claude-opus-4-8", 12000)
-        await _talk(b, [FakeAssistant("a")])      # normal -> sonnet, thinking 0
+        assert b._turn_config("안녕") == ("claude-sonnet-4-6", 4000)  # 평소에도 사고 예산(심화 사용)
+        assert b._turn_config("최대 사고로 진행해") == ("claude-opus-4-8", 24000)
+        await _talk(b, [FakeAssistant("a")])      # normal -> sonnet, thinking 4000
         assert FakeClient.instances == 1
         model, thinking = b._turn_config("최대 사고로 진행해 줘")
         c = await b._ensure_client(thinking, model)
         assert FakeClient.instances == 2          # reconnected (opus + thinking)
-        assert c.options.kw["max_thinking_tokens"] == 12000
+        assert c.options.kw["max_thinking_tokens"] == 24000
         assert c.options.kw["model"] == "claude-opus-4-8"
     asyncio.run(run())
 
