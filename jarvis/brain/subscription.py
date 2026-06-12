@@ -51,6 +51,8 @@ _GUIDANCE_KO = (
     "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라. "
     "시간·날씨·앱 실행·볼륨 조절·기억은 네게 주어진 도구로 직접 처리하고, 최신 정보는 "
     "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라. "
+    "긴 작업은 background_task로 뒤에서 돌리고 끝나면 먼저 보고하라. 과거 대화 회상은 "
+    "recall_memory로 찾아 답하라. "
     "판단은 항상 네가 한다 — consult_brain(gemini|gpt)은 사용자가 명시적으로 다른 모델 "
     "의견을 원할 때만 쓰고 출처를 밝혀 전한다. 실속 있는 요청은 도구를 연쇄로 써서(검색→"
     "확인→재시도) 깊게 일하고, 사실은 웹 검색으로 검증한 뒤 말하라. 자가진단: '뭐가 "
@@ -128,6 +130,11 @@ _GUIDANCE_EN = (
     "Korean translation of what you said (for on-screen subtitles). Never skip the '[KO]' line. "
     "Render 'sir' as '주인님' and keep the same witty tone in Korean. "
     "To SEND a message or email use send_message/send_mail (the system confirms before sending). "
+    "BACKGROUND: for long work (research, multi-step compilation) or when sir says "
+    "'뒤에서/백그라운드로/해놓고 알려줘', call background_task and acknowledge briefly — "
+    "JARVIS reports proactively when it finishes. Check with background_status. "
+    "RECALL: for questions about past conversations ('지난번에 뭐라고 했지', '예전에 "
+    "시킨 거'), search with recall_memory before answering from guesswork. "
     "MULTI-BRAIN: consult_brain (gemini|gpt) exists for when sir EXPLICITLY asks to "
     "hear another model ('제미나이한테 물어봐', 'GPT 의견은?'). Only then — judgment is "
     "YOURS; do not outsource it. Attribute relayed answers ('제미나이는 …라고 합니다'). "
@@ -215,6 +222,7 @@ class SubscriptionBrain:
         "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
         "clipboard_read", "remember",
         "self_check", "consult_brain",
+        "background_status", "recall_memory",
     })
 
     def _confirm_prompt(self, tool: str, inp: dict) -> str:
@@ -411,6 +419,11 @@ class SubscriptionBrain:
         # 실시간 타임스탬프 — 날짜/시간을 추측으로 틀리지 않게 정답을 실어보낸다
         # (히스토리에는 원문 user_text만 저장되므로 오염 없음).
         from .base import now_stamp
+        try:  # 장기 기억: 관련 과거 대화 발췌를 깔아준다(없으면 빈 문자열)
+            from .longmem import LongMemory
+            query_text = LongMemory().context_block(user_text) + query_text
+        except Exception:  # noqa: BLE001 - 회상 실패가 턴을 깨면 안 된다
+            pass
         query_text = f"{now_stamp()}\n{query_text}"
         # 앙상블: 딥씽킹 턴(또는 always 모드)에서는 제미나이·GPT에 같은 질문을
         # 병렬로 묻고, 그 독립 의견을 깔아준 뒤 클로드가 종합한다 — 세 두뇌가

@@ -233,9 +233,163 @@ def build_monitors(settings, timers=None, platform: str | None = None) -> list:
                            briefing_expire_s=settings.briefing_expire_h * 3600),
             RemindersMonitor(lead_s=settings.reminder_lead_min * 60),
             CalendarMonitor(lead_s=settings.event_lead_min * 60),
+            MailMonitor(),
         ]
+    else:
+        # 비맥: psutil 배터리 + 시간 기반 브리핑(맥은 잠금해제 브리핑이 담당)
+        mons += [
+            PsutilBatteryMonitor(levels=settings.battery_warn_levels),
+            MorningBriefingMonitor(hour=getattr(settings, "briefing_hour", 8)),
+        ]
+    mons.append(SelfCheckMonitor())
     if timers is not None:
         mons.append(TimerMonitor(timers))
     if settings.proactive_late_night:
         mons.append(LateNightMonitor())
     return mons
+
+
+class PsutilBatteryMonitor:
+    """크로스플랫폼 배터리(psutil) — 윈도우/리눅스용. 맥은 pmset 기반이 기존 담당.
+    문턱 하향 돌파/전원 전이만 알린다(BatteryMonitor와 같은 규약)."""
+
+    interval_s = 60.0
+
+    def __init__(self, levels=(20, 10, 5), reader=None, clock=time.monotonic):
+        self._levels = sorted(levels, reverse=True)
+        self._reader = reader
+        self._clock = clock
+        self._prev_ac: bool | None = None
+        self._warned: set[int] = set()
+
+    def _read(self):
+        try:
+            if self._reader is not None:
+                return self._reader()
+            import psutil  # noqa: PLC0415
+            b = psutil.sensors_battery()
+            if b is None:
+                return None
+            return int(b.percent), bool(b.power_plugged)
+        except Exception:  # noqa: BLE001 - 이번 폴링만 건너뜀
+            return None
+
+    def poll(self) -> list[Announcement]:
+        read = self._read()
+        if read is None:
+            return []
+        pct, on_ac = read
+        now = self._clock()
+        out: list[Announcement] = []
+        if self._prev_ac is not None and on_ac != self._prev_ac and on_ac:
+            out.append(Announcement("charger_on", f"전원이 연결됐다 (배터리 {pct}%)",
+                                    3, now, now + _FIVE_MIN))
+            self._warned.clear()
+        if not on_ac:
+            for lv in self._levels:
+                if pct <= lv and lv not in self._warned:
+                    self._warned.add(lv)
+                    out.append(Announcement(
+                        "battery_low", f"배터리가 {pct}%다 — 충전을 권하라",
+                        0 if lv <= 5 else 1, now, now + _TEN_MIN))
+                    break
+        self._prev_ac = on_ac
+        return out
+
+
+class MorningBriefingMonitor:
+    """시간 기반 아침 브리핑(플랫폼 무관) — 설정 시각이 지나면 하루 1회.
+    맥의 SessionMonitor 브리핑(첫 잠금해제)과 kind가 같아 엔진 쿨다운이 중복을 막는다."""
+
+    interval_s = 60.0
+
+    def __init__(self, *, hour: int = 8, clock=time.monotonic,
+                 now_fn=datetime.now, today_fn=date.today):
+        self._hour = hour
+        self._clock = clock
+        self._now = now_fn
+        self._today = today_fn
+        self._briefed_on: date | None = None
+
+    def poll(self) -> list[Announcement]:
+        if self._briefed_on == self._today():
+            return []
+        if self._now().hour < self._hour:
+            return []
+        self._briefed_on = self._today()
+        now = self._clock()
+        return [Announcement(
+            "briefing",
+            "오늘의 아침 브리핑을 하라 — get_weather, get_reminders, "
+            "get_calendar_events 도구로 날씨·미리알림·오늘 일정을 모아 짧게 보고",
+            2, now, now + 7200.0)]
+
+
+class MailMonitor:
+    """새 메일 도착(맥, AppleScript 읽기전용) — 안 읽은 수가 '늘어난' 순간만 알린다."""
+
+    interval_s = 120.0
+
+    def __init__(self, *, runner=subprocess.run, clock=time.monotonic):
+        self._runner = runner
+        self._clock = clock
+        self._prev: int | None = None
+
+    def _unread(self) -> int | None:
+        try:
+            res = self._runner(
+                ["osascript", "-e",
+                 'tell application "Mail" to get unread count of inbox'],
+                capture_output=True, text=True, timeout=10)
+            return int((getattr(res, "stdout", "") or "").strip())
+        except Exception:  # noqa: BLE001 - 메일 앱 꺼짐/권한 거부: 이번 폴링만 건너뜀
+            return None
+
+    def poll(self) -> list[Announcement]:
+        n = self._unread()
+        if n is None:
+            return []
+        out: list[Announcement] = []
+        now = self._clock()
+        if self._prev is not None and n > self._prev:
+            new = n - self._prev
+            out.append(Announcement(
+                "new_mail",
+                f"새 메일 {new}통이 도착했다 — get_unread_mail 도구로 보낸 사람과 "
+                "제목만 확인해 짧게 알려라",
+                3, now, now + _TEN_MIN))
+        self._prev = n
+        return out
+
+
+class SelfCheckMonitor:
+    """주기 자가점검 — '새로' 생긴 이상만 알린다(같은 이상 반복 보고 금지)."""
+
+    interval_s = 1800.0
+
+    def __init__(self, *, checker=None, clock=time.monotonic):
+        self._checker = checker
+        self._clock = clock
+        self._known_bad: set[str] = set()
+
+    def poll(self) -> list[Announcement]:
+        try:
+            if self._checker is not None:
+                checks = self._checker()
+            else:
+                from ..core.selfcheck import run_checks  # noqa: PLC0415
+                checks = run_checks()
+        except Exception:  # noqa: BLE001 - 진단 실패가 엔진을 멈추면 안 된다
+            return []
+        bad = {c.name: c.detail for c in checks if not c.ok}
+        fresh = {k: v for k, v in bad.items() if k not in self._known_bad}
+        self._known_bad = set(bad)
+        if not fresh:
+            return []
+        now = self._clock()
+        items = "; ".join(f"{k}({v[:40]})" for k, v in fresh.items())
+        return [Announcement(
+            "selfcheck_warn",
+            f"자가점검에서 새 이상 발견: {items} — 짧게 알리고 필요하면 self_check로 "
+            "상세를 패널에 띄워라",
+            2, now, now + _ONE_HOUR)]

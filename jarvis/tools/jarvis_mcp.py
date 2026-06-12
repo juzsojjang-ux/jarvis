@@ -969,6 +969,41 @@ async def _consult_brain(args):
     out = await consult(str(a.get("provider", "")), str(a.get("question", "")))
     return _text(out)
 
+@tool("background_task", "긴 작업(조사·정리·다단계)을 백그라운드로 위임한다 — 대화를 막지 "
+      "않고 뒤에서 별도 두뇌가 수행하며, 끝나면 자비스가 먼저 보고한다. 사용자가 '뒤에서 "
+      "해놔', '백그라운드로', '조사해놓고 나중에 알려줘'라고 하거나, 작업이 수십 초 이상 "
+      "걸릴 조사/리서치라면 이 도구로 넘기고 짧게 접수만 알려라.",
+      {"type": "object", "properties": {"description": {"type": "string"}},
+       "required": ["description"]})
+async def _background_task(args):
+    from ..core import bgtasks
+    return _text(bgtasks.start(str((args or {}).get("description", ""))))
+
+
+@tool("background_status", "백그라운드 작업들의 진행 상황을 확인한다('그 작업 어떻게 됐어').", {})
+async def _background_status(_args):
+    from ..core import bgtasks
+    return _text(bgtasks.status_text())
+
+
+@tool("recall_memory", "장기 기억(전체 대화 아카이브)에서 과거 대화를 검색한다. 사용자가 "
+      "'지난번에/저번 주에/예전에 뭐라고 했지', '~한 적 있었나' 같은 과거 회상을 물으면 "
+      "이 도구로 찾아 답하라. query는 핵심 단어 위주로.",
+      {"type": "object", "properties": {"query": {"type": "string"}},
+       "required": ["query"]})
+async def _recall_memory(args):
+    from ..brain.longmem import LongMemory
+    q = str((args or {}).get("query", "")).strip()
+    if not q:
+        return _text("무엇을 찾을까요?")
+    hits = LongMemory().search(q, k=5)
+    if not hits:
+        return _text("관련된 과거 대화를 찾지 못했습니다.")
+    lines = [f"({h['ts']}) 사용자: {h['user'][:100]} / 자비스: {h['assistant'][:100]}"
+             for h in hits]
+    return _text("\n".join(lines))
+
+
 
 
 @tool("screen_control_mode", "화면 제어 모드를 켜거나 끈다. 사용자가 어떤 표현으로든 "
@@ -1030,6 +1065,7 @@ def build_tool_objects(memory: Any = None):
             _capture_screen, _screen_control, _screen_control_mode, _click_by_name,
             _show_panel, _hide_panel,
             _self_check, _consult_brain,
+            _background_task, _background_status, _recall_memory,
             _remember,
             *_skill_sdk_tools()]  # 자가 확장 스킬 — 모든 두뇌(클로드 포함)가 사용
 
@@ -1050,5 +1086,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "send_message", "send_mail",
     "capture_screen", "screen_control",
     "self_check", "consult_brain",
+    "background_task", "background_status", "recall_memory",
     "remember",
 )]

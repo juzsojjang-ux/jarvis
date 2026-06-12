@@ -513,6 +513,50 @@ class Orchestrator:
         t = text.replace(" ", "")
         return ("사용량" in t) or ("토큰" in t and ("얼마" in t or "확인" in t or "사용" in t))
 
+    # ----- 백그라운드 자율 작업 -----
+    async def _run_bg_task(self, desc: str) -> str:
+        """일회용 두뇌로 위임 작업을 끝까지 수행하고 한국어 결과를 돌려준다."""
+        factory = getattr(self, "bg_brain_factory", None)
+        if factory is None:
+            raise RuntimeError("백그라운드 두뇌 팩토리가 없습니다")
+        brain = factory()
+        try:
+            chunks: list[str] = []
+            prompt = ("[백그라운드 작업 — 사용자가 자리 비움. 도구로 끝까지 수행하고 "
+                      "마지막에 결과를 한국어로 정리하라. 확인 질문 금지]\n" + desc)
+            async for piece in brain.respond(prompt):
+                chunks.append(piece)
+            result = getattr(brain, "last_subtitle", "") or " ".join(chunks)
+            return result.strip()
+        finally:
+            close = getattr(brain, "close", None)
+            if close is not None:
+                with contextlib.suppress(Exception):
+                    await close()
+
+    async def _bg_task_done(self, task) -> None:
+        """완료 보고: 결과 파일 저장 + 패널 + 능동 음성 보고."""
+        try:  # 결과 영구 저장 (~/.jarvis/tasks/)
+            from pathlib import Path
+            d = Path.home() / ".jarvis" / "tasks"
+            d.mkdir(parents=True, exist_ok=True)
+            fname = d / f"task{task.id}-{task.started.replace(':', '')}.md"
+            fname.write_text(f"# {task.desc}\n\n상태: {task.status}\n\n{task.result}\n",
+                             encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        self._panel_sink(f"백그라운드 작업 #{task.id} {task.status}\n{task.desc}\n\n{task.result[:600]}")
+        if self.proactive is not None:
+            from time import monotonic
+            from ..proactive.events import Announcement
+            now = monotonic()
+            word = "끝났다" if task.status == "done" else "실패했다"
+            self.proactive.enqueue(Announcement(
+                "bg_done",
+                f"백그라운드 작업이 {word}: {task.desc[:60]} — 결과 요지를 한두 문장으로 "
+                f"보고하라: {task.result[:300]}",
+                2, now, now + 1800.0))
+
     # ----- 자가진단 -----
     def _selfcheck_command(self, text: str) -> bool:
         t = text.replace(" ", "")

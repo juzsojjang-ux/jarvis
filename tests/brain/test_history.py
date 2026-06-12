@@ -71,5 +71,7 @@ def test_atomic_save_no_temp_left(tmp_path):
     p = tmp_path / "h.jsonl"
     h = ConversationHistory(p)
     h.add("a", "b")
-    leftovers = [f.name for f in tmp_path.iterdir() if f.name != "h.jsonl"]
+    # longmem.jsonl은 add 훅이 만드는 정규 산출물(임시파일 아님)
+    leftovers = [f.name for f in tmp_path.iterdir()
+                 if f.name not in ("h.jsonl", "longmem.jsonl")]
     assert leftovers == []

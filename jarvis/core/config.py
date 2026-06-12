@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # 메인 두뇌 심화 사용: 평소 사고 예산 / 딥 트리거('최대 사고') 예산
     think_budget_normal: int = 4000
     think_budget_deep: int = 24000
+    # 비맥 아침 브리핑 시각(시) — 맥은 첫 잠금해제가 브리핑을 겸한다
+    briefing_hour: int = 8
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
     ptt_key: str = "alt_r"

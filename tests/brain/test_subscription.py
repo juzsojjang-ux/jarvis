@@ -608,7 +608,9 @@ def test_history_injected_on_first_query_then_not(tmp_path):
     first_q, second_q = asyncio.run(run())
     assert "이전 대화 맥락" in first_q and "첫질문" in first_q
     assert first_q.startswith("[지금: ")              # 실시간 타임스탬프 동봉
-    assert second_q.split("\n", 1)[-1] == "둘째질문"   # primed — 재주입 없음(스탬프 제외)
+    # primed — 히스토리 '맥락 블록' 재주입은 없어야 한다(장기 기억 발췌는 별개 기능).
+    assert "이전 대화 맥락" not in second_q
+    assert second_q.rstrip().endswith("둘째질문")
 
 
 def test_respond_saves_turn(tmp_path):

@@ -294,6 +294,7 @@ SETUP_HTML = """\
   <h3>목소리</h3>
   <div class="vp-grid">
     <label><input type="radio" name="vchoice" value="jarvis" checked> 자비스(영화 클론) · 영어</label>
+    <label><input type="radio" name="vchoice" value="jarvis_ko"> 자비스(영화 클론) · 한국어</label>
     <label><input type="radio" name="vchoice" value="butler_en"> 영국 집사 · 영어</label>
     <label><input type="radio" name="vchoice" value="male_us"> 남성 · 영어(미국)</label>
     <label><input type="radio" name="vchoice" value="female_us"> 여성 · 영어(미국)</label>

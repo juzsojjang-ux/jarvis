@@ -118,6 +118,12 @@ async def build_orchestrator(
         micstream=micstream,
         wake=wake,
     )
+    # 백그라운드 자율 작업 — 전경 두뇌와 별개의 일회용 두뇌로 돈다(응답 충돌 없음)
+    def _bg_brain_factory():
+        return make_brain(settings, memory, persona, confirm=None)
+    orch.bg_brain_factory = _bg_brain_factory
+    from jarvis.core import bgtasks
+    bgtasks.configure(orch._run_bg_task, orch._bg_task_done)
     if settings.proactive_enabled:
         orch.proactive = ProactiveEngine(
             build_monitors(settings, timers=DEFAULT_BOARD),

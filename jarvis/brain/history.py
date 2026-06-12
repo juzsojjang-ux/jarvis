@@ -41,6 +41,11 @@ class ConversationHistory:
         self.turns.append((user, assistant))
         self.turns = self.turns[-self._max_turns:]
         self._save()
+        try:  # 장기 기억 아카이브(append-only) — 롤링 창과 별개로 영구 보관
+            from .longmem import LongMemory  # noqa: PLC0415
+            LongMemory().append(user, assistant)
+        except Exception:  # noqa: BLE001 - 아카이브 실패가 대화를 깨면 안 된다
+            pass
 
     def clear(self) -> None:
         """Wipe in-memory turns and overwrite the disk file with nothing."""

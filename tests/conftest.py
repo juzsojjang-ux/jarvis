@@ -8,6 +8,8 @@ import pytest
 def _isolate_conversation_history(monkeypatch, tmp_path):
     monkeypatch.setattr("jarvis.brain.history.DEFAULT_HISTORY_PATH",
                         tmp_path / "history.jsonl", raising=False)
+    monkeypatch.setattr("jarvis.brain.longmem.DEFAULT_LONGMEM_PATH",
+                        tmp_path / "longmem.jsonl", raising=False)
 
 
 @pytest.fixture(autouse=True)

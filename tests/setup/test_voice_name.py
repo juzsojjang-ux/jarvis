@@ -88,3 +88,12 @@ def test_external_mcp_missing_or_corrupt(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("{broken", encoding="utf-8")
     assert load_external_servers(bad) == {}
+
+
+def test_jarvis_ko_preset_applies_korean_jarvis_chain():
+    """한국어 자비스: 한국어 edge 음성 → ONNX 자비스 음색, 답변도 한국어."""
+    from jarvis.setup.store import VOICE_PRESETS
+    p = VOICE_PRESETS["jarvis_ko"]
+    assert p["JARVIS_VC_BACKEND"] == "onnx"
+    assert p["JARVIS_EDGE_TTS_VOICE"].startswith("ko-KR")
+    assert p["JARVIS_REPLY_LANGUAGE"] == "ko"

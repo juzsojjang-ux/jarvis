@@ -9,6 +9,7 @@ from jarvis.proactive.monitors import (
     SessionMonitor,
     TimerMonitor,
     build_monitors,
+    PsutilBatteryMonitor, MorningBriefingMonitor, MailMonitor, SelfCheckMonitor,
 )
 from jarvis.proactive.timers import TimerBoard
 
@@ -240,3 +241,72 @@ def test_build_monitors_skips_mac_monitors_on_windows():
         proactive_late_night = False
     kinds = [type(m).__name__ for m in build_monitors(_S(), platform="win32")]
     assert "SessionMonitor" not in kinds and "BatteryMonitor" not in kinds
+
+
+# ----- 4단계 능동성 확장: 새 감시자들 -----
+
+def test_psutil_battery_warns_on_threshold_cross():
+    reads = iter([(25, False), (18, False), (18, False)])
+    m = PsutilBatteryMonitor(reader=lambda: next(reads), clock=lambda: 100.0)
+    assert m.poll() == []                       # 25% — 아직
+    out = m.poll()
+    assert len(out) == 1 and out[0].kind == "battery_low" and "18%" in out[0].prompt
+    assert m.poll() == []                       # 같은 문턱 반복 경고 금지
+
+
+def test_psutil_battery_charger_on_transition():
+    reads = iter([(50, False), (50, True)])
+    m = PsutilBatteryMonitor(reader=lambda: next(reads), clock=lambda: 100.0)
+    m.poll()
+    out = m.poll()
+    assert [a.kind for a in out] == ["charger_on"]
+
+
+def test_morning_briefing_once_per_day():
+    from datetime import datetime as dt, date as d
+    today = {"v": d(2026, 6, 12)}
+    now = {"v": dt(2026, 6, 12, 7, 0)}
+    m = MorningBriefingMonitor(hour=8, clock=lambda: 0.0,
+                               now_fn=lambda: now["v"], today_fn=lambda: today["v"])
+    assert m.poll() == []                       # 8시 전
+    now["v"] = dt(2026, 6, 12, 8, 1)
+    out = m.poll()
+    assert len(out) == 1 and out[0].kind == "briefing"
+    assert m.poll() == []                       # 같은 날 중복 금지
+    today["v"] = d(2026, 6, 13); now["v"] = dt(2026, 6, 13, 9, 0)
+    assert len(m.poll()) == 1                   # 다음날 다시
+
+
+def test_mail_monitor_announces_only_increase():
+    class _R:
+        def __init__(self): self.vals = iter(["3", "3", "5", "4"])
+        def __call__(self, *a, **k):
+            class R: pass
+            r = R(); r.stdout = next(self.vals); return r
+    m = MailMonitor(runner=_R(), clock=lambda: 50.0)
+    assert m.poll() == []                       # 기준선
+    assert m.poll() == []                       # 변화 없음
+    out = m.poll()
+    assert len(out) == 1 and out[0].kind == "new_mail" and "2통" in out[0].prompt
+    assert m.poll() == []                       # 줄어든 건 알림 아님
+
+
+def test_mail_monitor_survives_runner_failure():
+    def boom(*a, **k):
+        raise RuntimeError("mail app closed")
+    m = MailMonitor(runner=boom, clock=lambda: 0.0)
+    assert m.poll() == []
+
+
+def test_selfcheck_monitor_reports_only_new_failures():
+    from jarvis.core.selfcheck import Check
+    state = {"checks": [Check("두뇌", True, "ok"), Check("마이크", True, "ok")]}
+    m = SelfCheckMonitor(checker=lambda: state["checks"], clock=lambda: 10.0)
+    assert m.poll() == []                       # 전부 정상
+    state["checks"] = [Check("두뇌", False, "연결 끊김"), Check("마이크", True, "ok")]
+    out = m.poll()
+    assert len(out) == 1 and "두뇌" in out[0].prompt
+    assert m.poll() == []                       # 같은 이상 반복 보고 금지
+    state["checks"] = [Check("두뇌", False, "연결 끊김"), Check("마이크", False, "장치 없음")]
+    out = m.poll()
+    assert len(out) == 1 and "마이크" in out[0].prompt and "두뇌" not in out[0].prompt

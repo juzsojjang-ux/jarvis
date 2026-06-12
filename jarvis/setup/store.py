@@ -39,6 +39,10 @@ def save_setup(provider: str, path: Path | None = None, *,
 # 배포=edge→ONNX 음색)을 그대로 둔다. 나머지는 edge-tts 단독(음색 변환 없음).
 VOICE_PRESETS: dict[str, dict[str, str]] = {
     "jarvis": {},
+    # 자비스 음색 + 한국어 발화(한국어 네이티브 edge 음성 → ONNX 자비스 음색 변환)
+    "jarvis_ko": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "onnx",
+                  "JARVIS_EDGE_TTS_VOICE": "ko-KR-InJoonNeural",
+                  "JARVIS_REPLY_LANGUAGE": "ko"},
     "butler_en": {"JARVIS_TTS_BACKEND": "edge", "JARVIS_VC_BACKEND": "null",
                   "JARVIS_EDGE_TTS_VOICE": "en-GB-RyanNeural",
                   "JARVIS_REPLY_LANGUAGE": "en"},
