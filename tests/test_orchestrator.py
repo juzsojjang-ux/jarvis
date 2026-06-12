@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 import numpy as np
 
@@ -273,7 +274,8 @@ def test_wake_stt_error_recovers_to_idle():
         await orch._task
 
     asyncio.run(run())
-    assert pb.feeds == []
+    if sys.platform == "darwin":  # 오류 음성 안내가 say 경로라 재생 피드 없음
+        assert pb.feeds == []     # (다른 OS는 영어 자비스 음성으로 안내 → 피드 생김)
     assert orch.state == State.IDLE          # 죽지 않고 IDLE로 복귀해야 웨이크가 살아있다
 
 

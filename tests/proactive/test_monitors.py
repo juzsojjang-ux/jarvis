@@ -188,12 +188,12 @@ def test_build_monitors_respects_late_night_flag():
         briefing_expire_h = 2.0
         proactive_late_night = False
 
-    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    kinds = [type(m).__name__ for m in build_monitors(_S(), platform="darwin")]
     assert "LateNightMonitor" not in kinds
     assert {"BatteryMonitor", "SessionMonitor", "RemindersMonitor",
             "CalendarMonitor"} <= set(kinds)
     _S.proactive_late_night = True
-    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    kinds = [type(m).__name__ for m in build_monitors(_S(), platform="darwin")]
     assert "LateNightMonitor" in kinds
 
 
@@ -223,7 +223,20 @@ def test_build_monitors_includes_timer_when_board_given():
         briefing_expire_h = 2.0
         proactive_late_night = False
 
-    kinds = [type(m).__name__ for m in build_monitors(_S())]
+    kinds = [type(m).__name__ for m in build_monitors(_S(), platform="darwin")]
     assert "TimerMonitor" not in kinds
-    kinds = [type(m).__name__ for m in build_monitors(_S(), timers=TimerBoard())]
+    kinds = [type(m).__name__ for m in build_monitors(_S(), timers=TimerBoard(), platform="darwin")]
     assert "TimerMonitor" in kinds
+
+
+def test_build_monitors_skips_mac_monitors_on_windows():
+    """윈도우에선 Quartz/pmset/osascript 감시자를 아예 안 만든다(폴링 스팸 방지)."""
+    class _S:
+        battery_warn_levels = (20, 10, 5)
+        greet_cooldown_h = 4
+        briefing_expire_h = 2
+        reminder_lead_min = 10
+        event_lead_min = 15
+        proactive_late_night = False
+    kinds = [type(m).__name__ for m in build_monitors(_S(), platform="win32")]
+    assert "SessionMonitor" not in kinds and "BatteryMonitor" not in kinds

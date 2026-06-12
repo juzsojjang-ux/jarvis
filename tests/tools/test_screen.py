@@ -1,6 +1,15 @@
 """capture_screen / screen_control — 실제 screencapture·cliclick·osascript는 절대
-실행하지 않는다(fake runner 주입)."""
+실행하지 않는다(fake runner 주입). 맥 분기 로직 검증이므로 어느 OS에서 돌든
+_is_mac을 참으로 고정한다(윈도우 CI 포함)."""
+import pytest
+
+import jarvis.tools.jarvis_mcp as jm
 from jarvis.tools.jarvis_mcp import capture_screen_action
+
+
+@pytest.fixture(autouse=True)
+def _force_mac_branch(monkeypatch):
+    monkeypatch.setattr(jm, "_is_mac", lambda: True)
 
 
 class _Res:

@@ -1,6 +1,11 @@
+import sys
+
+import pytest
+
 from jarvis.remote.token import load_or_create_token
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="윈도우 chmod는 POSIX 모드 미지원")
 def test_creates_token_with_0600(tmp_path):
     p = tmp_path / "remote_token"
     tok = load_or_create_token(p)
@@ -22,6 +27,7 @@ def test_regenerates_empty_file(tmp_path):
     assert tok.strip()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="윈도우 chmod는 POSIX 모드 미지원")
 def test_existing_file_perms_renarrowed(tmp_path):
     p = tmp_path / "remote_token"
     p.write_text("tok123\n")

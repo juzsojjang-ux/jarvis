@@ -73,9 +73,14 @@ def test_wake_disabled_by_env(monkeypatch):
 
 
 def test_build_orchestrator_wires_proactive():
+    import sys
     orch = _build()
     assert orch.proactive is not None
-    assert any(type(m).__name__ == "BatteryMonitor" for m in orch.proactive._monitors)
+    kinds = [type(m).__name__ for m in orch.proactive._monitors]
+    if sys.platform == "darwin":
+        assert "BatteryMonitor" in kinds
+    else:  # 맥 전용 감시자는 다른 OS에서 안 만들어진다(윈도우 Quartz 스팸 수정)
+        assert "BatteryMonitor" not in kinds and "SessionMonitor" not in kinds
 
 
 def test_proactive_disabled_by_env(monkeypatch):

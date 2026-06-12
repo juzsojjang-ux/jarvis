@@ -1,7 +1,16 @@
-"""조준 보조(click_by_name / ui_click_action) — 이름으로 요소 클릭."""
+"""조준 보조(click_by_name / ui_click_action) — 이름으로 요소 클릭.
+맥 전용 AX 로직을 fake runner로 검증 — OS 무관하게 _is_mac을 참으로 고정."""
 from __future__ import annotations
 
+import pytest
+
+import jarvis.tools.jarvis_mcp as jm
 from jarvis.tools.jarvis_mcp import ui_click_action
+
+
+@pytest.fixture(autouse=True)
+def _force_mac_branch(monkeypatch):
+    monkeypatch.setattr(jm, "_is_mac", lambda: True)
 
 
 class _OnGate:
