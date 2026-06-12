@@ -9,6 +9,7 @@ memory file. Helpers take an injectable `runner`/`fetch` so they're unit-testabl
 """
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from datetime import datetime
@@ -943,6 +944,32 @@ async def _hide_panel(_args):
     notice_bus.hide()
     return _text("패널을 닫았습니다.")
 
+@tool("self_check", "자비스 자가진단 — 마이크/두뇌/음성/로그/스킬/디스크 등 시스템 상태를 "
+      "점검해 무엇이 문제인지 보고한다. 사용자가 '뭐가 문제야', '왜 안 돼', '상태 점검해', "
+      "'자가진단 해봐'라고 하거나, 기능이 거듭 실패해 원인이 궁금할 때 스스로도 사용하라. "
+      "결과는 한국어 보고서 — 그대로 패널(show_panel)에 띄우고 요점만 말로 전하면 좋다.", {})
+async def _self_check(_args):
+    from ..core.selfcheck import format_report, run_checks
+    checks = await asyncio.to_thread(run_checks)
+    return _text(format_report(checks))
+
+
+@tool("consult_brain", "보조 두뇌(다른 LLM)에게 자문을 구한다 — provider는 'gemini' 또는 "
+      "'gpt'. 사용자가 '제미나이한테 물어봐', 'GPT 의견은?', '교차 검증해줘'라고 하면 반드시 "
+      "사용하고, 중요한 사실 판단·설계 결정·답이 갈릴 만한 질문은 묻지 않아도 스스로 자문해 "
+      "답을 보강하라. 답을 전할 때는 출처를 밝힌다(예: '제미나이는 …라고 합니다'). "
+      "보조 두뇌는 도구 없이 답만 하므로 컴퓨터 조작은 못 한다.",
+      {"type": "object", "properties": {
+          "provider": {"type": "string", "enum": ["gemini", "gpt"]},
+          "question": {"type": "string"}},
+       "required": ["provider", "question"]})
+async def _consult_brain(args):
+    from ..brain.consult import consult
+    a = args or {}
+    out = await consult(str(a.get("provider", "")), str(a.get("question", "")))
+    return _text(out)
+
+
 
 @tool("screen_control_mode", "화면 제어 모드를 켜거나 끈다. 사용자가 어떤 표현으로든 "
       "화면 제어(클릭/입력 조작)를 켜 달라고 하면 state='on'으로 호출한다 — 사용자에게 "
@@ -1002,6 +1029,7 @@ def build_tool_objects(memory: Any = None):
             _send_message, _send_mail,
             _capture_screen, _screen_control, _screen_control_mode, _click_by_name,
             _show_panel, _hide_panel,
+            _self_check, _consult_brain,
             _remember,
             *_skill_sdk_tools()]  # 자가 확장 스킬 — 모든 두뇌(클로드 포함)가 사용
 
@@ -1021,5 +1049,6 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "get_messages", "get_unread_mail",
     "send_message", "send_mail",
     "capture_screen", "screen_control",
+    "self_check", "consult_brain",
     "remember",
 )]

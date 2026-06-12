@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # 필요한 요청("최대 사고/think hard")만 deep_model(Opus)로 올린다.
     subscription_model: str = "claude-sonnet-4-6"
     deep_model: str = "claude-opus-4-8"
+    # 앙상블: deep=딥씽킹 턴에서 보조 두뇌 병렬 자문(기본) / always / off
+    ensemble_mode: str = "deep"
     model_task: str = "claude-opus-4-8"          # api backend only
     model_conversational: str = "claude-haiku-4-5"  # api backend only
     ptt_key: str = "alt_r"

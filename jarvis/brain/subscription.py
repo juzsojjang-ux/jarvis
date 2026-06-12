@@ -51,6 +51,10 @@ _GUIDANCE_KO = (
     "가장 중요한 한 가지만 말하고 '더 알려드릴까요?'처럼 짧게 물어라. "
     "시간·날씨·앱 실행·볼륨 조절·기억은 네게 주어진 도구로 직접 처리하고, 최신 정보는 "
     "웹 검색으로 확인하라. 도구를 쓸 수 있으면 되묻지 말고 바로 실행한 뒤 결과만 짧게 알려라. "
+    "보조 두뇌: consult_brain(gemini|gpt)으로 다른 LLM에게 자문을 구할 수 있다 — 사용자가 "
+    "모델 이름을 대거나 교차 검증을 원하면 반드시 쓰고, 중요한 사실 판단은 스스로도 자문해 "
+    "보강하라(출처를 밝혀 전한다). 자가진단: '뭐가 문제야/상태 점검'이면 self_check를 돌려 "
+    "보고서를 패널에 띄우고 요점만 말하라. "
     "사용자 메시지가 '[SYSTEM EVENT]'로 시작하면 누가 물은 게 아니라 네가 먼저 알리는 "
     "것이다(배터리·일정·브리핑·인사): 한두 문장으로 짧게 위트 있게 알리고, 뭘 도울지 "
     "되묻지 마라. 브리핑 이벤트면 날씨·미리알림·캘린더 도구를 먼저 호출해 요약하라. "
@@ -124,6 +128,16 @@ _GUIDANCE_EN = (
     "Korean translation of what you said (for on-screen subtitles). Never skip the '[KO]' line. "
     "Render 'sir' as '주인님' and keep the same witty tone in Korean. "
     "To SEND a message or email use send_message/send_mail (the system confirms before sending). "
+    "MULTI-BRAIN: other LLMs are connected as consultants via consult_brain "
+    "(provider: gemini|gpt). Use it EAGERLY: whenever sir names a model ('제미나이한테 "
+    "물어봐', 'GPT 의견은?', '교차 검증해'), and ALSO on your own for important factual "
+    "claims, contested judgments, or design decisions — get a second opinion and weave it "
+    "in, attributing the source ('제미나이는 …라고 합니다'). Consultants answer text only; "
+    "they cannot touch this computer. "
+    "SELF-DIAGNOSIS: when sir asks what's wrong, why something failed, or to check status "
+    "('뭐가 문제야', '상태 점검'), call self_check, show the full report on the panel "
+    "(show_panel), and speak only the key findings. If a capability keeps failing "
+    "mid-conversation, run self_check yourself before guessing. "
     "SELF-EXTENSION: when sir asks you to add a new capability/skill, WRITE it yourself — "
     "create ~/.jarvis/skills/<name>.py (Write tool) following this exact contract: "
     "module-level `TOOLS = [{'name': str, 'description': str(Korean), 'parameters': "
@@ -197,6 +211,7 @@ class SubscriptionBrain:
         "get_time", "get_weather", "battery_status", "get_reminders",
         "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
         "clipboard_read", "remember",
+        "self_check", "consult_brain",
     })
 
     def _confirm_prompt(self, tool: str, inp: dict) -> str:
@@ -384,6 +399,18 @@ class SubscriptionBrain:
         # (히스토리에는 원문 user_text만 저장되므로 오염 없음).
         from .base import now_stamp
         query_text = f"{now_stamp()}\n{query_text}"
+        # 앙상블: 딥씽킹 턴(또는 always 모드)에서는 제미나이·GPT에 같은 질문을
+        # 병렬로 묻고, 그 독립 의견을 깔아준 뒤 클로드가 종합한다 — 세 두뇌가
+        # 같이 생각하고 자비스가 한 목소리로 답하는 구조.
+        try:
+            from .ensemble import format_context, gather_opinions, mode
+            _m = mode(self._settings)
+            if _m == "always" or (_m == "deep" and thinking > 0):
+                opinions = await gather_opinions(user_text, settings=self._settings)
+                if opinions:
+                    query_text = format_context(opinions) + query_text
+        except Exception:  # noqa: BLE001 - 앙상블 실패가 턴을 깨면 안 된다
+            pass
         await client.query(query_text)
         # last_subtitle = the Korean translation after the '[KO]' marker; the orchestrator
         # shows it under SPEAKING while the English audio plays. Only the English (before

@@ -68,9 +68,9 @@ def test_heterogeneous_tools_coexist():
 # NeutralTool / neutral_tools — Gemini/GPT 공유 레지스트리
 # ---------------------------------------------------------------------------
 
-def test_has_34_tools_with_specs():
+def test_has_36_tools_with_specs():
     tools = neutral_tools(memory=None)
-    assert len(tools) == 34  # +click_by_name(조준 보조)
+    assert len(tools) == 36  # +self_check, consult_brain(자가진단·보조두뇌)
     names = {t.name for t in tools}
     assert {"get_time", "send_message", "open_app", "remember", "screen_control",
             "show_panel", "hide_panel", "screen_control_mode", "click_by_name"} <= names

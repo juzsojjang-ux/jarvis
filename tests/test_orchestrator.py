@@ -987,3 +987,15 @@ def test_remote_turn_includes_remote_context_marker():
     assert "[원격" in seen["text"] and "엄마한테 메시지 보내줘" in seen["text"]
     assert out["reply"] == "원격 응답입니다."
     assert orch.state == State.IDLE
+
+
+def test_selfcheck_command_matches():
+    from jarvis.core.orchestrator import Orchestrator
+    m = Orchestrator._selfcheck_command
+    class T:  # self 대용 — 매처는 self를 안 쓴다
+        pass
+    assert m(T(), "자가 진단 해줘")
+    assert m(T(), "상태 점검 해봐")
+    assert m(T(), "셀프 체크")
+    assert not m(T(), "오늘 날씨 어때")
+    assert not m(T(), "상태가 어떤 것 같아?")

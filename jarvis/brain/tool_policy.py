@@ -8,6 +8,7 @@ READONLY = frozenset({
     "get_time", "get_weather", "battery_status", "get_reminders",
     "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
     "clipboard_read", "remember",
+    "self_check", "consult_brain",  # 읽기·자문 전용 — 기기 부작용 없음
 })
 GUARDED = frozenset({"send_message", "send_mail"})
 

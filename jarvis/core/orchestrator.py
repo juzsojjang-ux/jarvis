@@ -203,6 +203,9 @@ class Orchestrator:
         if self._usage_command(text):
             await self._report_usage()
             return
+        if self._selfcheck_command(text):
+            await self._run_selfcheck()
+            return
         pcmd = self._panel_command(text)
         if pcmd is not None:
             await self._toggle_panel(pcmd)
@@ -509,6 +512,27 @@ class Orchestrator:
     def _usage_command(self, text: str) -> bool:
         t = text.replace(" ", "")
         return ("사용량" in t) or ("토큰" in t and ("얼마" in t or "확인" in t or "사용" in t))
+
+    # ----- 자가진단 -----
+    def _selfcheck_command(self, text: str) -> bool:
+        t = text.replace(" ", "")
+        return ("자가진단" in t) or ("자가점검" in t) or ("상태점검" in t) or ("셀프체크" in t)
+
+    async def _run_selfcheck(self) -> None:
+        """시스템 자가진단 — 요점은 음성으로, 전체 보고서는 패널로."""
+        from .selfcheck import format_report, run_checks, summary_line
+        checks = await asyncio.to_thread(run_checks, self)
+        summary = summary_line(checks)
+        report = format_report(checks)
+        print(f"[자가진단] {summary}")
+        self._panel_sink(report)  # 명시 요청 — 패널 음소거 무시하고 표시
+        await self._play_phrase("Self check complete, sir.", summary)
+        await self._finish_speaking(summary)
+        self.state = State.IDLE
+        if self.wake is not None:
+            self._enter_attentive()
+        else:
+            self._publish("idle")
 
     async def _report_usage(self) -> None:
         summary = self.usage.summary()
