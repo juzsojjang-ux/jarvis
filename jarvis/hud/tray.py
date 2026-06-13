@@ -48,10 +48,22 @@ def main(parent_pid=None) -> int:
         icon.stop()
         _terminate_parent(parent_pid)
 
+    def _open_settings(_icon, _item) -> None:
+        """설정 변경 UI를 별도 프로세스로 띄운다(실행 중인 자비스는 안 건드림).
+        frozen 번들은 자기 자신(JARVIS)을 --settings로, dev는 -m jarvis.setup."""
+        import subprocess
+        try:
+            cmd = ([sys.executable, "--settings"] if getattr(sys, "frozen", False)
+                   else [sys.executable, "-m", "jarvis.setup"])
+            subprocess.Popen(cmd)
+        except Exception as exc:  # noqa: BLE001 - 설정 열기 실패가 트레이를 죽이면 안 된다
+            print(f"[tray] 설정 열기 실패: {exc}")
+
     name = (os.environ.get("JARVIS_ASSISTANT_NAME") or "자비스").strip() or "자비스"
     menu = pystray.Menu(
         pystray.MenuItem(f"● {name} 실행 중", None, enabled=False),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("설정 (보이스·마이크 키·두뇌)", _open_settings),
         pystray.MenuItem(f"{name} 종료", _quit),
     )
     try:

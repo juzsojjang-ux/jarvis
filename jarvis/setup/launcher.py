@@ -57,3 +57,22 @@ def run_first_run_setup(
     server.done.wait()
     server.stop()
     return server.chosen or "claude"
+
+
+def run_settings(opener: Callable[[str], None] | None = None) -> None:
+    """설정 변경 UI — 첫 실행 이후 보이스/마이크 키/두뇌/이름을 바꾼다(별도 프로세스).
+    현재 값을 채워 보여주고, 저장하면 setup.json에 기록한다(재시작 시 적용)."""
+    open_fn = opener or _open_browser
+    server = SetupServer(settings_mode=True)
+    server.start()
+    print("\n" + "=" * 58)
+    print("  자비스 설정 — 브라우저에서 아래 주소를 여세요:")
+    print(f"  >>>  {server.url}  <<<")
+    print("=" * 58 + "\n", flush=True)
+    try:
+        if not open_fn(server.url):
+            print(f"[설정] 위 주소를 직접 여세요: {server.url}", flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    server.done.wait()
+    server.stop()

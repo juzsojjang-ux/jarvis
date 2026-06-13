@@ -66,3 +66,24 @@ def test_start_login_gpt_missing_codex(monkeypatch):
 def test_start_login_unknown_provider():
     ok, msg = login.start_login("llama")
     assert not ok and "키 입력" in msg
+
+
+def test_settings_mode_injects_flag_and_current(tmp_path, monkeypatch):
+    """설정 모드: __SETTINGS 주입 + /current가 저장된 값을 돌려준다."""
+    import json, urllib.request, time
+    from jarvis.setup.store import DEFAULT_SETUP_PATH, save_setup
+    sp = tmp_path / "setup.json"
+    monkeypatch.setattr("jarvis.setup.store.DEFAULT_SETUP_PATH", sp)
+    save_setup("gemini", sp, voice="male_ko", name="프라이데이", ptt_key="ctrl_r")
+    from jarvis.setup.server import SetupServer
+    srv = SetupServer(settings_mode=True)
+    srv.start(); time.sleep(0.2)
+    try:
+        base = srv.url.rstrip("/")
+        html = urllib.request.urlopen(base + "/").read().decode()
+        assert "window.__SETTINGS=true" in html
+        cur = json.loads(urllib.request.urlopen(base + "/current").read())
+        assert cur["provider"] == "gemini" and cur["voice"] == "male_ko"
+        assert cur["name"] == "프라이데이" and cur["ptt_key"] == "ctrl_r"
+    finally:
+        srv.stop()

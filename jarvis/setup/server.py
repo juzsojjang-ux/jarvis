@@ -494,10 +494,16 @@ SETUP_HTML = """\
       });
       const data = await res.json();
       if (data.ok) {
-        msgEl.textContent = data.message || '성공';
-        msgEl.className = 'ok';
-        doneBox.classList.add('visible');
-        btnStart.disabled = true;
+        if (window.__SETTINGS) {
+          msgEl.textContent = '저장됐습니다 — 자비스를 재시작하면 적용됩니다. 이 창은 닫으셔도 됩니다.';
+          msgEl.className = 'ok';
+          btnStart.disabled = true;
+        } else {
+          msgEl.textContent = data.message || '성공';
+          msgEl.className = 'ok';
+          doneBox.classList.add('visible');
+          btnStart.disabled = true;
+        }
       } else {
         msgEl.textContent = data.error || '오류가 발생했습니다.';
         msgEl.className = 'fail';
@@ -563,7 +569,27 @@ SETUP_HTML = """\
     }
   });
 
+  // 설정 모드(나중에 옵션 변경): 현재 값을 채우고 라벨을 바꾼다.
+  async function applySettingsMode() {
+    if (!window.__SETTINGS) return;
+    const h1 = document.querySelector('h1'); const sub = document.querySelector('h1 + p');
+    if (h1) h1.textContent = '자비스 설정';
+    if (sub) sub.textContent = '보이스 · 마이크 키 · 두뇌 등을 바꾸고 저장하세요 (재시작 시 적용)';
+    if (btnStart) btnStart.textContent = '저장';
+    try {
+      const r = await fetch('/current'); const c = await r.json();
+      const pr = document.querySelector('input[name="provider"][value="'+c.provider+'"]');
+      if (pr) pr.checked = true;
+      const ve = document.querySelector('input[name="vchoice"][value="'+c.voice+'"]');
+      if (ve) ve.checked = true;
+      const ne = document.getElementById('aiName'); if (ne && c.name) ne.value = c.name;
+      const pe = document.getElementById('pttKey'); if (pe && c.ptt_key) pe.value = c.ptt_key;
+    } catch (e) {}
+    updateUI();
+  }
+
   updateUI();
+  applySettingsMode();
 })();
 </script>
 </body>
@@ -599,6 +625,7 @@ class SetupServer:
         store_save: Callable | None = None,
         upgrade_cmd: Callable[[str], list[str]] | None = None,
         shortcut_fn: Callable | None = None,
+        settings_mode: bool = False,
     ) -> None:
         self._host = host
         self.port = port
@@ -606,6 +633,9 @@ class SetupServer:
         self._store_save = store_save or _default_store_save
         self._upgrade_cmd = upgrade_cmd or _default_upgrade_cmd
         self._shortcut_fn = shortcut_fn or _default_shortcut
+        # 설정 모드: 첫 실행이 아니라 '나중에 옵션 변경'으로 열린 경우. 현재 값을
+        # 미리 채우고, 저장 후 '재시작하면 적용' 안내를 띄운다(부팅을 막지 않는다).
+        self._settings_mode = settings_mode
         self.done = threading.Event()
         self.chosen: str | None = None
         self._httpd: _Server | None = None
@@ -678,12 +708,28 @@ class SetupServer:
             def do_GET(self) -> None:  # noqa: N802
                 path = self.path.split("?", 1)[0]
                 if path in ("/", "/index.html"):
-                    body = SETUP_HTML.encode("utf-8")
+                    html = SETUP_HTML
+                    if outer._settings_mode:
+                        # 설정 모드 플래그를 주입 — JS가 현재값 채우고 라벨을 바꾼다.
+                        html = html.replace("<head>", "<head><script>window.__SETTINGS=true;</script>", 1)
+                    body = html.encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+                elif path == "/current":
+                    from .store import load_setup
+                    try:
+                        s = load_setup()
+                    except Exception:  # noqa: BLE001
+                        s = {}
+                    self._send_json(200, {
+                        "provider": s.get("brain_provider", "claude"),
+                        "voice": s.get("voice", "jarvis"),
+                        "name": s.get("assistant_name", "자비스"),
+                        "ptt_key": s.get("ptt_key", "alt_r"),
+                    })
                 elif path == "/upgrade-status":
                     self._send_json(200, outer.upgrade_status())
                 elif path == "/login-status":

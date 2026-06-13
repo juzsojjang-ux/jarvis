@@ -10,9 +10,14 @@
 사용자가 직접 지정한 env(JARVIS_*)는 둘 다 setdefault라 항상 우선.
 
 dev(`python -m jarvis`)는 이 파일을 안 거쳐 현 설정(Pocket) 유지."""
+import multiprocessing
 import os
 import sys
 from pathlib import Path
+
+# frozen 번들에서 multiprocessing 워커가 진입 스크립트를 재실행하는 것을 막는다.
+# (없으면 모델 다운로드 등에서 워커가 _amain을 다시 돌려 '이미 실행 중'을 띄움)
+multiprocessing.freeze_support()
 
 # --- 0) 자식 역할 디스패치 (--child=jarvis.hud.tray 등) --------------------------
 # frozen 번들에서 본체가 오버레이/트레이를 띄울 때 자기 자신(JARVIS.exe)을 이
@@ -27,6 +32,13 @@ if len(sys.argv) >= 2 and sys.argv[1].startswith("--child="):
 
     sys.argv = [_mod, *sys.argv[2:]]
     runpy.run_module(_mod, run_name="__main__")
+    sys.exit(0)
+
+# --- 0b) 설정 변경 모드 (트레이 '설정' → JARVIS --settings) -----------------------
+# 실행 중인 자비스 본체를 건드리지 않고, 별도로 설정 UI만 띄워 setup.json을 고친다.
+if len(sys.argv) >= 2 and sys.argv[1] == "--settings":
+    from jarvis.setup.launcher import run_settings
+    run_settings()
     sys.exit(0)
 
 # --- 1) 개인용 풀음성 업그레이드 마커(있으면 개인용 동일 음성을 켠다) ----------------

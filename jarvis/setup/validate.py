@@ -1,7 +1,8 @@
 """프로바이더 키 검증 — 작은 테스트 호출. 클라이언트 주입 가능(테스트는 가짜)."""
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 def _default_codex_check() -> bool:
@@ -15,7 +16,7 @@ async def validate(
     *,
     gemini_client: Any = None,
     openai_client: Any = None,
-    codex_check: Optional[Callable[[], bool]] = None,
+    codex_check: Callable[[], bool] | None = None,
 ) -> tuple[bool, str]:
     provider = (provider or "").strip()
 
