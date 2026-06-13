@@ -11,18 +11,34 @@ UI에서 카드(클로드/GPT)를 고르면 버튼 한 번으로 OAuth 브라우
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 OAUTH_PROVIDERS = ("claude", "gpt")
 
 
+def claude_bin() -> str:
+    """claude 실행 파일 경로 — 배포 .app/.exe엔 claude CLI가 번들돼 있으므로(약
+    220MB) 별도 설치 없이 그걸 쓴다. frozen이 아니면 PATH의 'claude'를 쓴다.
+    이렇게 해야 새 컴퓨터에서도 따로 설치 안 하고 로그인할 수 있다."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        cand = Path(meipass) / "claude_agent_sdk" / "_bundled" / "claude"
+        if cand.exists():
+            return str(cand)
+    found = shutil.which("claude")
+    return found or "claude"
+
+
 # ----- 상태 확인 -------------------------------------------------------------
 def claude_logged_in(runner: Callable = subprocess.run) -> bool:
     try:
-        res = runner(["claude", "auth", "status"], capture_output=True,
+        res = runner([claude_bin(), "auth", "status"], capture_output=True,
                      text=True, timeout=15)
         out = getattr(res, "stdout", "") or ""
         data = json.loads(out[out.index("{"):out.rindex("}") + 1])
@@ -62,14 +78,16 @@ def start_login(provider: str, *, spawn: Callable = subprocess.Popen,
     (시작됨?, 사용자 안내 메시지)."""
     p = (provider or "").strip()
     if p == "claude":
-        if not _has("claude", which):
+        cbin = claude_bin()  # 배포판은 번들 claude 사용 → 별도 설치 불필요
+        bundled = os.path.sep in cbin and Path(cbin).exists()
+        if not bundled and not _has("claude", which):
             return False, ("claude 명령을 찾을 수 없습니다. 터미널에서 "
                            "`curl -fsSL https://claude.ai/install.sh | bash` 로 설치 후 "
                            "다시 시도하세요.")
         if claude_logged_in():
             return True, "이미 Claude에 로그인되어 있습니다."
         try:
-            spawn(["claude", "auth", "login"],
+            spawn([cbin, "auth", "login"],
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:  # noqa: BLE001
             return False, f"로그인 실행 실패: {exc}"

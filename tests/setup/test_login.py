@@ -35,18 +35,20 @@ def test_login_status_dispatch():
     assert login.login_status("gemini") is False     # 키 방식 — 로그인 없음
 
 
-def test_start_login_claude_missing_cli():
+def test_start_login_claude_missing_cli(monkeypatch):
+    monkeypatch.setattr(login, "claude_bin", lambda: "claude")  # PATH에도 번들에도 없음
     ok, msg = login.start_login("claude", which=lambda c: None)
     assert not ok and "claude" in msg
 
 
 def test_start_login_claude_spawns_browser(monkeypatch):
     monkeypatch.setattr(login, "claude_logged_in", lambda *a, **k: False)
+    monkeypatch.setattr(login, "claude_bin", lambda: "/bin/claude")
     spawned = []
     ok, msg = login.start_login(
         "claude", spawn=lambda *a, **k: spawned.append(a[0]),
         which=lambda c: "/bin/claude")
-    assert ok and spawned and spawned[0][:3] == ["claude", "auth", "login"]
+    assert ok and spawned and spawned[0] == ["/bin/claude", "auth", "login"]
 
 
 def test_start_login_claude_already_logged_in(monkeypatch):
