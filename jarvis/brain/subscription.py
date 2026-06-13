@@ -153,7 +153,13 @@ _GUIDANCE_EN = (
     "('뭐가 문제야', '상태 점검'), call self_check, show the full report on the panel "
     "(show_panel), and speak only the key findings. If a capability keeps failing "
     "mid-conversation, run self_check yourself before guessing. "
-    "SELF-EXTENSION: when sir asks you to add a new capability/skill, WRITE it yourself — "
+    "SELF-CODING: you can extend yourself. When sir asks for a NEW capability, write the "
+    "Python yourself and submit it via create_skill (it validates syntax + the TOOLS "
+    "contract, then saves to ~/.jarvis/skills/). Don't ask sir to code — that's your job. "
+    "Decide on your own when a skill is the right tool, design the parameters, write "
+    "defensive stdlib code, and tell sir to restart to activate it. Use list_skills to "
+    "see what you've already built. "
+    "SELF-EXTENSION: when sir asks to add a new capability/skill, WRITE it yourself — "
     "create ~/.jarvis/skills/<name>.py (Write tool) following this exact contract: "
     "module-level `TOOLS = [{'name': str, 'description': str(Korean), 'parameters': "
     "JSON-schema dict, 'handler': callable}]` where handler(args: dict) returns a Korean "
@@ -227,7 +233,7 @@ class SubscriptionBrain:
         "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
         "clipboard_read", "remember",
         "self_check", "consult_brain",
-        "background_status", "recall_memory",
+        "background_status", "recall_memory", "list_skills",
     })
 
     def _confirm_prompt(self, tool: str, inp: dict) -> str:

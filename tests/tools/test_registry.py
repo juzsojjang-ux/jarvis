@@ -68,9 +68,9 @@ def test_heterogeneous_tools_coexist():
 # NeutralTool / neutral_tools — Gemini/GPT 공유 레지스트리
 # ---------------------------------------------------------------------------
 
-def test_has_45_tools_with_specs():
+def test_has_47_tools_with_specs():
     tools = neutral_tools(memory=None)
-    assert len(tools) == 45  # +web_* 6종(CDP 웹 자동화)
+    assert len(tools) == 47  # +create_skill, list_skills(자가 코딩)
     names = {t.name for t in tools}
     assert {"get_time", "send_message", "open_app", "remember", "screen_control",
             "show_panel", "hide_panel", "screen_control_mode", "click_by_name"} <= names

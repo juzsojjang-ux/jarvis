@@ -276,7 +276,7 @@ SETUP_HTML = """\
   <label class="card" data-provider="gpt">
     <input type="radio" name="provider" value="gpt">
     <div class="provider-name">GPT <span class="badge sub">구독</span></div>
-    <div class="provider-note">ChatGPT 구독 로그인 (codex)<br>터미널에서 codex login 후 선택</div>
+    <div class="provider-note">ChatGPT 구독 로그인<br>버튼 한 번으로 로그인</div>
   </label>
 
 </div>
@@ -286,8 +286,9 @@ SETUP_HTML = """\
   <input type="text" id="keyInput" placeholder="키를 여기에 붙여넣으세요" autocomplete="off" spellcheck="false">
 </div>
 
-<div id="gptNote" style="display:none; width:100%; max-width:440px; margin-bottom:1.5rem; font-size:0.85rem; color:#7dd3fc; text-align:center;">
-  codex login 필요 — 터미널에서 먼저 <code>codex login</code> 을 실행하세요
+<div id="loginSection" style="display:none; width:100%; max-width:440px; margin-bottom:1.5rem; text-align:center;">
+  <button id="btnLogin" type="button" style="padding:0.7rem 1.4rem; font-size:0.95rem; border-radius:10px; border:1px solid #38bdf8; background:#0b3a52; color:#e0f2fe; cursor:pointer;">로그인</button>
+  <div id="loginStatus" style="margin-top:0.7rem; font-size:0.9rem; color:#7dd3fc;">로그인 상태를 확인하는 중…</div>
 </div>
 
 <div class="voice-pick" id="voicePick">
@@ -371,25 +372,88 @@ SETUP_HTML = """\
     return checked ? checked.value : 'claude';
   }
 
+  const loginSection = document.getElementById('loginSection');
+  const btnLogin = document.getElementById('btnLogin');
+  const loginStatus = document.getElementById('loginStatus');
+  const OAUTH = { claude: true, gpt: true };
+  let loginState = { claude: false, gpt: false };
+  let pollTimer = null;
+
   function updateUI() {
     const prov = selectedProvider();
     cards.forEach(c => c.classList.toggle('selected', c.dataset.provider === prov));
     const needsKey = prov === 'gemini';
     keySection.classList.toggle('visible', needsKey);
-    const gptNote = document.getElementById('gptNote');
-    if (gptNote) gptNote.style.display = prov === 'gpt' ? 'block' : 'none';
+    loginSection.style.display = OAUTH[prov] ? 'block' : 'none';
     if (needsKey) {
       keyLabel.textContent = KEY_LABELS[prov] || 'API 키';
       keyInput.placeholder = '키를 여기에 붙여넣으세요';
     }
+    if (OAUTH[prov]) refreshLoginStatus(prov);
     msgEl.textContent = '';
     msgEl.className = '';
   }
+
+  async function refreshLoginStatus(prov) {
+    loginStatus.textContent = '로그인 상태를 확인하는 중…';
+    btnLogin.style.display = 'inline-block';
+    try {
+      const r = await fetch('/login-status?provider=' + prov);
+      const d = await r.json();
+      loginState[prov] = !!d.logged_in;
+    } catch (e) { loginState[prov] = false; }
+    paintLogin(prov);
+  }
+
+  function paintLogin(prov) {
+    if (loginState[prov]) {
+      loginStatus.textContent = '✓ 로그인됨 — 바로 사용할 수 있습니다.';
+      loginStatus.style.color = '#4ade80';
+      btnLogin.style.display = 'none';
+    } else {
+      loginStatus.textContent = (prov === 'claude' ? 'Claude' : 'ChatGPT')
+        + ' 로그인이 필요합니다. 아래 버튼을 누르세요.';
+      loginStatus.style.color = '#7dd3fc';
+      btnLogin.style.display = 'inline-block';
+      btnLogin.textContent = (prov === 'claude' ? 'Claude' : 'ChatGPT') + ' 로그인';
+    }
+  }
+
+  btnLogin.addEventListener('click', async () => {
+    const prov = selectedProvider();
+    btnLogin.disabled = true;
+    loginStatus.style.color = '#7dd3fc';
+    loginStatus.textContent = '브라우저를 여는 중…';
+    try {
+      const r = await fetch('/login', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: prov }) });
+      const d = await r.json();
+      loginStatus.textContent = d.message || '';
+      if (!d.ok) { btnLogin.disabled = false; return; }
+    } catch (e) { loginStatus.textContent = '로그인 실행 실패'; btnLogin.disabled = false; return; }
+    // 완료까지 폴링 — 로그인되면 자동으로 ✓
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/login-status?provider=' + prov);
+        const d = await r.json();
+        if (d.logged_in) {
+          loginState[prov] = true;
+          clearInterval(pollTimer); pollTimer = null;
+          btnLogin.disabled = false;
+          paintLogin(prov);
+        }
+      } catch (e) {}
+    }, 2000);
+  });
 
   cards.forEach(card => {
     card.addEventListener('click', () => {
       const radio = card.querySelector('input[type="radio"]');
       radio.checked = true;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      btnLogin.disabled = false;
       updateUI();
     });
   });
@@ -607,10 +671,35 @@ class SetupServer:
                     self.wfile.write(body)
                 elif path == "/upgrade-status":
                     self._send_json(200, outer.upgrade_status())
+                elif path == "/login-status":
+                    from urllib.parse import parse_qs, urlparse
+                    q = parse_qs(urlparse(self.path).query)
+                    provider = (q.get("provider", [""])[0]).strip()
+                    from .login import login_status
+                    try:
+                        ok = login_status(provider)
+                    except Exception:  # noqa: BLE001
+                        ok = False
+                    self._send_json(200, {"logged_in": ok})
                 else:
                     self.send_error(404)
 
             def do_POST(self) -> None:  # noqa: N802
+                if self.path == "/login":
+                    try:
+                        n = int(self.headers.get("Content-Length", "0"))
+                        data = json.loads(self.rfile.read(n) or b"{}")
+                        provider = str(data.get("provider", "")).strip()
+                    except Exception:  # noqa: BLE001
+                        self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
+                        return
+                    from .login import start_login
+                    try:
+                        ok, msg = start_login(provider)
+                    except Exception:  # noqa: BLE001
+                        ok, msg = False, "로그인 실행 중 오류가 났습니다."
+                    self._send_json(200, {"ok": ok, "message": msg})
+                    return
                 if self.path == "/upgrade-voice":
                     try:
                         n = int(self.headers.get("Content-Length", "0"))

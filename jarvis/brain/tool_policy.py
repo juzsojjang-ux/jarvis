@@ -9,7 +9,7 @@ READONLY = frozenset({
     "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
     "clipboard_read", "remember",
     "self_check", "consult_brain",  # 읽기·자문 전용 — 기기 부작용 없음
-    "background_status", "recall_memory",  # 읽기 전용 조회
+    "background_status", "recall_memory", "list_skills",  # 읽기 전용 조회
 })
 GUARDED = frozenset({"send_message", "send_mail"})
 

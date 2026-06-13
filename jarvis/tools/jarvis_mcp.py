@@ -1003,6 +1003,29 @@ async def _recall_memory(args):
              for h in hits]
     return _text("\n".join(lines))
 
+@tool("create_skill", "새 능력(도구)을 자비스가 직접 코딩해 추가한다. 사용자가 '이런 기능 "
+      "만들어줘'라고 하면 너가 파이썬 코드를 작성해 이 도구로 넘겨라 — 문법·계약을 "
+      "검증한 뒤 ~/.jarvis/skills/<name>.py 로 저장한다(통과해야 저장됨). 코드 계약: "
+      "모듈 레벨에 TOOLS=[{'name':str,'description':str(한국어),'parameters':JSON스키마,"
+      "'handler':callable}], handler(args:dict)는 문자열 반환(동기/비동기 가능), "
+      "stdlib만, 방어적(절대 raise 금지). 저장 후 재시작하면 활성화된다고 사용자에게 알려라.",
+      {"type": "object", "properties": {
+          "name": {"type": "string"}, "code": {"type": "string"}},
+       "required": ["name", "code"]})
+async def _create_skill(args):
+    from .skillsmith import save_skill
+    a = args or {}
+    ok, msg = save_skill(str(a.get("name", "")), str(a.get("code", "")))
+    return _text(msg)
+
+
+@tool("list_skills", "자비스가 지금까지 자작한 스킬(추가 능력) 목록을 보여준다.", {})
+async def _list_skills(_args):
+    from .skillsmith import list_skills
+    names = list_skills()
+    return _text("자작 스킬: " + (", ".join(names) if names else "아직 없습니다."))
+
+
 @tool("web_open", "자비스 전용 크롬(별도 프로필 — 사용자 크롬과 무관)으로 URL을 연다. "
       "웹 작업(업로드/폼/사이트 조작)은 픽셀 클릭(screen_control) 대신 반드시 이 web_* "
       "도구들을 써라 — DOM을 직접 다뤄 빗나가지 않는다. 결과로 페이지의 클릭 가능한 "
@@ -1145,6 +1168,7 @@ def build_tool_objects(memory: Any = None):
             _show_panel, _hide_panel,
             _self_check, _consult_brain,
             _background_task, _background_status, _recall_memory,
+            _create_skill, _list_skills,
             _web_open, _web_read, _web_click, _web_type, _web_upload, _web_screenshot,
             _remember,
             *_skill_sdk_tools()]  # 자가 확장 스킬 — 모든 두뇌(클로드 포함)가 사용
@@ -1167,6 +1191,7 @@ JARVIS_TOOL_NAMES = [f"mcp__jarvis__{n}" for n in (
     "capture_screen", "screen_control",
     "self_check", "consult_brain",
     "background_task", "background_status", "recall_memory",
+    "create_skill", "list_skills",
     "web_open", "web_read", "web_click", "web_type", "web_upload", "web_screenshot",
     "remember",
 )]

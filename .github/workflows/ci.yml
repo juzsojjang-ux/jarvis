@@ -102,14 +102,15 @@ jobs:
       - name: 롤링 'latest' 릴리스에 설치파일 첨부
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}      # 체크아웃이 없어 -R로 저장소를 명시
         run: |
           win=dist/JARVIS-windows/JARVIS-windows.zip
           mac=dist/JARVIS-mac/JARVIS-mac.zip
           notes="main 푸시마다 자동 갱신되는 최신 자비스 설치파일입니다.\n\n- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n\n커밋 ${GITHUB_SHA}"
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest "$win" "$mac" --clobber
-            printf "%b" "$notes" | gh release edit latest --notes-file -
+          if gh release view latest -R "$REPO" >/dev/null 2>&1; then
+            gh release upload latest "$win" "$mac" --clobber -R "$REPO"
+            printf "%b" "$notes" | gh release edit latest --notes-file - -R "$REPO"
           else
             printf "%b" "$notes" | gh release create latest "$win" "$mac" \
-              --title "최신 자비스 설치파일" --notes-file -
+              --title "최신 자비스 설치파일" --notes-file - -R "$REPO"
           fi
