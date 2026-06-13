@@ -1026,3 +1026,42 @@ def test_expand_command_matches():
     assert m(T(), "작게 해") is False
     assert m(T(), "축소") is False
     assert m(T(), "오늘 날씨 어때") is None
+
+
+# ---- 두뇌 예열(warm)을 첫 턴이 1회 대기 -----------------------------------
+def test_await_warm_no_task_returns_immediately():
+    o, _ = _make()
+    o._warm_task = None
+    asyncio.run(o._await_warm())  # 예외 없이 즉시 반환
+
+
+def test_await_warm_waits_for_pending_then_passes():
+    o, _ = _make()
+
+    async def scenario():
+        flag = {"done": False}
+
+        async def warm():
+            await asyncio.sleep(0.02)
+            flag["done"] = True
+
+        o._warm_task = asyncio.create_task(warm())
+        await o._await_warm()
+        assert flag["done"] is True   # 미완료 예열을 대기했다
+        await o._await_warm()         # 두 번째 호출은 즉시 통과(끝남)
+
+    asyncio.run(scenario())
+
+
+def test_await_warm_swallows_exception():
+    o, _ = _make()
+
+    async def scenario():
+        async def boom():
+            raise RuntimeError("warm failed")
+
+        o._warm_task = asyncio.create_task(boom())
+        await asyncio.sleep(0.01)
+        await o._await_warm()         # 예열 실패를 삼킨다(raise 안 함)
+
+    asyncio.run(scenario())

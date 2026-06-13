@@ -170,6 +170,17 @@ class Orchestrator:
             except Exception:  # noqa: BLE001
                 pass
 
+    async def _await_warm(self) -> None:
+        """부팅 시 백그라운드로 시작한 두뇌 예열을 첫 턴이 1회 대기한다(이후엔 즉시 통과).
+        예열 throwaway 쿼리가 실제 쿼리와 겹치지 않게 하고, 첫 턴이 예열된 클라이언트를
+        그대로 쓰게 한다. 예열 실패는 삼킨다 — 실제 턴에서 같은 오류가 나면 그때 알린다."""
+        t = self._warm_task
+        if t is None:
+            return
+        # done이면 await가 즉시 반환(예외였으면 회수해 삼킴), 미완료면 대기.
+        with contextlib.suppress(Exception):
+            await t
+
     def _to_idle(self) -> None:
         # 상태 복귀와 HUD publish는 반드시 한 쌍이다 — 따로 쓰다 한쪽을 빼먹으면
         # 오브가 PROCESSING에 갇힌다(실제로 났던 버그). IDLE 복귀는 전부 여기로.
@@ -292,6 +303,7 @@ class Orchestrator:
 
         async def _produce() -> None:
             try:
+                await self._await_warm()  # 첫 턴: 백그라운드 두뇌 예열 완료까지 대기(필러가 공백 덮음)
                 async for delta in self.brain.respond(text):
                     for sentence in self.chunker.feed(delta):
                         await synth_q.put(sentence)
@@ -895,6 +907,7 @@ class Orchestrator:
                 "[원격 텍스트 메시지 — 사용자는 지금 컴퓨터 앞에 없다. 발송·앱 실행·"
                 "화면 작업·패널 표시는 불가하니 약속하거나 되묻지 말고, 가능한 정보로 "
                 f"바로 답하라]\n{text}")
+            await self._await_warm()  # 첫 턴(원격)도 예열 대기 — warm/실쿼리 겹침 차단
             async for delta in self.brain.respond(remote_text):
                 parts.append(delta)
             en = "".join(parts).strip()

@@ -221,14 +221,17 @@ async def _amain() -> None:
         orch.stt.warm()
         orch.tts.warm()
         orch.vc.warm()
-        # 두뇌 예열 실패(CLI 미설치/미로그인 등)는 부팅을 막지 않는다 — 실제 대화
-        # 턴에서 같은 오류가 나면 오케스트레이터가 음성/패널로 알린다.
-        warm_results = await asyncio.gather(
-            orch.brain.warm(), orch.warm_phrases(), return_exceptions=True
-        )
-        for exc in warm_results:
-            if isinstance(exc, BaseException):
-                print(f"[두뇌] 예열 실패(부팅은 계속합니다): {exc}")
+        # 필러(ack) 프레이즈 미리 합성 — 로컬·빠름. 첫 지연 때 즉시 음성이 나가게.
+        try:
+            await orch.warm_phrases()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[필러] 예열 실패(계속): {exc}")
+        # 두뇌 예열은 백그라운드 — '준비 완료'를 막지 않는다(콜드 claude CLI + throwaway
+        # 쿼리로 ~10s). 첫 대화 턴이 _await_warm()으로 이 태스크를 기다려 예열 이득을 그대로
+        # 받고, warm의 throwaway 쿼리와 실제 쿼리가 겹치지 않는다. 실패는 첫 턴/콜백이 삼킨다.
+        orch._warm_task = asyncio.create_task(orch.brain.warm())
+        # 어떤 턴도 안 오면 예열 예외가 미회수로 경고가 뜨니, 콜백으로 조용히 회수한다.
+        orch._warm_task.add_done_callback(lambda t: t.cancelled() or t.exception())
         _active, voice_msg = vc_status(orch.settings)
         print(f"[음성] {voice_msg}")
         overlay = None
