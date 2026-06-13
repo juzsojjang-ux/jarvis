@@ -21,7 +21,8 @@ def load_setup(path: Path | None = None) -> dict:
 
 
 def save_setup(provider: str, path: Path | None = None, *,
-               voice: str | None = None, name: str | None = None) -> None:
+               voice: str | None = None, name: str | None = None,
+               ptt_key: str | None = None) -> None:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     data = load_setup(p)
@@ -30,6 +31,8 @@ def save_setup(provider: str, path: Path | None = None, *,
         data["voice"] = voice           # "jarvis" | VOICE_PRESETS의 키
     if name is not None:
         data["assistant_name"] = name.strip() or "자비스"
+    if ptt_key is not None and ptt_key in PTT_KEYS:
+        data["ptt_key"] = ptt_key       # 마이크(말하기) 키 — pynput Key 이름
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
@@ -37,6 +40,17 @@ def save_setup(provider: str, path: Path | None = None, *,
 
 # 보이스 프리셋 — 셋업 UI 선택지. "jarvis"는 기본 체인(개인=Pocket 클론,
 # 배포=edge→ONNX 음색)을 그대로 둔다. 나머지는 edge-tts 단독(음색 변환 없음).
+# 마이크(말하기) 키 후보 — pynput keyboard.Key 이름 → 표시 라벨. 첫 설정에서 고른다.
+PTT_KEYS: dict[str, str] = {
+    "alt_r": "오른쪽 Alt (기본)",
+    "alt_l": "왼쪽 Alt",
+    "ctrl_r": "오른쪽 Ctrl",
+    "ctrl_l": "왼쪽 Ctrl",
+    "shift_r": "오른쪽 Shift",
+    "cmd_r": "오른쪽 Cmd (맥)",
+    "space": "스페이스바",
+}
+
 VOICE_PRESETS: dict[str, dict[str, str]] = {
     "jarvis": {},
     # 자비스 음색 + 한국어 발화(한국어 네이티브 edge 음성 → ONNX 자비스 음색 변환)
@@ -73,6 +87,9 @@ def apply_setup_env(environ=None, path: Path | None = None) -> None:
         target.setdefault("JARVIS_ASSISTANT_NAME", name)
         # 웨이크워드도 새 이름으로(pydantic은 env의 JSON 리스트를 읽는다)
         target.setdefault("JARVIS_WAKE_WORDS", json.dumps([name], ensure_ascii=False))
+    ptt = (s.get("ptt_key") or "").strip()
+    if ptt in PTT_KEYS:
+        target.setdefault("JARVIS_PTT_KEY", ptt)
 
 
 def save_key(provider: str, key: str) -> None:
@@ -96,7 +113,11 @@ def is_configured(path: Path | None = None) -> bool:
     if prov is None:
         return False
     if prov == "claude":
-        return True  # 구독 로그인은 claude CLI가 관리
+        # claude는 키가 아니라 CLI 로그인이 자격. 로그인이 안 돼 있으면(설정 파일만
+        # 남은 다른 컴퓨터 등) '미설정'으로 봐서 첫 설정 화면을 다시 띄운다 — 그래야
+        # 두뇌가 '없음'으로 죽지 않고 사용자가 로그인 버튼을 누를 수 있다.
+        from jarvis.setup.login import claude_logged_in
+        return claude_logged_in()
     if prov == "gpt":
         from jarvis.brain.codex_auth import is_codex_logged_in
         return is_codex_logged_in()

@@ -7,7 +7,8 @@ class PushToTalk:
     """Right-Option push-to-talk via a raw keyboard.Listener (NOT GlobalHotKeys)."""
 
     def __init__(self, key_name: str = "alt_r"):
-        self._key = getattr(keyboard.Key, key_name)
+        # 알 수 없는 키 이름이 와도 죽지 않고 기본(오른쪽 Alt)으로 폴백한다.
+        self._key = getattr(keyboard.Key, key_name, None) or keyboard.Key.alt_r
         self._listener: keyboard.Listener | None = None
         self._on_press: Callable[[], None] | None = None
         self._on_release: Callable[[], None] | None = None

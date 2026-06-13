@@ -103,10 +103,33 @@ def test_is_configured_false_when_no_file(tmp_setup, fake_keyring):
     assert is_configured(tmp_setup) is False
 
 
-def test_is_configured_claude_true_without_key(tmp_setup, fake_keyring):
-    """claude는 구독 로그인이므로 키 없이도 configured=True."""
+def test_is_configured_claude_true_when_logged_in(tmp_setup, fake_keyring, monkeypatch):
+    """claude는 키가 아니라 CLI 로그인이 자격 — 로그인돼 있으면 configured=True."""
+    monkeypatch.setattr("jarvis.setup.login.claude_logged_in", lambda *a, **k: True)
     save_setup("claude", tmp_setup)
     assert is_configured(tmp_setup) is True
+
+
+def test_is_configured_claude_false_when_not_logged_in(tmp_setup, fake_keyring, monkeypatch):
+    """다른 컴퓨터로 옮겨 설정 파일만 남고 로그인 안 된 경우 → 첫 설정 재등장."""
+    monkeypatch.setattr("jarvis.setup.login.claude_logged_in", lambda *a, **k: False)
+    save_setup("claude", tmp_setup)
+    assert is_configured(tmp_setup) is False
+
+
+def test_save_and_apply_ptt_key(tmp_setup, fake_keyring):
+    """말하기 키 선택이 저장되고 env(JARVIS_PTT_KEY)로 적용된다."""
+    from jarvis.setup.store import apply_setup_env
+    save_setup("claude", tmp_setup, ptt_key="ctrl_r")
+    env = {}
+    apply_setup_env(env, tmp_setup)
+    assert env.get("JARVIS_PTT_KEY") == "ctrl_r"
+
+
+def test_save_ptt_key_rejects_unknown(tmp_setup, fake_keyring):
+    save_setup("claude", tmp_setup, ptt_key="f13_nonsense")
+    from jarvis.setup.store import load_setup
+    assert "ptt_key" not in load_setup(tmp_setup)   # 화이트리스트 밖은 무시
 
 
 def test_is_configured_gemini_false_without_key(tmp_setup, fake_keyring):

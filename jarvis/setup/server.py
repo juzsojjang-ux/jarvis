@@ -307,6 +307,19 @@ SETUP_HTML = """\
     <input type="text" id="aiName" value="자비스" maxlength="12" spellcheck="false">
     <small>부르는 말(웨이크워드)과 화면 표시가 이 이름으로 바뀝니다</small>
   </div>
+  <div class="name-row">
+    <label for="pttKey">말하기 키 (누르고 말하기)</label>
+    <select id="pttKey" style="padding:.5rem .7rem;border-radius:8px;background:#0b1a26;color:#e0f2fe;border:1px solid rgba(94,224,255,.4);font-size:.95rem;">
+      <option value="alt_r" selected>오른쪽 Alt (기본)</option>
+      <option value="alt_l">왼쪽 Alt</option>
+      <option value="ctrl_r">오른쪽 Ctrl</option>
+      <option value="ctrl_l">왼쪽 Ctrl</option>
+      <option value="shift_r">오른쪽 Shift</option>
+      <option value="cmd_r">오른쪽 Cmd (맥)</option>
+      <option value="space">스페이스바</option>
+    </select>
+    <small>이 키를 누른 채 말하면 자비스가 듣습니다 ("자비스" 음성 호출과 별개)</small>
+  </div>
 </div>
 
 <label class="opt-row" id="shortcutRow">
@@ -469,13 +482,15 @@ SETUP_HTML = """\
       const deskEl = document.getElementById('deskShortcut');
       const vEl = document.querySelector('input[name="vchoice"]:checked');
       const nEl = document.getElementById('aiName');
+      const pEl = document.getElementById('pttKey');
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: prov, key,
                                desktop_shortcut: deskEl ? deskEl.checked : false,
                                voice: vEl ? vEl.value : 'jarvis',
-                               name: nEl ? nEl.value.trim() : '' }),
+                               name: nEl ? nEl.value.trim() : '',
+                               ptt_key: pEl ? pEl.value : 'alt_r' }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -723,6 +738,7 @@ class SetupServer:
                     want_shortcut = bool(data.get("desktop_shortcut"))
                     voice = str(data.get("voice", "") or "jarvis").strip()
                     name = str(data.get("name", "") or "").strip()
+                    ptt_key = str(data.get("ptt_key", "") or "").strip()
                 except Exception:  # noqa: BLE001
                     self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
                     return
@@ -740,10 +756,14 @@ class SetupServer:
                 if ok:
                     try:
                         try:
-                            outer._store_save(provider, key, voice=voice, name=name)
+                            outer._store_save(provider, key, voice=voice, name=name,
+                                              ptt_key=ptt_key)
                         except TypeError:
-                            # 구형 시그니처(provider, key)만 받는 주입 콜백 호환
-                            outer._store_save(provider, key)
+                            # 구형 시그니처 호환(ptt_key/voice/name 미지원 콜백)
+                            try:
+                                outer._store_save(provider, key, voice=voice, name=name)
+                            except TypeError:
+                                outer._store_save(provider, key)
                     except Exception:  # noqa: BLE001
                         self._send_json(500, {"ok": False, "error": "설정 저장 중 오류가 났습니다."})
                         return
@@ -779,8 +799,9 @@ class SetupServer:
 # ---------------------------------------------------------------------------
 
 def _default_store_save(provider: str, key: str, *,
-                        voice: str | None = None, name: str | None = None) -> None:
-    save_setup(provider, voice=voice, name=name)
+                        voice: str | None = None, name: str | None = None,
+                        ptt_key: str | None = None) -> None:
+    save_setup(provider, voice=voice, name=name, ptt_key=ptt_key)
     if key:
         save_key(provider, key)
 
