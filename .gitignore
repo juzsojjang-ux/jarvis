@@ -29,3 +29,6 @@ python-3.11.9-amd64.exe
 !voice_models/silero_vad.onnx
 !voice_models/jarvis_en_ref.wav
 !voice_models/jarvis_ref.wav
+
+# 브레인스토밍 비주얼 컴패니언 산출물(로컬 전용)
+.superpowers/
