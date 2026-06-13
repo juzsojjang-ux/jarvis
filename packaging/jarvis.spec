@@ -52,6 +52,9 @@ datas_raw = [
     # HUD overlay HTML (served by OrbServer)
     _data(REPO_ROOT / "jarvis" / "hud" / "orb.html", "jarvis/hud"),
 
+    # HUD orb video asset (served by OrbServer at /assets/orb.mp4)
+    _data(REPO_ROOT / "jarvis" / "hud" / "assets" / "orb.mp4", "jarvis/hud/assets"),
+
     # Silero VAD ONNX model (~2.3 MB, wake-word voice activity detection)
     _data(REPO_ROOT / "voice_models" / "silero_vad.onnx", "voice_models"),
 

@@ -10,12 +10,21 @@ from __future__ import annotations
 
 import json
 import queue
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
-ORB_ASSET = Path(__file__).resolve().parent / "assets" / "orb.mp4"
+
+
+def _orb_asset_path():
+    mp = getattr(sys, "_MEIPASS", None)
+    if mp:
+        p = Path(mp) / "jarvis" / "hud" / "assets" / "orb.mp4"
+        if p.exists():
+            return p
+    return Path(__file__).resolve().parent / "assets" / "orb.mp4"
 
 
 def _apply_assistant_name(body: bytes) -> bytes:
@@ -106,7 +115,7 @@ def _make_handler(hub: OrbHub):
                 self._serve_html()
             elif path == "/assets/orb.mp4":
                 try:
-                    data = ORB_ASSET.read_bytes()
+                    data = _orb_asset_path().read_bytes()
                 except Exception:
                     self.send_error(404)
                     return
