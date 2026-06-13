@@ -52,8 +52,10 @@ datas_raw = [
     # HUD overlay HTML (served by OrbServer)
     _data(REPO_ROOT / "jarvis" / "hud" / "orb.html", "jarvis/hud"),
 
-    # HUD orb video asset (served by OrbServer at /assets/orb.mp4)
-    _data(REPO_ROOT / "jarvis" / "hud" / "assets" / "orb.mp4", "jarvis/hud/assets"),
+    # HUD orb — 알파 영상(엔진별): mac=HEVC .mov, win=VP9 .webm. 검정 배경이 빠져있어
+    # WebKit(WKWebView)에서도 검정 박스 없이 표시된다. (SVG 휘도키는 video에 안 먹음)
+    _data(REPO_ROOT / "jarvis" / "hud" / "assets" / "orb-alpha.mov", "jarvis/hud/assets"),
+    _data(REPO_ROOT / "jarvis" / "hud" / "assets" / "orb-alpha.webm", "jarvis/hud/assets"),
 
     # Silero VAD ONNX model (~2.3 MB, wake-word voice activity detection)
     _data(REPO_ROOT / "voice_models" / "silero_vad.onnx", "voice_models"),
