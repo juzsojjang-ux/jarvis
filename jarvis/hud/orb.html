@@ -89,11 +89,29 @@
   #notice.warn .nhead { color: #ffc55e; text-shadow: 0 0 10px rgba(255,176,46,.7); }
   #notice.warn .nhead::before { background: #ffc55e; box-shadow: 0 0 10px #ffc55e; }
   #notice.warn .nbody { color: #ffe2b0; }
+  /* 영상 오브 레이어 — 무비퀄리티 mp4 + 검정 제거(screen) + 음성 반응 글로우/코어. */
+  #orbwrap{position:fixed;right:5vw;bottom:9vh;width:200px;height:200px;
+    transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1);
+    pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;opacity:0}
+  #orbwrap.present{opacity:1}
+  #orbvid{width:100%;height:100%;object-fit:contain;mix-blend-mode:screen;
+    transform:scale(var(--orbscale,1));filter:brightness(var(--orbbright,1))}
+  #orbglow{position:absolute;width:160%;height:160%;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,180,70,var(--glow,0)) 0%,rgba(255,120,30,calc(var(--glow,0)*.4)) 45%,transparent 70%);
+    mix-blend-mode:screen}
+  #orbcore{position:absolute;width:32%;height:32%;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,240,200,var(--core,0)),transparent 70%);
+    mix-blend-mode:screen}
 </style>
 </head>
 <body>
   <div id="bg"></div>
   <canvas id="hud"></canvas>
+  <div id="orbwrap">
+    <div id="orbglow"></div>
+    <video id="orbvid" src="/assets/orb.mp4" autoplay loop muted playsinline></video>
+    <div id="orbcore"></div>
+  </div>
   <div id="subtitle"><span id="subtext"></span></div>
   <div id="notice"><div class="nhead">J.A.R.V.I.S</div><div class="nbody"></div></div>
 <script>
@@ -137,6 +155,16 @@ const subEl=document.getElementById("subtitle");
 const subTextEl=document.getElementById("subtext");
 const noticeEl=document.getElementById("notice");
 const noticeBody=noticeEl?noticeEl.querySelector(".nbody"):null;
+const orbwrap=document.getElementById("orbwrap");
+// 영상 오브 반응: presence로 등장(present)·level로 스케일/글로우/코어/밝기 구동.
+function reactOrb(){
+  orbwrap.classList.toggle("present", presence>0.02);
+  const lv=level;
+  orbwrap.style.setProperty("--orbscale", (1+0.20*lv).toFixed(3));
+  orbwrap.style.setProperty("--glow", (0.12+0.5*lv).toFixed(3));
+  orbwrap.style.setProperty("--core", (0.15+0.55*lv).toFixed(3));
+  orbwrap.style.setProperty("--orbbright", (1+0.10*lv).toFixed(3));
+}
 let shownNotice="", noticeKeepUntil=0;
 function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
   if(text!==undefined){ subTextEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
@@ -184,86 +212,15 @@ function frame(){
   // snappy attack + smooth release -> punchy, dynamic reaction to the voice
   level+=(targetLevel-level)*(targetLevel>level?0.45:0.12);
   presence+=((PRES[state]??0)-presence)*0.07;
-  spin += (0.08 + level*1.6)*dt;       // ring spin accelerates with loudness
   document.getElementById("bg").style.opacity = demo?0:"";
-  ctx.clearRect(0,0,W,H);
+  ctx.clearRect(0,0,W,H);                 // 캔버스 오브 제거 — 매 프레임 비운다(투명 유지).
+  reactOrb();                             // 영상 오브 반응(스케일/글로우/코어/밝기).
   if(presence<0.01){
     // 자비스가 화면에서 사라질 때 패널도 함께 사라진다(새 알림 10초 보장 후).
     if(noticeEl && performance.now()>noticeKeepUntil) noticeEl.classList.remove("show");
-    bootT=-1;  // 다음 등장에 부팅 스윕을 다시 재생
     setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 렌더 절전
-  const P=presence, lv=level;
-  // 화면 코너 HUD 프레임(아이언맨 풍) — 등장할 때 부팅 스윕으로 그려진다.
-  if(bootT<0) bootT=t; const boot=Math.min(1,(t-bootT)/0.9);
-  drawScreenFrame(P*boot, lv);
 
-  ctx.save(); ctx.translate(W/2,H/2);
-  const R=Math.min(W,H)*(0.215+0.04*lv);
-  // 부팅 스윕: 처음 0.9초 동안 작게→정상 크기로 확장 + 회전 가속
-  ctx.rotate((1-boot)*0.9);
-  ctx.scale((0.82+0.18*boot)*(1+lv*0.06), (0.82+0.18*boot)*(1+lv*0.06));
-  ctx.globalAlpha=1;
-  ctx.lineCap="butt"; ctx.shadowColor=BR; ctx.shadowBlur=(12+26*lv)*P;
-
-  // outer fine tick scale (slow drift) + thin guide
-  ctx.save(); ctx.rotate(t*0.04);
-  ringC(R*1.34,1,DP,0.45*P); ticksC(R*1.34,5,140,MD,0.30*P,1);
-  ticksC(R*1.34,11,28,BR,0.45*P,1.3); ctx.restore();
-
-  // detached cyan brackets (signature HUD accents) — fixed composition
-  bracket(R*1.18,7,TOP+0.95,0.42,BR,0.8*P,8);     // upper-right
-  bracket(R*1.18,7,TOP+2.4,0.34,BR,0.7*P,7);      // lower-right
-  bracket(R*1.18,5,TOP-1.15,0.26,MD,0.6*P,6);     // upper-left
-  ctx.save(); ctx.rotate(-spin*0.7); segBand(R*1.10,3,22,0.05,MD,0.5*P); ctx.restore();
-  // voice pulse: a bright ring that swells outward on loud moments
-  ringC(R*(1.02+lv*0.5), 1.5+2.5*lv, BR, 0.28*lv*P);
-
-  // top index cluster: ticks + 5 dots (two gold), like the reference
-  ticksC(R*0.985,7,90,BR,0.0,1);
-  ctx.save(); ctx.rotate(TOP+0.18);
-  for(let i=0;i<7;i++){ const a=-0.16+i*0.053; ctx.globalAlpha=0.7*P; ctx.strokeStyle=BR; ctx.lineWidth=1.4;
-    ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*1.0,Math.sin(a)*R*1.0); ctx.lineTo(Math.cos(a)*R*1.07,Math.sin(a)*R*1.07); ctx.stroke(); }
-  ctx.restore();
-  for(let i=0;i<5;i++){ const a=TOP-0.20+i*0.10; ctx.globalAlpha=0.9*P;
-    ctx.fillStyle=(i===1||i===3)?GD:BR; ctx.beginPath(); ctx.arc(Math.cos(a)*R*1.18,Math.sin(a)*R*1.18,2.4,0,TAU); ctx.fill(); }
-
-  // MAIN fat band (slow spin that speeds up with the voice) — brighter when loud
-  const rB=R*0.98, w=R*0.135*(1+0.25*lv);
-  ctx.save(); ctx.rotate(spin*0.5);
-  segBand(rB,w,3,0.16,MD,(0.85+0.15*lv)*P);
-  ringC(rB-w*0.42,1.4,BR,0.85*P);                 // inner highlight edge
-  ringC(rB+w*0.42,1.4,DP,0.8*P);                  // outer shadow edge
-  ticksC(rB+w*0.5,5,72,BR,0.35*P,1);              // tick scale on the band
-  ctx.restore();
-
-  // GOLD accent on the left — thick arc that grows/brightens hard with the voice
-  ctx.shadowColor=GD; ctx.shadowBlur=(14+34*lv)*P;
-  const gC=Math.PI, gSpan=0.5+1.2*lv;
-  arcC(rB,w*(0.8+0.5*lv),gC-gSpan/2,gC+gSpan/2,GD,0.95*P,"round");
-  bracket(R*1.18,6,Math.PI,0.16,GD,0.85*P,7);
-  ctx.shadowColor=BR; ctx.shadowBlur=(10+18*lv)*P;
-
-  // inner ring + sparse ticks (counter-rotate)
-  ctx.save(); ctx.rotate(-t*0.16);
-  ringC(R*0.74,1,DP,0.7*P); ticksC(R*0.74,5,40,MD,0.45*P,1); ctx.restore();
-
-  // voice-reactive inner waveform — undulates hard, like a spoken voiceprint
-  ctx.globalAlpha=(0.28+0.55*lv)*P; ctx.strokeStyle=state==="speaking"?GD:BR;
-  ctx.lineWidth=1.3+2.2*lv; ctx.beginPath();
-  const N=180; for(let i=0;i<=N;i++){ const a=i/N*TAU;
-    const wob=1+lv*0.09*Math.sin(a*5+t*9)+lv*0.05*Math.sin(a*12-t*7); const rr=R*0.56*wob;
-    const x=Math.cos(a)*rr,y=Math.sin(a)*rr; i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke();
-
-  // center readout
-  ctx.shadowBlur=8*P; ctx.textAlign="center"; ctx.textBaseline="middle";
-  ctx.globalAlpha=P; ctx.fillStyle=TX;
-  ctx.font=`600 ${Math.round(R*0.165)}px "SF Mono","Menlo",monospace`;
-  ctx.fillText("J.A.R.V.I.S", 0, -R*0.02);
-  ctx.globalAlpha=0.75*P; ctx.fillStyle=state==="speaking"?GD:BR;
-  ctx.font=`500 ${Math.round(R*0.066)}px "SF Mono","Menlo",monospace`;
-  ctx.fillText((LABEL[state]||"ONLINE").split("").join(" "), 0, R*0.15);
-
-  ctx.restore(); requestAnimationFrame(frame);
+  requestAnimationFrame(frame);
 }
 frame();
 </script>
