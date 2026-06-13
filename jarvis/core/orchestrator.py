@@ -11,6 +11,7 @@ from ..audio.util import resample
 from ..audio.wake import match_wake
 from ..brain.usage import UsageTracker, is_limit_error
 from ..hud import notice_bus
+from ..hud.telemetry import TelemetryProvider
 from ..hud.level import audio_level, chunk_levels
 from .control_gate import CONTROL_GATE, TRUST_GATE
 from .events import State
@@ -76,6 +77,13 @@ class Orchestrator:
         self._ack_delay_s = 0.9  # 이 시간 안에 두뇌 첫 문장이 오면 "잠시만요" 필러 생략
         # 두뇌의 show_panel/hide_panel 도구가 이 HUD에 닿도록 알림 싱크를 건다.
         notice_bus.set_sink(self._panel_sink)
+        # HUD 실시간 텔레메트리 공급자 — hub가 있을 때만(테스트/HUD 비활성 시 생략).
+        # 데몬 스레드라 프로세스 종료 시 자동 정리(별도 stop 불필요).
+        self._telemetry = None
+        _hub = getattr(self.hud, "hub", None)
+        if _hub is not None:
+            self._telemetry = TelemetryProvider(_hub, state_fn=self._telemetry_state)
+            self._telemetry.start()
 
     # ----- PTT callbacks (invoked from the pynput listener thread) -----
     def _press(self) -> None:
@@ -142,6 +150,14 @@ class Orchestrator:
                 self.hud.publish_notice(msg)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _telemetry_state(self) -> dict:
+        """텔레메트리 공급자에 넘길 실시간 상태(진짜 데이터). 예외는 공급자가 삼킨다."""
+        return {
+            "mic_on": self.state == State.CAPTURING,
+            "task_count": len(self._bg_tasks),
+            "net": None,  # 네트워크 표시는 후속(현재 생략 — 가짜 데이터 금지)
+        }
 
     def _panel_sink(self, msg: str) -> None:
         """두뇌의 show_panel/hide_panel 경유 표시 — 사용자가 두뇌에게 직접 요청한
