@@ -9,7 +9,6 @@
   #bg { position: fixed; inset: 0; opacity: 0; transition: opacity .4s;
         background: radial-gradient(ellipse at center, #0c1a26 0%, #060d16 60%, #02060c 100%); }
   canvas { position: fixed; inset: 0; display: block; }
-  /* Korean subtitle of what JARVIS is saying — under the orb. */
   #subtitle {
     position: fixed; left: 50%; bottom: 8vh; transform: translateX(-50%);
     max-width: 80vw; text-align: center; opacity: 0;
@@ -27,39 +26,47 @@
   }
   @keyframes nblink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-  /* 화면 헤더(영화 코너 프레임) — 'J.A.R.V.I.S' 라벨은 이름 치환 대상이라 그대로 유지. */
+  /* 화면 좌상단 라벨 — 항상 떠 있지 않고 오브가 활성일 때만(JS가 presence로 페이드). */
   #jhead { position: fixed; top: 16px; left: 18px; z-index: 6; pointer-events: none;
     font: 700 10px/1 ui-monospace, "SF Mono", "Menlo", monospace; letter-spacing: .3em;
-    color: #7fe9ff; text-shadow: 0 0 10px rgba(94,224,255,.6); opacity: .7; }
+    color: #7fe9ff; text-shadow: 0 0 10px rgba(94,224,255,.6); opacity: 0; transition: opacity .5s ease; }
 
-  /* 영상 오브 레이어 — 알파가 박힌 mp4/webm/mov(검정 이미 빠짐) + 음성 반응 글로우/코어. */
+  /* 영상 오브 — 알파가 박힌 mov/webm(검정 이미 빠짐) + 음성 반응 글로우/코어. */
   #orbwrap{position:fixed;right:5vw;bottom:9vh;width:200px;height:200px;
     transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1),
                right .4s cubic-bezier(.2,.7,.2,1), bottom .4s cubic-bezier(.2,.7,.2,1);
     pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;opacity:0}
   #orbwrap.present{opacity:1}
   #orbwrap.expand{right:50%;bottom:50%;transform:translate(50%,50%);width:44vh;height:44vh}
-  #orbvid{width:100%;height:100%;object-fit:contain;
-    transform:scale(var(--orbscale,1));
+  #orbvid{width:100%;height:100%;object-fit:contain;transform:scale(var(--orbscale,1));
     filter:brightness(var(--orbbright,1))}
   #orbglow{position:absolute;width:160%;height:160%;border-radius:50%;
     background:radial-gradient(circle,rgba(255,180,70,var(--glow,0)) 0%,rgba(255,120,30,calc(var(--glow,0)*.4)) 45%,transparent 70%)}
   #orbcore{position:absolute;width:32%;height:32%;border-radius:50%;
     background:radial-gradient(circle,rgba(255,240,200,var(--core,0)),transparent 70%)}
 
-  /* 작업실 패널(시안 홀로그램). 배치는 JS가 모드별 좌표/클래스로 제어(코너 스택/중앙 방사). */
+  /* 패널 컬럼: 오브 좌·우로 자동 정렬(겹침 없이 N개 확장, 세로 중앙). 코너 모드는 우측만. */
   #workshop{position:fixed;inset:0;pointer-events:none;z-index:5}
-  #panels{position:fixed;inset:0;pointer-events:none;z-index:6}
-  .pnl{position:absolute;background:rgba(0,8,14,.85);
-    border:1px solid rgba(94,224,255,.6);border-radius:3px;
-    padding:.55rem .7rem;max-width:min(34vw,420px);
+  .pcol{position:fixed;top:0;height:100vh;width:min(44vw,620px);display:flex;flex-direction:column;
+    justify-content:center;gap:2.4vh;pointer-events:none;z-index:6;box-sizing:border-box;padding:10vh 0}
+  #colL{left:2.5vw;align-items:flex-start}
+  #colR{right:2.5vw;align-items:flex-end}
+  body:not(.bmode) #colL{display:none}
+  body:not(.bmode) #colR{justify-content:flex-end;padding-bottom:26vh;width:min(34vw,420px)}
+
+  .pnl{background:rgba(0,8,14,.85);border:1px solid rgba(94,224,255,.6);border-radius:3px;
+    padding:.55rem .7rem;max-width:100%;max-height:58vh;overflow:hidden auto;
+    scrollbar-width:thin;scrollbar-color:rgba(94,224,255,.4) transparent;
     color:#d8f6ff;opacity:0;transform:translateY(6px) scale(.98);
-    transition:opacity .35s ease, transform .35s cubic-bezier(.2,.7,.2,1), left .4s ease, top .4s ease;
+    transition:opacity .35s ease, transform .35s cubic-bezier(.2,.7,.2,1);
     box-shadow:0 0 0 1px rgba(94,224,255,.1),0 0 20px rgba(94,224,255,.22),0 10px 30px rgba(0,0,0,.55),inset 0 0 26px rgba(94,224,255,.07);
-    text-shadow:0 0 8px rgba(94,224,255,.4);
+    text-shadow:0 0 8px rgba(94,224,255,.4);position:relative;
     clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));
     font:500 13px/1.5 ui-monospace,"SF Mono","Menlo","Malgun Gothic","Apple SD Gothic Neo",monospace}
+  .pnl::-webkit-scrollbar{width:6px} .pnl::-webkit-scrollbar-thumb{background:rgba(94,224,255,.35);border-radius:3px}
   .pnl.show{opacity:1;transform:translateY(0) scale(1)}
+  .pnl.solo{max-height:74vh;font-size:14px;padding:.85rem 1.05rem;width:min(44vw,620px)}
+  .pnl.solo .b{font-size:13.5px;line-height:1.64}
   .pnl .h{font:700 10px/1 ui-monospace,"SF Mono",monospace;letter-spacing:.24em;
     color:#7fe9ff;text-transform:uppercase;margin-bottom:.4rem;display:flex;align-items:center;gap:.4rem;
     text-shadow:0 0 9px rgba(94,224,255,.6)}
@@ -72,9 +79,8 @@
   .pnl.gold .h::before{background:#ecba4f;box-shadow:0 0 9px #ecba4f}
   .pnl::before{content:"";position:absolute;top:-1px;left:-1px;width:13px;height:13px;
     border-top:2px solid #6fe6ff;border-left:2px solid #6fe6ff;opacity:.85}
-  .pnl.big{font-size:14px} .pnl.huge{font-size:15.5px;max-width:min(46vw,560px)}
+  .pnl.big{font-size:14px}
 
-  /* 하단 5게이지 스트립(영화 HUD 하단 위젯) — 중앙 작업실 모드에서만. */
   #gaugestrip{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);display:none;
     gap:20px;z-index:6;pointer-events:none}
   body.bmode #gaugestrip{display:flex}
@@ -93,12 +99,12 @@
     <div id="orbcore"></div>
   </div>
   <svg id="workshop" width="0" height="0"></svg>
-  <div id="panels"></div>
+  <div id="colL" class="pcol"></div>
+  <div id="colR" class="pcol"></div>
   <div id="gaugestrip"></div>
   <div id="subtitle"><span id="subtext"></span></div>
 <script>
 // 알파 영상 소스: WebKit(WKWebView)=HEVC-alpha .mov, Chromium(WebView2)=VP9-alpha .webm.
-// (WebKit은 .webm 알파 미지원, Chromium은 .mov HEVC-alpha 미지원 — UA로 확정 분기.)
 (function(){
   var v=document.getElementById("orbvid"), ua=navigator.userAgent;
   var isWebKit=/AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|CriOS/.test(ua);
@@ -114,84 +120,79 @@ function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHei
 addEventListener("resize",resize); resize();
 
 const PRES={idle:0.0,attentive:0.35,listening:0.6,thinking:0.78,speaking:1.0};
-let state="idle",targetLevel=0,level=0,presence=0,demo=true,_pt=0;
+let state="idle",targetLevel=0,level=0,presence=0,demo=true;
 
 const subEl=document.getElementById("subtitle");
 const subTextEl=document.getElementById("subtext");
 const orbwrap=document.getElementById("orbwrap");
-const panelsEl=document.getElementById("panels");
+const jhead=document.getElementById("jhead");
+const colL=document.getElementById("colL");
+const colR=document.getElementById("colR");
 const workshopEl=document.getElementById("workshop");
 const stripEl=document.getElementById("gaugestrip");
 const SVGNS="http://www.w3.org/2000/svg";
-let panelKeepUntil=0, panelEls={};
+let panelKeepUntil=0, lastPanels=[], lastBrainKey="";
 
-// 영상 오브 반응: presence로 등장(present)·level로 스케일/글로우/코어/밝기.
 function reactOrb(){
   orbwrap.classList.toggle("present", presence>0.02);
+  jhead.style.opacity = presence>0.02 ? .7 : 0;   // 좌상단 라벨도 오브와 함께만 등장
   const lv=level;
   orbwrap.style.setProperty("--orbscale",(1+0.20*lv).toFixed(3));
   orbwrap.style.setProperty("--glow",(0.12+0.5*lv).toFixed(3));
   orbwrap.style.setProperty("--core",(0.15+0.55*lv).toFixed(3));
   orbwrap.style.setProperty("--orbbright",(1+0.10*lv).toFixed(3));
 }
-// A↔B 전환: expand면 오브가 중앙으로 커지고 body에 bmode가 붙는다(패널 재배치 트리거).
-function setExpand(on){
-  const was=document.body.classList.contains("bmode");
-  orbwrap.classList.toggle("expand", on);
-  document.body.classList.toggle("bmode", on);
-  return was!==on;
-}
+function setExpand(on){ orbwrap.classList.toggle("expand", on); document.body.classList.toggle("bmode", on); }
 function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; demo=false;
   if(text!==undefined){ subTextEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
 
-// ----- 패널 렌더 (키 기반 재조정 — 텔레메트리 2s 갱신에도 깜빡임 없음) -----
-function sizeClass(p){const len=(p.body||"").length+(p.title||"").length;
-  if(len>360) return "huge"; if(len>120) return "big"; return "";}
+function sizeClass(p){ return ((p.body||"").length+(p.title||"").length)>120 ? "big" : ""; }
 
-function slotsFor(n,bmode){
-  if(!bmode){const s=[];for(let i=0;i<n;i++)s.push({right:"4vw",bottom:(16+i*15)+"vh"});return s;}
-  const ring=[
-    {left:"3vw", top:"16vh", cx:18, cy:24},
-    {right:"3vw",top:"14vh", cx:80, cy:22},
-    {right:"3vw",top:"46vh", cx:82, cy:52},
-    {right:"4vw",top:"73vh", cx:78, cy:74},
-    {left:"4vw", top:"72vh", cx:20, cy:74},
-    {left:"3vw", top:"45vh", cx:16, cy:50}];
-  return ring.slice(0,n);
+// ----- 패널 렌더: 오브 presence에 가시성 묶음 + 좌우 컬럼 자동 정렬 + 1장=큰 단독 -----
+function reconcile(colEl, items){
+  if(!colEl._els) colEl._els={};
+  const seen={};
+  items.forEach(a=>{
+    const p=a.p, key=(p.kind||"")+":"+(p.id||p.title||"");
+    seen[key]=1;
+    let el=colEl._els[key], isNew=!el;
+    if(isNew){ el=document.createElement("div"); el.innerHTML='<div class="h"></div><div class="b"></div>';
+      colEl.appendChild(el); colEl._els[key]=el; }
+    const tone=p.tone==="warn"?"warn":p.tone==="gold"?"gold":"";
+    const cls="pnl "+tone+" "+(a.big?"solo":sizeClass(p));
+    if(isNew){ el.className=cls; requestAnimationFrame(()=>el.classList.add("show")); }
+    else el.className=cls+" show";
+    el.querySelector(".h").textContent=p.title||"";
+    el.querySelector(".b").textContent=p.body||"";
+  });
+  for(const key in colEl._els){ if(!seen[key]){ colEl._els[key].remove(); delete colEl._els[key]; } }
 }
 
 function renderPanels(panels){
-  panels=panels||[]; const bmode=document.body.classList.contains("bmode");
-  // 대기 중(오브 숨김·두뇌 정보 없음)엔 텔레메트리만으로 패널을 띄우지 않는다(혼자 뜬 시계 방지).
-  if(!panels.some(p=>p.kind==="brain") && presence<0.02) panels=[];
-  // 중앙모드: 패널=두뇌만(텔레메트리는 하단 게이지 스트립). 코너모드: 두뇌 + 최소 텔레메트리(시계/작업).
-  const list = bmode
-    ? panels.filter(p=>p.kind==="brain")
-    : panels.filter(p=>p.kind==="brain" || p.id==="clock" || p.id==="tasks");
-  const slots=slotsFor(list.length,bmode), seen={};
-  list.forEach((p,i)=>{
-    const key=p.kind+":"+(p.id||p.title||i); seen[key]=1;
-    let el=panelEls[key], isNew=!el;
-    if(isNew){ el=document.createElement("div"); el.innerHTML='<div class="h"></div><div class="b"></div>';
-      panelsEl.appendChild(el); panelEls[key]=el; }
-    const tone=p.tone==="warn"?"warn":p.tone==="gold"?"gold":"";
-    const cls="pnl "+tone+" "+sizeClass(p);
-    if(isNew){ el.className=cls; requestAnimationFrame(()=>el.classList.add("show")); }
-    else { el.className=cls+" show"; }
-    el.querySelector(".h").textContent=p.title||"";
-    el.querySelector(".b").textContent=p.body||"";
-    el.style.left=el.style.top=el.style.right=el.style.bottom="";
-    const s=slots[i]||{}; ["left","top","right","bottom"].forEach(k=>{ if(s[k]) el.style[k]=s[k]; });
+  panels=panels||[]; lastPanels=panels;
+  const bmode=document.body.classList.contains("bmode");
+  const now=performance.now();
+  let brain=panels.filter(p=>p.kind==="brain");
+  const brainKey=brain.map(p=>(p.title||"")+""+(p.body||"")).join("");
+  // 새 두뇌 내용일 때만 읽기 유예 연장(텔레메트리 2s 갱신으론 연장 안 됨 → 영구잔존 방지)
+  if(brainKey && brainKey!==lastBrainKey) panelKeepUntil=now+Math.min(60000,9000+brainKey.length*30);
+  lastBrainKey=brainKey;
+  // 가시성: 오브가 떠 있거나(JARVIS 활성) 새 두뇌 내용 읽기 유예 중일 때만 — 그 외엔 전부 사라짐.
+  const visible = presence>0.02 || now<panelKeepUntil;
+  if(!visible) brain=[];
+  // 분배: (코너) 우측 스택 / (중앙) 1장=우측 큰 단독, 2장+=좌우 교대.
+  const solo = bmode && brain.length===1;
+  const L=[], R=[];
+  brain.forEach((p,i)=>{
+    if(!bmode){ R.push({p, big:brain.length===1}); }
+    else if(solo){ R.push({p, big:true}); }
+    else { (i%2===0?L:R).push({p, big:false}); }
   });
-  for(const key in panelEls){ if(!seen[key]){ panelEls[key].remove(); delete panelEls[key]; } }
-  // 작업실 장식(매 렌더 새로 그림 — 트랜지션 없어 깜빡임 없음)
+  reconcile(colL, L); reconcile(colR, R);
+  // 작업실 장식: 링 + 오브→각 패널 리더라인(렌더 후 실제 위치 기준)
   clearWorkshop();
-  if(list.length || (bmode && panels.length)){
-    drawOrbRings(bmode);
-    if(bmode) list.forEach((p,i)=>{ const s=slots[i]; if(s&&s.cx!=null) drawLeader(s.cx,s.cy); });
-  }
-  renderStrip(panels,bmode);
-  if(panels.length) panelKeepUntil=performance.now()+Math.min(45000,8000+JSON.stringify(panels).length*30);
+  if(brain.length){ drawOrbRings(bmode); if(bmode) drawLeaders(); }
+  renderStrip(visible?panels:[], bmode);
 }
 
 function clearWorkshop(){ while(workshopEl.firstChild) workshopEl.removeChild(workshopEl.firstChild);
@@ -200,10 +201,16 @@ function clearWorkshop(){ while(workshopEl.firstChild) workshopEl.removeChild(wo
 function svgEl(tag,attrs){const e=document.createElementNS(SVGNS,tag);
   for(const k in attrs) e.setAttribute(k,attrs[k]); workshopEl.appendChild(e); return e;}
 function orbCenter(){const r=orbwrap.getBoundingClientRect(); return [r.left+r.width/2, r.top+r.height/2, r.width/2];}
-function drawLeader(cxvw,cyvh){const c=orbCenter(), px=innerWidth*cxvw/100, py=innerHeight*cyvh/100, mx=(c[0]+px)/2;
-  svgEl("line",{x1:c[0],y1:c[1],x2:mx,y2:py,stroke:"rgba(94,224,255,.4)","stroke-width":1});
-  svgEl("line",{x1:mx,y1:py,x2:px,y2:py,stroke:"rgba(94,224,255,.4)","stroke-width":1});
-  svgEl("circle",{cx:px,cy:py,r:2,fill:"#67C7EB"});}
+function drawLeaders(){const c=orbCenter();
+  document.querySelectorAll("#colL .pnl, #colR .pnl").forEach(el=>{
+    const r=el.getBoundingClientRect(); if(!r.width) return;
+    const left=(r.left+r.right)/2 < c[0];
+    const px=left ? r.right : r.left, py=r.top+r.height/2, mx=(c[0]+px)/2;
+    svgEl("line",{x1:c[0],y1:c[1],x2:mx,y2:py,stroke:"rgba(94,224,255,.38)","stroke-width":1});
+    svgEl("line",{x1:mx,y1:py,x2:px,y2:py,stroke:"rgba(94,224,255,.38)","stroke-width":1});
+    svgEl("circle",{cx:px,cy:py,r:2,fill:"#67C7EB"});
+  });
+}
 function drawOrbRings(bmode){const c=orbCenter(), b=c[2];
   if(!bmode){ svgEl("circle",{cx:c[0],cy:c[1],r:b+9,fill:"none",stroke:"rgba(94,224,255,.18)","stroke-width":1}); return; }
   svgEl("circle",{cx:c[0],cy:c[1],r:b+14,fill:"none",stroke:"rgba(94,224,255,.2)","stroke-width":1});
@@ -218,7 +225,7 @@ function fracFor(p){ if(p.gauge&&p.gauge.cpu!=null) return p.gauge.cpu/100;
   if(p.id==="net") return /✓/.test(p.body||"")?1:0.1;
   if(p.id==="tasks"){const m=(p.body||"").match(/\d+/);return m?Math.min(m[0]/5,1):0.2;}
   return 0.6; }
-function gaugeSVG(frac,gold){const r=9,c=2*Math.PI*r;
+function gaugeSVG(frac,gold){const c=2*Math.PI*9;
   return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#1d3a44" stroke-width="2.5"/>'+
     '<circle cx="12" cy="12" r="9" fill="none" stroke="'+(gold?"#ecba4f":"#8effc8")+'" stroke-width="2.5" '+
     'stroke-linecap="round" stroke-dasharray="'+(c*Math.max(0.04,Math.min(1,frac))).toFixed(1)+' '+c.toFixed(1)+'" '+
@@ -242,11 +249,12 @@ function frame(){
   level+=(targetLevel-level)*(targetLevel>level?0.45:0.12);
   presence+=((PRES[state]??0)-presence)*0.07;
   document.getElementById("bg").style.opacity = demo?0:"";
-  ctx.clearRect(0,0,W,H);    // 캔버스는 투명 유지(레거시 — 현재 미사용).
+  ctx.clearRect(0,0,W,H);
   reactOrb();
-  // 패널 표시 시간(keepUntil) 지나면 비운다(패널이 있을 때만).
-  if(performance.now()>panelKeepUntil && Object.keys(panelEls).length) renderPanels([]);
-  if(presence<0.01){ setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 절전
+  // 오브가 사라지고(presence↓) 읽기 유예도 지나면 패널 전부 자동 제거.
+  if(presence<0.02 && performance.now()>panelKeepUntil &&
+     (colL.children.length||colR.children.length)) renderPanels(lastPanels);
+  if(presence<0.01){ setTimeout(()=>requestAnimationFrame(frame),250); return; }
   requestAnimationFrame(frame);
 }
 frame();
