@@ -25,6 +25,14 @@ import os
 import sys
 from pathlib import Path
 
+# Windows 기본 콘솔 인코딩(cp1252)에서 이 spec의 한글/화살표(→) print가
+# UnicodeEncodeError로 빌드를 통째로 깨뜨린다 → stdout/stderr를 UTF-8(+replace)로 강제.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ---------------------------------------------------------------------------
 # Repository root (one directory above this spec file)
 # ---------------------------------------------------------------------------
