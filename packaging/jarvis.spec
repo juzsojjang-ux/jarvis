@@ -265,6 +265,16 @@ hiddenimports = [
     # Note: mss.base does not exist as a separate importable module in mss>=9.0
 ]
 
+# 윈도우 투명 오버레이(pywebview) — [winhud] 설치돼 있을 때만 번들. 없으면
+# overlay_win이 Edge 앱모드로 폴백한다. find_spec로 설치 여부를 확인해, pywebview
+# 없는 환경(맥)에서 hiddenimports 미스로 경고 나는 걸 피한다.
+if importlib.util.find_spec("webview") is not None:
+    hiddenimports += [
+        "webview", "webview.platforms", "webview.platforms.winforms",
+        "webview.platforms.edgechromium", "clr_loader", "pythonnet",
+    ]
+    print("[jarvis.spec] pywebview found — 윈도우 투명 오버레이 번들")
+
 # ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------

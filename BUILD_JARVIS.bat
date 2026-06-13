@@ -89,7 +89,7 @@ if errorlevel 1 goto :fail
 :havevenv
 echo [2/4] 필요한 패키지 설치 중... 인터넷 속도에 따라 몇 분 걸립니다.
 ".venv\Scripts\python.exe" -m pip install --upgrade pip >nul 2>nul
-".venv\Scripts\pip.exe" install -e ".[dev]"
+".venv\Scripts\pip.exe" install -e ".[dev,winhud]"
 if errorlevel 1 goto :fail
 echo.
 
