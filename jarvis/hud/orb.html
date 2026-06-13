@@ -14,13 +14,8 @@
     position: fixed; left: 50%; bottom: 8vh; transform: translateX(-50%);
     max-width: 80vw; text-align: center; opacity: 0;
     transition: opacity .25s; pointer-events: none;
-    /* 한국어 줄바꿈: 어절(공백) 단위로만 끊고 음절 중간에서 자르지 않는다.
-       (keep-all 없으면 "기분이"가 "기분/이"로 깨짐 — 한글 웹조판 필수) */
-    word-break: keep-all; overflow-wrap: break-word; line-break: strict;
-    white-space: normal;
+    word-break: keep-all; overflow-wrap: break-word; line-break: strict; white-space: normal;
   }
-  /* 넷플릭스풍 자막: 글자 뒤에 반투명 검정 박스 — 줄마다 박스가 따라붙어 가독성↑.
-     box-decoration-break:clone 으로 여러 줄일 때 각 줄에 박스가 그려진다. */
   #subtext {
     color: #f6fcff;
     font: 600 clamp(16px, 2.2vw, 28px)/1.7 -apple-system, "Apple SD Gothic Neo",
@@ -28,108 +23,90 @@
     background: rgba(0,0,0,.62);
     padding: .15em .55em; border-radius: 7px;
     box-decoration-break: clone; -webkit-box-decoration-break: clone;
-    text-shadow: 0 1px 6px rgba(0,0,0,.9);
-    letter-spacing: .01em;
-  }
-  /* 우측 상단 정보 패널 — 아이언맨 홀로그램(검정 바탕 + 시안). 내용따라 유동 크기. */
-  #notice {
-    position: fixed; top: 20px; right: 20px;
-    /* 내용에 따라 유동: 짧으면 작게, 길면 아주 크게(우측 화면 대부분까지) + 스크롤 */
-    width: max-content; min-width: 170px; max-width: min(72vw, 760px);
-    max-height: 84vh; overflow-y: auto; overflow-x: hidden;
-    background: rgba(0,4,8,.9);                 /* 검정 바탕 */
-    border: 1px solid rgba(94,224,255,.55); border-radius: 3px;
-    padding: .7rem .9rem .8rem; opacity: 0; transform: translateY(-8px) scale(.98);
-    transition: opacity .3s ease, transform .3s ease; pointer-events: none;
-    color: #aef1ff; scrollbar-width: thin; scrollbar-color: rgba(94,224,255,.4) transparent;
-    box-shadow: 0 0 0 1px rgba(94,224,255,.10), 0 0 22px rgba(94,224,255,.28),
-                0 10px 34px rgba(0,0,0,.6), inset 0 0 30px rgba(94,224,255,.10);
-    text-shadow: 0 0 9px rgba(94,224,255,.45);  /* 홀로그램 글로우 */
-    /* 작업실 홀로그램: 모서리 컷(우상/좌하) — 네모 탈피 */
-    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
-  }
-  /* B 모드(오브 중앙 확장)일 때 패널을 조금 더 크고 또렷하게 */
-  body.bmode #notice { font-size: 1.06em; box-shadow: 0 0 0 1px rgba(94,224,255,.14),
-    0 0 30px rgba(94,224,255,.34), 0 12px 40px rgba(0,0,0,.7), inset 0 0 36px rgba(94,224,255,.12); }
-  #notice::-webkit-scrollbar { width: 6px; }
-  #notice::-webkit-scrollbar-thumb { background: rgba(94,224,255,.35); border-radius: 3px; }
-  /* 큰 내용일 때 글자/여백을 조금 키워 가독성↑ (자비스가 클래스로 토글) */
-  #notice.big { padding: 1rem 1.2rem 1.1rem; }
-  #notice.big .nbody { font-size: 15px; line-height: 1.65; }
-  #notice.huge { padding: 1.2rem 1.4rem; }
-  #notice.huge .nbody { font-size: 16.5px; line-height: 1.7; }
-  #notice.show { opacity: 1; transform: translateY(0) scale(1); }
-  /* 홀로그램 스캔라인 오버레이 */
-  #notice .nbody::after { content: none; }
-  #notice::after {
-    content: ""; position: absolute; inset: 0; border-radius: 3px; pointer-events: none;
-    background: repeating-linear-gradient(0deg, rgba(94,224,255,.05) 0 1px, transparent 1px 3px);
-    mix-blend-mode: screen; opacity: .5;
-  }
-  /* 코너 브래킷(시안) — 좌상/우하 */
-  #notice::before {
-    content: ""; position: absolute; top: -1px; left: -1px; width: 14px; height: 14px;
-    border-top: 2px solid #6fe6ff; border-left: 2px solid #6fe6ff;
-    box-shadow: -1px -1px 8px rgba(94,224,255,.6);
-  }
-  #notice .nhead {
-    font: 700 10px/1 "SF Mono", "Menlo", monospace; letter-spacing: .3em;
-    color: #7fe9ff; text-transform: uppercase; margin-bottom: .5rem;
-    display: flex; align-items: center; gap: .45rem;
-    text-shadow: 0 0 10px rgba(94,224,255,.7);
-  }
-  #notice .nhead::before {
-    content: ""; width: 6px; height: 6px; border-radius: 50%;
-    background: #7fe9ff; box-shadow: 0 0 10px #7fe9ff, 0 0 4px #fff;
-    animation: nblink 1.5s ease-in-out infinite;
+    text-shadow: 0 1px 6px rgba(0,0,0,.9); letter-spacing: .01em;
   }
   @keyframes nblink { 0%,100%{opacity:1} 50%{opacity:.3} }
-  #notice .nbody {
-    font: 500 13.5px/1.55 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
-    color: #d8f6ff; white-space: pre-wrap; word-break: keep-all; position: relative; z-index: 1;
-  }
-  #notice.warn { border-color: rgba(255,176,46,.6); color: #ffd591;
-    box-shadow: 0 0 22px rgba(255,176,46,.28), 0 10px 34px rgba(0,0,0,.6); }
-  #notice.warn::before { border-color: #ffb02e; box-shadow: -1px -1px 8px rgba(255,176,46,.6); }
-  #notice.warn .nhead { color: #ffc55e; text-shadow: 0 0 10px rgba(255,176,46,.7); }
-  #notice.warn .nhead::before { background: #ffc55e; box-shadow: 0 0 10px #ffc55e; }
-  #notice.warn .nbody { color: #ffe2b0; }
-  /* 영상 오브 레이어 — 무비퀄리티 mp4 + 검정 제거(screen) + 음성 반응 글로우/코어. */
+
+  /* 화면 헤더(영화 코너 프레임) — 'J.A.R.V.I.S' 라벨은 이름 치환 대상이라 그대로 유지. */
+  #jhead { position: fixed; top: 16px; left: 18px; z-index: 6; pointer-events: none;
+    font: 700 10px/1 ui-monospace, "SF Mono", "Menlo", monospace; letter-spacing: .3em;
+    color: #7fe9ff; text-shadow: 0 0 10px rgba(94,224,255,.6); opacity: .7; }
+
+  /* 영상 오브 레이어 — 알파가 박힌 mp4/webm/mov(검정 이미 빠짐) + 음성 반응 글로우/코어. */
   #orbwrap{position:fixed;right:5vw;bottom:9vh;width:200px;height:200px;
-    transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1);
+    transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1),
+               right .4s cubic-bezier(.2,.7,.2,1), bottom .4s cubic-bezier(.2,.7,.2,1);
     pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;opacity:0}
   #orbwrap.present{opacity:1}
-  /* B 모드: 오브가 화면 중앙으로 이동하며 커진다(expand 필드/notice에서만 켜짐, 자동 아님). */
   #orbwrap.expand{right:50%;bottom:50%;transform:translate(50%,50%);width:44vh;height:44vh}
-  /* 검정 제거: 투명 오버레이엔 screen 블렌드가 안 먹으므로 휘도→알파(SVG #lumakey)로
-     어두운 픽셀을 투명하게 만든다(밝은 가닥만 남음). brightness는 그 앞에 체이닝. */
   #orbvid{width:100%;height:100%;object-fit:contain;
     transform:scale(var(--orbscale,1));
-    filter:brightness(var(--orbbright,1)) url(#lumakey)}
+    filter:brightness(var(--orbbright,1))}
   #orbglow{position:absolute;width:160%;height:160%;border-radius:50%;
     background:radial-gradient(circle,rgba(255,180,70,var(--glow,0)) 0%,rgba(255,120,30,calc(var(--glow,0)*.4)) 45%,transparent 70%)}
   #orbcore{position:absolute;width:32%;height:32%;border-radius:50%;
     background:radial-gradient(circle,rgba(255,240,200,var(--core,0)),transparent 70%)}
+
+  /* 작업실 패널(시안 홀로그램). 배치는 JS가 모드별 좌표/클래스로 제어(코너 스택/중앙 방사). */
+  #workshop{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #panels{position:fixed;inset:0;pointer-events:none;z-index:6}
+  .pnl{position:absolute;background:rgba(0,8,14,.85);
+    border:1px solid rgba(94,224,255,.6);border-radius:3px;
+    padding:.55rem .7rem;max-width:min(34vw,420px);
+    color:#d8f6ff;opacity:0;transform:translateY(6px) scale(.98);
+    transition:opacity .35s ease, transform .35s cubic-bezier(.2,.7,.2,1), left .4s ease, top .4s ease;
+    box-shadow:0 0 0 1px rgba(94,224,255,.1),0 0 20px rgba(94,224,255,.22),0 10px 30px rgba(0,0,0,.55),inset 0 0 26px rgba(94,224,255,.07);
+    text-shadow:0 0 8px rgba(94,224,255,.4);
+    clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));
+    font:500 13px/1.5 ui-monospace,"SF Mono","Menlo","Malgun Gothic","Apple SD Gothic Neo",monospace}
+  .pnl.show{opacity:1;transform:translateY(0) scale(1)}
+  .pnl .h{font:700 10px/1 ui-monospace,"SF Mono",monospace;letter-spacing:.24em;
+    color:#7fe9ff;text-transform:uppercase;margin-bottom:.4rem;display:flex;align-items:center;gap:.4rem;
+    text-shadow:0 0 9px rgba(94,224,255,.6)}
+  .pnl .h::before{content:"";width:6px;height:6px;border-radius:50%;background:#7fe9ff;
+    box-shadow:0 0 9px #7fe9ff;animation:nblink 1.6s ease-in-out infinite;flex:0 0 auto}
+  .pnl .b{white-space:pre-wrap;word-break:keep-all}
+  .pnl.warn{border-color:rgba(255,176,46,.65)} .pnl.warn .h{color:#ffc55e}
+  .pnl.warn .h::before{background:#ffc55e;box-shadow:0 0 9px #ffc55e}
+  .pnl.gold{border-color:rgba(236,186,79,.6)} .pnl.gold .h{color:#ecba4f}
+  .pnl.gold .h::before{background:#ecba4f;box-shadow:0 0 9px #ecba4f}
+  .pnl::before{content:"";position:absolute;top:-1px;left:-1px;width:13px;height:13px;
+    border-top:2px solid #6fe6ff;border-left:2px solid #6fe6ff;opacity:.85}
+  .pnl.big{font-size:14px} .pnl.huge{font-size:15.5px;max-width:min(46vw,560px)}
+
+  /* 하단 5게이지 스트립(영화 HUD 하단 위젯) — 중앙 작업실 모드에서만. */
+  #gaugestrip{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);display:none;
+    gap:20px;z-index:6;pointer-events:none}
+  body.bmode #gaugestrip{display:flex}
+  .g{display:flex;flex-direction:column;align-items:center;gap:3px;
+    font:700 8px ui-monospace,monospace;letter-spacing:.12em;color:#7fe9ff;opacity:.82}
+  .g svg{width:22px;height:22px}
 </style>
 </head>
 <body>
   <div id="bg"></div>
   <canvas id="hud"></canvas>
-  <svg width="0" height="0" style="position:absolute"><filter id="lumakey" color-interpolation-filters="sRGB">
-    <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0.34 0.5 0.16 0 0"/>
-  </filter></svg>
+  <div id="jhead">J.A.R.V.I.S</div>
   <div id="orbwrap">
     <div id="orbglow"></div>
-    <video id="orbvid" src="/assets/orb.mp4" autoplay loop muted playsinline></video>
+    <video id="orbvid" autoplay loop muted playsinline></video>
     <div id="orbcore"></div>
   </div>
+  <svg id="workshop" width="0" height="0"></svg>
+  <div id="panels"></div>
+  <div id="gaugestrip"></div>
   <div id="subtitle"><span id="subtext"></span></div>
-  <div id="notice"><div class="nhead">J.A.R.V.I.S</div><div class="nbody"></div></div>
 <script>
-// JARVIS ring HUD — composed to match the reference plate. Pure Canvas2D (offline),
-// transparent background for the native macOS overlay. Reactive to {state, level}.
-const cv = document.getElementById("hud"), ctx = cv.getContext("2d");
-const BR="#9ee8ff", MD="#4fb4dd", DP="#235a78", GD="#ecba4f", GD_D="#a8761f", TX="#e6f6ff";
+// 알파 영상 소스: WebKit(WKWebView)=HEVC-alpha .mov, Chromium(WebView2)=VP9-alpha .webm.
+// (WebKit은 .webm 알파 미지원, Chromium은 .mov HEVC-alpha 미지원 — UA로 확정 분기.)
+(function(){
+  var v=document.getElementById("orbvid"), ua=navigator.userAgent;
+  var isWebKit=/AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|CriOS/.test(ua);
+  v.src=isWebKit ? "/assets/orb-alpha.mov" : "/assets/orb-alpha.webm";
+  if(v.play) v.play().catch(function(){});
+})();
+
+const cv=document.getElementById("hud"), ctx=cv.getContext("2d");
 let W=0,H=0,DPR=1;
 function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
   cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+"px"; cv.style.height=H+"px";
@@ -137,106 +114,137 @@ function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHei
 addEventListener("resize",resize); resize();
 
 const PRES={idle:0.0,attentive:0.35,listening:0.6,thinking:0.78,speaking:1.0};
-const LABEL={idle:"STANDBY",attentive:"LISTENING",listening:"LISTENING",thinking:"PROCESSING",speaking:"SPEAKING"};
-let state="idle",targetLevel=0,level=0,presence=0,lastEvent=0,demo=true,spin=0,_pt=0,bootT=-1;
+let state="idle",targetLevel=0,level=0,presence=0,demo=true,_pt=0;
 
-// 화면 네 모서리 HUD 프레임 — 코너 브래킷 + 가장자리 데이터 틱(아이언맨 화면 구성).
-function drawScreenFrame(a, lv){
-  if(a<0.01) return;
-  ctx.save();
-  const m=Math.round(Math.min(W,H)*0.045)+16, L=Math.round(Math.min(W,H)*0.07);
-  ctx.strokeStyle=BR; ctx.lineWidth=1.5; ctx.globalAlpha=0.55*a;
-  ctx.shadowColor=BR; ctx.shadowBlur=8*a;
-  const corners=[[m,m,1,1],[W-m,m,-1,1],[m,H-m,1,-1],[W-m,H-m,-1,-1]];
-  for(const [cx,cy,sx,sy] of corners){
-    ctx.beginPath();
-    ctx.moveTo(cx, cy+sy*L); ctx.lineTo(cx, cy); ctx.lineTo(cx+sx*L, cy); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx+sx*7, cy+sy*7, 2.2, 0, TAU);
-    ctx.fillStyle=GD; ctx.globalAlpha=0.7*a; ctx.fill(); ctx.globalAlpha=0.55*a;
-  }
-  // 좌/우 가장자리 음량 막대(스펙트럼 느낌)
-  ctx.globalAlpha=(0.18+0.5*lv)*a; ctx.strokeStyle=GD; ctx.lineWidth=2;
-  for(let i=0;i<14;i++){ const yy=H*0.3+i*(H*0.4/13);
-    const len=8+40*lv*Math.abs(Math.sin(i*1.3+performance.now()/180));
-    ctx.beginPath(); ctx.moveTo(m-6,yy); ctx.lineTo(m-6-len,yy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(W-m+6,yy); ctx.lineTo(W-m+6+len,yy); ctx.stroke(); }
-  ctx.restore();
-}
 const subEl=document.getElementById("subtitle");
 const subTextEl=document.getElementById("subtext");
-const noticeEl=document.getElementById("notice");
-const noticeBody=noticeEl?noticeEl.querySelector(".nbody"):null;
 const orbwrap=document.getElementById("orbwrap");
-// 영상 오브 반응: presence로 등장(present)·level로 스케일/글로우/코어/밝기 구동.
+const panelsEl=document.getElementById("panels");
+const workshopEl=document.getElementById("workshop");
+const stripEl=document.getElementById("gaugestrip");
+const SVGNS="http://www.w3.org/2000/svg";
+let panelKeepUntil=0, panelEls={};
+
+// 영상 오브 반응: presence로 등장(present)·level로 스케일/글로우/코어/밝기.
 function reactOrb(){
   orbwrap.classList.toggle("present", presence>0.02);
   const lv=level;
-  orbwrap.style.setProperty("--orbscale", (1+0.20*lv).toFixed(3));
-  orbwrap.style.setProperty("--glow", (0.12+0.5*lv).toFixed(3));
-  orbwrap.style.setProperty("--core", (0.15+0.55*lv).toFixed(3));
-  orbwrap.style.setProperty("--orbbright", (1+0.10*lv).toFixed(3));
+  orbwrap.style.setProperty("--orbscale",(1+0.20*lv).toFixed(3));
+  orbwrap.style.setProperty("--glow",(0.12+0.5*lv).toFixed(3));
+  orbwrap.style.setProperty("--core",(0.15+0.55*lv).toFixed(3));
+  orbwrap.style.setProperty("--orbbright",(1+0.10*lv).toFixed(3));
 }
-// A↔B 전환: expand가 켜지면 오브가 중앙으로 커지고 body에 bmode가 붙는다.
+// A↔B 전환: expand면 오브가 중앙으로 커지고 body에 bmode가 붙는다(패널 재배치 트리거).
 function setExpand(on){
+  const was=document.body.classList.contains("bmode");
   orbwrap.classList.toggle("expand", on);
   document.body.classList.toggle("bmode", on);
+  return was!==on;
 }
-let shownNotice="", noticeKeepUntil=0;
-function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
+function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; demo=false;
   if(text!==undefined){ subTextEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
-function showNotice(n){ if(!noticeEl||!noticeBody) return; n=n||"";
-  if(!n){ shownNotice=""; noticeEl.classList.remove("show"); return; }
-  noticeBody.textContent=n;
-  noticeEl.classList.toggle("warn", n.indexOf("⚠")>=0||n.indexOf("오류")>=0);
-  // 유동 크기: 내용 양(글자수·줄수)에 따라 일반/big/huge — 클수록 패널이 커진다.
-  const lines=n.split("\n").length, len=n.length;
-  noticeEl.classList.toggle("big",  (len>120||lines>=4) && !(len>360||lines>=9));
-  noticeEl.classList.toggle("huge", len>360||lines>=9);
-  if(n!==shownNotice){ shownNotice=n;            // 새 내용일 때만 표시(부활 방지)
-    // 읽는 시간 자동 연장 — 내용 길수록 오래 띄운다(8s + 글자당 ~45ms, 최대 45s).
-    noticeKeepUntil=performance.now()+Math.min(45000, 8000+len*45);
-    noticeEl.classList.add("show"); noticeEl.scrollTop=0; } }
-try{ const es=new EventSource("/events");
-  es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);showNotice(d.notice);
-    setExpand(!!d.expand || (d.notice && d.notice.length>0));};
-  // 자비스(서버)가 죽으면 유령 HUD로 남지 않게 모든 요소를 즉시 숨긴다.
-  es.onerror=()=>{ state="idle"; targetLevel=0; demo=false;
-    subEl.style.opacity=0; if(noticeEl) noticeEl.classList.remove("show"); };
-}catch(_){}
 
-const TAU=Math.PI*2, TOP=-Math.PI/2;
-function ringC(r,w,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;
-  ctx.beginPath(); ctx.arc(0,0,r,0,TAU); ctx.stroke(); }
-function arcC(r,w,a0,a1,col,a,cap){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col;
-  ctx.lineCap=cap||"butt"; ctx.beginPath(); ctx.arc(0,0,r,a0,a1); ctx.stroke(); }
-function ticksC(r,len,n,col,a,wid,off){ ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=wid||1;
-  for(let i=0;i<n;i++){ const t=(off||0)+i/n*TAU; ctx.beginPath();
-    ctx.moveTo(Math.cos(t)*r,Math.sin(t)*r); ctx.lineTo(Math.cos(t)*(r+len),Math.sin(t)*(r+len)); ctx.stroke(); } }
-function segBand(r,w,segs,gap,col,a){ ctx.globalAlpha=a; ctx.lineWidth=w; ctx.strokeStyle=col; ctx.lineCap="butt";
-  const step=TAU/segs; for(let i=0;i<segs;i++){ const s=i*step; ctx.beginPath(); ctx.arc(0,0,r,s+gap,s+step-gap); ctx.stroke(); } }
-// detached "⌐" bracket: a short fat arc with a radial end-tick at each end
-function bracket(r,w,c,span,col,a,tick){ const a0=c-span/2,a1=c+span/2;
-  arcC(r,w,a0,a1,col,a); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=Math.max(1,w*0.25);
-  for(const e of [a0,a1]){ ctx.beginPath(); ctx.moveTo(Math.cos(e)*(r-w/2),Math.sin(e)*(r-w/2));
-    ctx.lineTo(Math.cos(e)*(r-w/2-(tick||w)),Math.sin(e)*(r-w/2-(tick||w))); ctx.stroke(); } }
+// ----- 패널 렌더 (키 기반 재조정 — 텔레메트리 2s 갱신에도 깜빡임 없음) -----
+function sizeClass(p){const len=(p.body||"").length+(p.title||"").length;
+  if(len>360) return "huge"; if(len>120) return "big"; return "";}
+
+function slotsFor(n,bmode){
+  if(!bmode){const s=[];for(let i=0;i<n;i++)s.push({right:"4vw",bottom:(16+i*15)+"vh"});return s;}
+  const ring=[
+    {left:"3vw", top:"16vh", cx:18, cy:24},
+    {right:"3vw",top:"14vh", cx:80, cy:22},
+    {right:"3vw",top:"46vh", cx:82, cy:52},
+    {right:"4vw",top:"73vh", cx:78, cy:74},
+    {left:"4vw", top:"72vh", cx:20, cy:74},
+    {left:"3vw", top:"45vh", cx:16, cy:50}];
+  return ring.slice(0,n);
+}
+
+function renderPanels(panels){
+  panels=panels||[]; const bmode=document.body.classList.contains("bmode");
+  // 중앙모드: 패널=두뇌만(텔레메트리는 하단 게이지 스트립). 코너모드: 두뇌 + 최소 텔레메트리(시계/작업).
+  const list = bmode
+    ? panels.filter(p=>p.kind==="brain")
+    : panels.filter(p=>p.kind==="brain" || p.id==="clock" || p.id==="tasks");
+  const slots=slotsFor(list.length,bmode), seen={};
+  list.forEach((p,i)=>{
+    const key=p.kind+":"+(p.id||p.title||i); seen[key]=1;
+    let el=panelEls[key], isNew=!el;
+    if(isNew){ el=document.createElement("div"); el.innerHTML='<div class="h"></div><div class="b"></div>';
+      panelsEl.appendChild(el); panelEls[key]=el; }
+    const tone=p.tone==="warn"?"warn":p.tone==="gold"?"gold":"";
+    const cls="pnl "+tone+" "+sizeClass(p);
+    if(isNew){ el.className=cls; requestAnimationFrame(()=>el.classList.add("show")); }
+    else { el.className=cls+" show"; }
+    el.querySelector(".h").textContent=p.title||"";
+    el.querySelector(".b").textContent=p.body||"";
+    el.style.left=el.style.top=el.style.right=el.style.bottom="";
+    const s=slots[i]||{}; ["left","top","right","bottom"].forEach(k=>{ if(s[k]) el.style[k]=s[k]; });
+  });
+  for(const key in panelEls){ if(!seen[key]){ panelEls[key].remove(); delete panelEls[key]; } }
+  // 작업실 장식(매 렌더 새로 그림 — 트랜지션 없어 깜빡임 없음)
+  clearWorkshop();
+  if(list.length || (bmode && panels.length)){
+    drawOrbRings(bmode);
+    if(bmode) list.forEach((p,i)=>{ const s=slots[i]; if(s&&s.cx!=null) drawLeader(s.cx,s.cy); });
+  }
+  renderStrip(panels,bmode);
+  if(panels.length) panelKeepUntil=performance.now()+Math.min(45000,8000+JSON.stringify(panels).length*30);
+}
+
+function clearWorkshop(){ while(workshopEl.firstChild) workshopEl.removeChild(workshopEl.firstChild);
+  workshopEl.setAttribute("width",innerWidth); workshopEl.setAttribute("height",innerHeight);
+  workshopEl.setAttribute("viewBox","0 0 "+innerWidth+" "+innerHeight); }
+function svgEl(tag,attrs){const e=document.createElementNS(SVGNS,tag);
+  for(const k in attrs) e.setAttribute(k,attrs[k]); workshopEl.appendChild(e); return e;}
+function orbCenter(){const r=orbwrap.getBoundingClientRect(); return [r.left+r.width/2, r.top+r.height/2, r.width/2];}
+function drawLeader(cxvw,cyvh){const c=orbCenter(), px=innerWidth*cxvw/100, py=innerHeight*cyvh/100, mx=(c[0]+px)/2;
+  svgEl("line",{x1:c[0],y1:c[1],x2:mx,y2:py,stroke:"rgba(94,224,255,.4)","stroke-width":1});
+  svgEl("line",{x1:mx,y1:py,x2:px,y2:py,stroke:"rgba(94,224,255,.4)","stroke-width":1});
+  svgEl("circle",{cx:px,cy:py,r:2,fill:"#67C7EB"});}
+function drawOrbRings(bmode){const c=orbCenter(), b=c[2];
+  if(!bmode){ svgEl("circle",{cx:c[0],cy:c[1],r:b+9,fill:"none",stroke:"rgba(94,224,255,.18)","stroke-width":1}); return; }
+  svgEl("circle",{cx:c[0],cy:c[1],r:b+14,fill:"none",stroke:"rgba(94,224,255,.2)","stroke-width":1});
+  svgEl("circle",{cx:c[0],cy:c[1],r:b+24,fill:"none",stroke:"rgba(94,224,255,.28)","stroke-width":1,"stroke-dasharray":"5 9"});
+  svgEl("circle",{cx:c[0],cy:c[1],r:b+36,fill:"none",stroke:"rgba(236,186,79,.5)","stroke-width":1.5,
+    "stroke-dasharray":(2*Math.PI*(b+36)*0.3).toFixed(0)+" "+(2*Math.PI*(b+36)).toFixed(0),"stroke-linecap":"round"});
+}
+
+const STRIP_LABELS={clock:"시계",mic:"입력",sys:"부하",tasks:"작업",net:"NET"};
+function fracFor(p){ if(p.gauge&&p.gauge.cpu!=null) return p.gauge.cpu/100;
+  if(p.id==="mic") return /●|LIVE/.test(p.body||"")?1:0.12;
+  if(p.id==="net") return /✓/.test(p.body||"")?1:0.1;
+  if(p.id==="tasks"){const m=(p.body||"").match(/\d+/);return m?Math.min(m[0]/5,1):0.2;}
+  return 0.6; }
+function gaugeSVG(frac,gold){const r=9,c=2*Math.PI*r;
+  return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#1d3a44" stroke-width="2.5"/>'+
+    '<circle cx="12" cy="12" r="9" fill="none" stroke="'+(gold?"#ecba4f":"#8effc8")+'" stroke-width="2.5" '+
+    'stroke-linecap="round" stroke-dasharray="'+(c*Math.max(0.04,Math.min(1,frac))).toFixed(1)+' '+c.toFixed(1)+'" '+
+    'transform="rotate(-90 12 12)"/></svg>';}
+function renderStrip(panels,bmode){ stripEl.innerHTML=""; if(!bmode) return;
+  panels.filter(p=>p.kind==="telemetry").forEach(p=>{const g=document.createElement("div"); g.className="g";
+    g.innerHTML=gaugeSVG(fracFor(p), p.tone==="gold")+'<span>'+(STRIP_LABELS[p.id]||p.id||"")+'</span>';
+    stripEl.appendChild(g);});
+}
+
+try{ const es=new EventSource("/events");
+  es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);
+    setExpand(!!d.expand || (d.panels && d.panels.some(p=>p.kind==="brain")));
+    renderPanels(d.panels);};
+  es.onerror=()=>{ state="idle"; targetLevel=0; demo=false; subEl.style.opacity=0; renderPanels([]); };
+}catch(_){}
 
 function frame(){
   const t=performance.now()/1000;
-  const dt=Math.min(0.05, t-(_pt||t)); _pt=t;
-  // demo: 첫 실제 이벤트 전까지만. (이전엔 8초 무이벤트면 재진입해 대기 중에도
-  // 가짜 SPEAKING 펄스를 쳤다 — 상시 청취 도입 후 대기가 기본 상태라 제거.)
   if(demo){ state="speaking"; targetLevel=0.4+0.5*Math.abs(Math.sin(t*2.4))*Math.abs(Math.sin(t*5.3)); }
-  // snappy attack + smooth release -> punchy, dynamic reaction to the voice
   level+=(targetLevel-level)*(targetLevel>level?0.45:0.12);
   presence+=((PRES[state]??0)-presence)*0.07;
   document.getElementById("bg").style.opacity = demo?0:"";
-  ctx.clearRect(0,0,W,H);                 // 캔버스 오브 제거 — 매 프레임 비운다(투명 유지).
-  reactOrb();                             // 영상 오브 반응(스케일/글로우/코어/밝기).
-  if(presence<0.01){
-    // 자비스가 화면에서 사라질 때 패널도 함께 사라진다(새 알림 10초 보장 후).
-    if(noticeEl && performance.now()>noticeKeepUntil) noticeEl.classList.remove("show");
-    setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 렌더 절전
-
+  ctx.clearRect(0,0,W,H);    // 캔버스는 투명 유지(레거시 — 현재 미사용).
+  reactOrb();
+  // 패널 표시 시간(keepUntil) 지나면 비운다(패널이 있을 때만).
+  if(performance.now()>panelKeepUntil && Object.keys(panelEls).length) renderPanels([]);
+  if(presence<0.01){ setTimeout(()=>requestAnimationFrame(frame),250); return; }  // 대기 중 절전
   requestAnimationFrame(frame);
 }
 frame();
