@@ -94,19 +94,23 @@
     transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1);
     pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;opacity:0}
   #orbwrap.present{opacity:1}
-  #orbvid{width:100%;height:100%;object-fit:contain;mix-blend-mode:screen;
-    transform:scale(var(--orbscale,1));filter:brightness(var(--orbbright,1))}
+  /* 검정 제거: 투명 오버레이엔 screen 블렌드가 안 먹으므로 휘도→알파(SVG #lumakey)로
+     어두운 픽셀을 투명하게 만든다(밝은 가닥만 남음). brightness는 그 앞에 체이닝. */
+  #orbvid{width:100%;height:100%;object-fit:contain;
+    transform:scale(var(--orbscale,1));
+    filter:brightness(var(--orbbright,1)) url(#lumakey)}
   #orbglow{position:absolute;width:160%;height:160%;border-radius:50%;
-    background:radial-gradient(circle,rgba(255,180,70,var(--glow,0)) 0%,rgba(255,120,30,calc(var(--glow,0)*.4)) 45%,transparent 70%);
-    mix-blend-mode:screen}
+    background:radial-gradient(circle,rgba(255,180,70,var(--glow,0)) 0%,rgba(255,120,30,calc(var(--glow,0)*.4)) 45%,transparent 70%)}
   #orbcore{position:absolute;width:32%;height:32%;border-radius:50%;
-    background:radial-gradient(circle,rgba(255,240,200,var(--core,0)),transparent 70%);
-    mix-blend-mode:screen}
+    background:radial-gradient(circle,rgba(255,240,200,var(--core,0)),transparent 70%)}
 </style>
 </head>
 <body>
   <div id="bg"></div>
   <canvas id="hud"></canvas>
+  <svg width="0" height="0" style="position:absolute"><filter id="lumakey" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0.34 0.5 0.16 0 0"/>
+  </filter></svg>
   <div id="orbwrap">
     <div id="orbglow"></div>
     <video id="orbvid" src="/assets/orb.mp4" autoplay loop muted playsinline></video>
