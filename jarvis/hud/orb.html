@@ -45,7 +45,12 @@
     box-shadow: 0 0 0 1px rgba(94,224,255,.10), 0 0 22px rgba(94,224,255,.28),
                 0 10px 34px rgba(0,0,0,.6), inset 0 0 30px rgba(94,224,255,.10);
     text-shadow: 0 0 9px rgba(94,224,255,.45);  /* 홀로그램 글로우 */
+    /* 작업실 홀로그램: 모서리 컷(우상/좌하) — 네모 탈피 */
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
   }
+  /* B 모드(오브 중앙 확장)일 때 패널을 조금 더 크고 또렷하게 */
+  body.bmode #notice { font-size: 1.06em; box-shadow: 0 0 0 1px rgba(94,224,255,.14),
+    0 0 30px rgba(94,224,255,.34), 0 12px 40px rgba(0,0,0,.7), inset 0 0 36px rgba(94,224,255,.12); }
   #notice::-webkit-scrollbar { width: 6px; }
   #notice::-webkit-scrollbar-thumb { background: rgba(94,224,255,.35); border-radius: 3px; }
   /* 큰 내용일 때 글자/여백을 조금 키워 가독성↑ (자비스가 클래스로 토글) */
