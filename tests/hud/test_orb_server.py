@@ -12,7 +12,7 @@ def test_subscribe_replays_current_state():
     hub = OrbHub()
     hub.publish("thinking", 0.4)
     q = hub.subscribe()
-    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": "", "expand": False}
+    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": "", "expand": False, "panels": []}
 
 
 def test_publish_fans_out_to_clients():
@@ -20,7 +20,7 @@ def test_publish_fans_out_to_clients():
     q = hub.subscribe()
     q.get_nowait()  # drop the replayed idle
     hub.publish("speaking", 0.7, "안녕하세요")
-    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": "", "expand": False}
+    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": "", "expand": False, "panels": []}
 
 
 def test_subtitle_persists_then_clears_when_not_speaking():
@@ -59,6 +59,54 @@ def test_publish_includes_expand():
     assert evt2["expand"] is True   # 명시 안 하면 마지막 값 유지(sticky)
     evt3 = hub.publish("idle", 0.0, expand=False)
     assert evt3["expand"] is False
+
+
+# ---- panels 모델 -----------------------------------------------------------
+def test_emit_includes_panels_key_default_empty():
+    hub = OrbHub()
+    evt = hub.publish("idle", 0.0)
+    assert evt["panels"] == []
+
+
+def test_notice_becomes_single_brain_card():
+    hub = OrbHub()
+    evt = hub.publish_notice("검색 결과\n- 항목1\n- 항목2")
+    assert len(evt["panels"]) == 1
+    p = evt["panels"][0]
+    assert p["kind"] == "brain" and p["title"] == "검색 결과"
+    assert "항목1" in p["body"]
+    assert evt["notice"] == "검색 결과\n- 항목1\n- 항목2"  # 하위호환 유지
+
+
+def test_notice_splits_into_cards_on_separator():
+    hub = OrbHub()
+    evt = hub.publish_notice("일정\n3시 회의\n---\n검색\n뉴스 5건")
+    titles = [p["title"] for p in evt["panels"] if p["kind"] == "brain"]
+    assert titles == ["일정", "검색"]
+
+
+def test_warn_card_tone():
+    hub = OrbHub()
+    evt = hub.publish_notice("⚠ 오류\n디스크 부족")
+    assert evt["panels"][0]["tone"] == "warn"
+
+
+def test_publish_telemetry_merges_with_brain():
+    hub = OrbHub()
+    hub.publish_notice("메인\n본문")
+    evt = hub.publish_telemetry([
+        {"id": "clock", "title": "14:32", "body": "", "kind": "telemetry", "tone": "cyan"},
+    ])
+    kinds = [p["kind"] for p in evt["panels"]]
+    assert kinds.count("brain") == 1 and kinds.count("telemetry") == 1
+
+
+def test_telemetry_replaced_not_appended():
+    hub = OrbHub()
+    hub.publish_telemetry([{"id": "a", "title": "A", "body": "", "kind": "telemetry", "tone": "cyan"}])
+    evt = hub.publish_telemetry([{"id": "b", "title": "B", "body": "", "kind": "telemetry", "tone": "cyan"}])
+    tel = [p for p in evt["panels"] if p["kind"] == "telemetry"]
+    assert len(tel) == 1 and tel[0]["id"] == "b"
 
 
 # ---- live HTTP server -----------------------------------------------------
@@ -115,6 +163,21 @@ def test_serves_orb_asset():
         assert r.status == 200
         assert r.headers["Content-Type"] == "video/mp4"
         assert int(r.headers["Content-Length"]) > 100000
+    finally:
+        srv.stop()
+
+
+def test_alpha_assets_served():
+    from jarvis.hud.orb_server import OrbServer
+    srv = OrbServer(port=0)
+    srv.start()
+    try:
+        base = srv.url
+        for name, ctype in [("orb-alpha.webm", "video/webm"), ("orb-alpha.mov", "video/quicktime")]:
+            with urllib.request.urlopen(base + "assets/" + name, timeout=3) as r:
+                assert r.status == 200
+                assert r.headers["Content-Type"] == ctype
+                assert int(r.headers["Content-Length"]) > 100000
     finally:
         srv.stop()
 

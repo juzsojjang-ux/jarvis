@@ -18,13 +18,18 @@ from pathlib import Path
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
 
 
-def _orb_asset_path():
+_ASSET_CTYPE = {".mov": "video/quicktime", ".webm": "video/webm", ".mp4": "video/mp4"}
+
+
+def _orb_asset(name: str) -> Path:
+    """오브 영상 자산 경로 — 번들(frozen) 우선, 없으면 개발 경로의 hud/assets/<name>."""
+    safe = Path(name).name  # 경로 탈출 방지
     mp = getattr(sys, "_MEIPASS", None)
     if mp:
-        p = Path(mp) / "jarvis" / "hud" / "assets" / "orb.mp4"
+        p = Path(mp) / "jarvis" / "hud" / "assets" / safe
         if p.exists():
             return p
-    return Path(__file__).resolve().parent / "assets" / "orb.mp4"
+    return Path(__file__).resolve().parent / "assets" / safe
 
 
 def _apply_assistant_name(body: bytes) -> bytes:
@@ -39,6 +44,26 @@ def _apply_assistant_name(body: bytes) -> bytes:
 _VALID_STATES = ("idle", "attentive", "listening", "thinking", "speaking")
 
 
+def _brain_cards(notice: str) -> list[dict]:
+    """두뇌 알림 텍스트를 패널 카드로 분해. '---' 줄로 여러 카드, 각 카드의 첫 줄=제목.
+    경고(⚠/오류)는 tone=warn. 빈 문자열이면 카드 없음."""
+    notice = (notice or "").strip()
+    if not notice:
+        return []
+    cards: list[dict] = []
+    for chunk in notice.split("\n---\n"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        lines = chunk.split("\n", 1)
+        title = lines[0].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        warn = ("⚠" in chunk) or ("오류" in chunk)
+        cards.append({"id": f"brain{len(cards)}", "title": title, "body": body,
+                      "kind": "brain", "tone": "warn" if warn else "cyan"})
+    return cards
+
+
 class OrbHub:
     """Fan-out of {state, level} events to connected SSE clients (thread-safe)."""
 
@@ -46,9 +71,11 @@ class OrbHub:
         self._clients: set[queue.Queue] = set()
         self._lock = threading.Lock()
         self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
-        self._notice = ""  # 우측 상단 알림(진행중/확인필요/오류) — 명시적으로 비울 때까지 유지
+        self._notice = ""  # 우측 정보(두뇌 show_panel) — 명시적으로 비울 때까지 유지
+        self._telemetry: list[dict] = []  # 자비스 실시간 텔레메트리 패널(주기 갱신)
         self._expand = False  # A↔B 전환 상태(sticky) — 명시적으로 바꿀 때까지 유지
-        self._last = {"state": "idle", "level": 0.0, "text": "", "notice": "", "expand": False}
+        self._last = {"state": "idle", "level": 0.0, "text": "", "notice": "",
+                      "expand": False, "panels": []}
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=64)
@@ -82,9 +109,17 @@ class OrbHub:
         last = self._last
         return self._emit(last.get("state", "idle"), last.get("level", 0.0))
 
+    def publish_telemetry(self, items: list[dict] | None) -> dict:
+        """자비스 텔레메트리 패널 목록을 통째로 교체(주기 호출). 상태/자막/알림은 유지."""
+        self._telemetry = list(items or [])
+        last = self._last
+        return self._emit(last.get("state", "idle"), last.get("level", 0.0))
+
     def _emit(self, state: str, level: float) -> dict:
+        panels = _brain_cards(self._notice) + list(self._telemetry)
         evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4),
-               "text": self._text, "notice": self._notice, "expand": self._expand}
+               "text": self._text, "notice": self._notice, "expand": self._expand,
+               "panels": panels}
         self._last = evt
         with self._lock:
             clients = list(self._clients)
@@ -113,14 +148,16 @@ def _make_handler(hub: OrbHub):
                 self._serve_events()
             elif path in ("/", "/index.html", "/orb.html"):
                 self._serve_html()
-            elif path == "/assets/orb.mp4":
+            elif path.startswith("/assets/") and path.rsplit(".", 1)[-1] in ("mov", "webm", "mp4"):
+                name = path[len("/assets/"):]
                 try:
-                    data = _orb_asset_path().read_bytes()
+                    data = _orb_asset(name).read_bytes()
                 except Exception:
                     self.send_error(404)
                     return
+                ctype = _ASSET_CTYPE.get(Path(name).suffix, "application/octet-stream")
                 self.send_response(200)
-                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "max-age=86400")
                 self.end_headers()
