@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
+ORB_ASSET = Path(__file__).resolve().parent / "assets" / "orb.mp4"
 
 
 def _apply_assistant_name(body: bytes) -> bytes:
@@ -100,6 +101,21 @@ def _make_handler(hub: OrbHub):
                 self._serve_events()
             elif path in ("/", "/index.html", "/orb.html"):
                 self._serve_html()
+            elif path == "/assets/orb.mp4":
+                try:
+                    data = ORB_ASSET.read_bytes()
+                except Exception:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                try:
+                    self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass  # client cancelled mid-stream (e.g. browser seeking video)
             elif path == "/health":
                 self._serve_bytes(b"ok", "text/plain; charset=utf-8")
             elif path == "/favicon.ico":

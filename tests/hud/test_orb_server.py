@@ -94,6 +94,20 @@ def test_sse_streams_published_events(server):
     assert any(json.loads(p[5:].decode())["level"] == 0.55 for p in payloads)
 
 
+def test_serves_orb_asset():
+    from jarvis.hud.orb_server import OrbServer
+    srv = OrbServer(); srv.start()
+    try:
+        import urllib.request
+        base = f"http://127.0.0.1:{srv.port}"
+        r = urllib.request.urlopen(base + "/assets/orb.mp4")
+        assert r.status == 200
+        assert r.headers["Content-Type"] == "video/mp4"
+        assert int(r.headers["Content-Length"]) > 100000
+    finally:
+        srv.stop()
+
+
 def test_assistant_name_injected_into_html(monkeypatch):
     from jarvis.hud.orb_server import _apply_assistant_name
     body = b"<h1>J.A.R.V.I.S</h1> fillText(\"J.A.R.V.I.S\")"
