@@ -162,6 +162,8 @@ function slotsFor(n,bmode){
 
 function renderPanels(panels){
   panels=panels||[]; const bmode=document.body.classList.contains("bmode");
+  // 대기 중(오브 숨김·두뇌 정보 없음)엔 텔레메트리만으로 패널을 띄우지 않는다(혼자 뜬 시계 방지).
+  if(!panels.some(p=>p.kind==="brain") && presence<0.02) panels=[];
   // 중앙모드: 패널=두뇌만(텔레메트리는 하단 게이지 스트립). 코너모드: 두뇌 + 최소 텔레메트리(시계/작업).
   const list = bmode
     ? panels.filter(p=>p.kind==="brain")
