@@ -215,6 +215,21 @@ class Orchestrator:
         if pcmd is not None:
             await self._toggle_panel(pcmd)
             return
+        ex = self._expand_command(text)
+        if ex is not None:
+            if self.hud is not None:
+                try:
+                    cur = self.state.name.lower()
+                except Exception:
+                    cur = "idle"
+                try:
+                    self.hud.publish(cur, 0.0, expand=ex)
+                except Exception:
+                    pass
+            await self._play_phrase("Very well, sir.",
+                                    "크게 띄웠습니다." if ex else "작게 했습니다.")
+            self._to_idle()
+            return
         if self.interpret_mode:
             await self._interpret_turn(text)
             return
@@ -518,6 +533,15 @@ class Orchestrator:
     def _usage_command(self, text: str) -> bool:
         t = text.replace(" ", "")
         return ("사용량" in t) or ("토큰" in t and ("얼마" in t or "확인" in t or "사용" in t))
+
+    # ----- HUD A↔B(expand) 전환 -----
+    def _expand_command(self, text: str):
+        t = text.replace(" ", "")
+        if any(w in t for w in ("크게띄워", "크게보여", "패널크게", "확대", "크게켜")):
+            return True
+        if any(w in t for w in ("작게", "축소", "줄여")) and "화면" not in t:
+            return False
+        return None
 
     # ----- 화면 상시 인지(감시 모드) -----
     def _watch_command(self, text: str) -> bool | None:

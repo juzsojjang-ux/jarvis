@@ -1014,3 +1014,15 @@ def test_watch_command_matches():
     assert m(T(), "화면 감시 꺼") is False
     assert m(T(), "화면 캡처해줘") is None     # 일반 캡처 요청은 두뇌로
     assert m(T(), "오늘 날씨 어때") is None
+
+
+def test_expand_command_matches():
+    from jarvis.core.orchestrator import Orchestrator
+    m = Orchestrator._expand_command
+    class T: pass
+    assert m(T(), "크게 띄워") is True
+    assert m(T(), "패널 크게") is True
+    assert m(T(), "확대해줘") is True
+    assert m(T(), "작게 해") is False
+    assert m(T(), "축소") is False
+    assert m(T(), "오늘 날씨 어때") is None
