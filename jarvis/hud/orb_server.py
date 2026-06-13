@@ -38,7 +38,8 @@ class OrbHub:
         self._lock = threading.Lock()
         self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
         self._notice = ""  # 우측 상단 알림(진행중/확인필요/오류) — 명시적으로 비울 때까지 유지
-        self._last = {"state": "idle", "level": 0.0, "text": "", "notice": ""}
+        self._expand = False  # A↔B 전환 상태(sticky) — 명시적으로 바꿀 때까지 유지
+        self._last = {"state": "idle", "level": 0.0, "text": "", "notice": "", "expand": False}
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=64)
@@ -52,7 +53,7 @@ class OrbHub:
             self._clients.discard(q)
 
     def publish(self, state: str, level: float = 0.0, text: str | None = None,
-                notice: str | None = None) -> dict:
+                notice: str | None = None, expand: bool | None = None) -> dict:
         if state not in _VALID_STATES:
             state = "idle"
         # Subtitle lifecycle: set when given; cleared whenever JARVIS isn't speaking.
@@ -62,6 +63,8 @@ class OrbHub:
             self._text = ""
         if notice is not None:
             self._notice = notice
+        if expand is not None:
+            self._expand = bool(expand)
         return self._emit(state, level)
 
     def publish_notice(self, notice: str | None) -> dict:
@@ -72,7 +75,7 @@ class OrbHub:
 
     def _emit(self, state: str, level: float) -> dict:
         evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4),
-               "text": self._text, "notice": self._notice}
+               "text": self._text, "notice": self._notice, "expand": self._expand}
         self._last = evt
         with self._lock:
             clients = list(self._clients)
@@ -192,8 +195,8 @@ class OrbServer:
         self._thread.start()
 
     def publish(self, state: str, level: float = 0.0, text: str | None = None,
-                notice: str | None = None) -> None:
-        self.hub.publish(state, level, text, notice)
+                notice: str | None = None, expand: bool | None = None) -> None:
+        self.hub.publish(state, level, text, notice, expand)
 
     def publish_notice(self, notice: str | None) -> None:
         self.hub.publish_notice(notice)

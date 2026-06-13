@@ -12,7 +12,7 @@ def test_subscribe_replays_current_state():
     hub = OrbHub()
     hub.publish("thinking", 0.4)
     q = hub.subscribe()
-    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": ""}
+    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": "", "expand": False}
 
 
 def test_publish_fans_out_to_clients():
@@ -20,7 +20,7 @@ def test_publish_fans_out_to_clients():
     q = hub.subscribe()
     q.get_nowait()  # drop the replayed idle
     hub.publish("speaking", 0.7, "안녕하세요")
-    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": ""}
+    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": "", "expand": False}
 
 
 def test_subtitle_persists_then_clears_when_not_speaking():
@@ -48,6 +48,17 @@ def test_unsubscribe_stops_delivery():
     q = hub.subscribe()
     hub.unsubscribe(q)
     assert hub.client_count() == 0
+
+
+def test_publish_includes_expand():
+    from jarvis.hud.orb_server import OrbHub
+    hub = OrbHub()
+    evt = hub.publish("speaking", 0.5, expand=True)
+    assert evt["expand"] is True
+    evt2 = hub.publish("idle", 0.0)
+    assert evt2["expand"] is True   # 명시 안 하면 마지막 값 유지(sticky)
+    evt3 = hub.publish("idle", 0.0, expand=False)
+    assert evt3["expand"] is False
 
 
 # ---- live HTTP server -----------------------------------------------------

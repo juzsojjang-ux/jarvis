@@ -94,6 +94,8 @@
     transition:opacity .4s ease, width .4s cubic-bezier(.2,.7,.2,1), height .4s cubic-bezier(.2,.7,.2,1);
     pointer-events:none;z-index:5;display:flex;align-items:center;justify-content:center;opacity:0}
   #orbwrap.present{opacity:1}
+  /* B 모드: 오브가 화면 중앙으로 이동하며 커진다(expand 필드/notice에서만 켜짐, 자동 아님). */
+  #orbwrap.expand{right:50%;bottom:50%;transform:translate(50%,50%);width:44vh;height:44vh}
   /* 검정 제거: 투명 오버레이엔 screen 블렌드가 안 먹으므로 휘도→알파(SVG #lumakey)로
      어두운 픽셀을 투명하게 만든다(밝은 가닥만 남음). brightness는 그 앞에 체이닝. */
   #orbvid{width:100%;height:100%;object-fit:contain;
@@ -169,6 +171,11 @@ function reactOrb(){
   orbwrap.style.setProperty("--core", (0.15+0.55*lv).toFixed(3));
   orbwrap.style.setProperty("--orbbright", (1+0.10*lv).toFixed(3));
 }
+// A↔B 전환: expand가 켜지면 오브가 중앙으로 커지고 body에 bmode가 붙는다.
+function setExpand(on){
+  orbwrap.classList.toggle("expand", on);
+  document.body.classList.toggle("bmode", on);
+}
 let shownNotice="", noticeKeepUntil=0;
 function apply(s,l,text){ state=s in PRES?s:"idle"; targetLevel=l||0; lastEvent=performance.now(); demo=false;
   if(text!==undefined){ subTextEl.textContent=text||""; subEl.style.opacity=text?1:0; } }
@@ -185,7 +192,8 @@ function showNotice(n){ if(!noticeEl||!noticeBody) return; n=n||"";
     noticeKeepUntil=performance.now()+Math.min(45000, 8000+len*45);
     noticeEl.classList.add("show"); noticeEl.scrollTop=0; } }
 try{ const es=new EventSource("/events");
-  es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);showNotice(d.notice);};
+  es.onmessage=e=>{const d=JSON.parse(e.data);apply(d.state,d.level,d.text);showNotice(d.notice);
+    setExpand(!!d.expand || (d.notice && d.notice.length>0));};
   // 자비스(서버)가 죽으면 유령 HUD로 남지 않게 모든 요소를 즉시 숨긴다.
   es.onerror=()=>{ state="idle"; targetLevel=0; demo=false;
     subEl.style.opacity=0; if(noticeEl) noticeEl.classList.remove("show"); };
