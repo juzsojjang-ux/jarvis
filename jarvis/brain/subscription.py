@@ -326,6 +326,22 @@ class SubscriptionBrain:
         tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + guidance
         return f"{self._persona}\n\n{tail}"
 
+    def _system_prompt_arg(self) -> Any:
+        """시스템 프롬프트(4096토큰 페르소나)를 명령줄 인자가 아니라 파일로 넘긴다.
+        SDK는 `--system-prompt <전문>`을 명령줄에 인라인하는데, 윈도우는 명령줄 길이
+        한계(8191자)가 있어 페르소나가 길면 WinError 206('명령줄이 너무 깁니다')으로
+        죽는다(맥은 한계가 커서 안 터짐). `--system-prompt-file`로 바꿔 OS 공통 안전화."""
+        text = self._system_prompt()
+        try:
+            from pathlib import Path
+            d = Path.home() / ".jarvis" / "runtime"
+            d.mkdir(parents=True, exist_ok=True)
+            p = d / f"system_prompt_{os.getpid()}.txt"
+            p.write_text(text, encoding="utf-8")
+            return {"type": "file", "path": str(p)}
+        except Exception:  # noqa: BLE001 - 파일 실패 시 인라인 폴백(맥에선 안전)
+            return text
+
     def _options(self, thinking_tokens: int = 0, model: str = "") -> Any:
         from pathlib import Path
 
@@ -337,7 +353,7 @@ class SubscriptionBrain:
         mcp_servers: dict[str, Any] = {"jarvis": build_jarvis_mcp_server(self._memory)}
         mcp_servers.update(load_external_servers())
         kw: dict[str, Any] = dict(
-            system_prompt=self._system_prompt(),
+            system_prompt=self._system_prompt_arg(),
             # allowed_tools에 든 도구는 SDK가 _can_use_tool을 건너뛰고 자동 승인한다
             # (SDK 계약: "not invoked for tool calls already permitted by allowed_tools").
             # 따라서 jarvis 도구는 여기 두지 않는다 — 전부 _can_use_tool을 단일 권위로
