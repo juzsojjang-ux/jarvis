@@ -98,7 +98,10 @@ class Settings(BaseSettings):
     # 마이크 상시-온(전부 로컬 처리). "자비스"로 시작하는 발화만 명령으로 쓰고
     # 나머지 변환 텍스트는 즉시 폐기한다(저장·로그 금지). PTT는 백업으로 공존.
     wake_enabled: bool = True
-    wake_words: list[str] = ["자비스", "쟈비스", "jarvis"]
+    # STT가 "자비스"를 자주 변형해 듣는다(재비스/자비쓰/자 비스 등) — 흔한 오인식을
+    # 함께 등록해 호출 누락을 막는다. '일어나'류는 사용자 요청 트리거.
+    wake_words: list[str] = ["자비스", "쟈비스", "재비스", "자비쓰", "자뷔스",
+                             "지비스", "jarvis", "일어나", "일어나봐"]
     follow_up_s: float = 8.0          # 답변 후 웨이크워드 없이 듣는 창
     wake_vad_threshold: float = 0.5   # silero 말소리 확률 문턱값
     wake_silence_ms: int = 800        # 이만큼 조용하면 발화 종료

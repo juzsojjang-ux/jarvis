@@ -13,15 +13,33 @@ _PUNCT = " \t,.!?~…·-—\"'""'';:"
 _EMPTY = np.zeros(0, dtype=np.float32)  # 30ms 폴링마다 빈 배열을 새로 만들지 않는다
 
 
+def _rest_after_collapsed(t: str, wl: str) -> str:
+    """공백 무시 매칭에서 t 앞부분 wl(공백 없는 길이)만큼 소비하고 나머지를 돌려준다.
+    STT가 "자 비스 켜줘"처럼 끊어도 명령부("켜줘")를 정확히 뽑는다."""
+    i = consumed = 0
+    while i < len(t) and consumed < len(wl):
+        if t[i] != " ":
+            consumed += 1
+        i += 1
+    return t[i:]
+
+
 def match_wake(text: str, wake_words: list[str]) -> tuple[bool, str]:
     """변환 텍스트가 웨이크워드로 '시작'하는지 판정하고 명령부를 돌려준다.
-    (True, 명령) / (False, ""). 문장 중간 언급은 호출이 아니다."""
+    (True, 명령) / (False, ""). 문장 중간 언급은 호출이 아니다.
+    공백 무시 매칭으로 STT가 "자 비스"처럼 끊어 적어도 인식한다."""
     t = text.strip().lower().lstrip(_PUNCT)
+    tc = t.replace(" ", "")
     for w in wake_words:
-        wl = w.lower()
-        if not t.startswith(wl):
+        wl = w.lower().replace(" ", "")
+        if not wl:
             continue
-        rest = t[len(wl):]
+        if t.startswith(wl):
+            rest = t[len(wl):]
+        elif tc.startswith(wl):           # 공백 끊김("자 비스") 허용
+            rest = _rest_after_collapsed(t, wl)
+        else:
+            continue
         # 직접 붙은 호격("자비스야")만 제거 — 뒤 단어의 첫 글자('아침')는 보존.
         if rest[:1] in ("야", "아") and (len(rest) <= 1 or rest[1] in _PUNCT):
             rest = rest[1:]

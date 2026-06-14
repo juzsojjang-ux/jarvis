@@ -48,3 +48,26 @@ def test_wake_word_mid_sentence_rejected():
 def test_leading_punctuation_ignored():
     ok, cmd = match_wake("... 자비스 볼륨 줄여", WORDS)
     assert ok and cmd == "볼륨 줄여"
+
+
+# ---- 견고화: 공백 끊김 / 오인식 변형 / '일어나' 트리거 -----------------------
+def test_space_split_wake_word():
+    # STT가 "자 비스"로 끊어도 인식(공백 무시 매칭).
+    ok, cmd = match_wake("자 비스 켜줘", WORDS)
+    assert ok and cmd == "켜줘"
+
+
+def test_space_split_bare_wake():
+    ok, cmd = match_wake("자 비스", WORDS)
+    assert ok and cmd == ""
+
+
+def test_default_config_has_wakeup_and_variants():
+    from jarvis.core.config import Settings
+    words = Settings().wake_words
+    ok, cmd = match_wake("일어나 음악 틀어줘", words)
+    assert ok and cmd == "음악 틀어줘"
+    ok2, cmd2 = match_wake("일어나", words)
+    assert ok2 and cmd2 == ""
+    ok3, _ = match_wake("재비스 불 꺼줘", words)
+    assert ok3
