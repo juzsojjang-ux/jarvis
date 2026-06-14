@@ -32,7 +32,7 @@ jobs:
       - name: 의존성 설치
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,winhud]"
+          pip install -e ".[dev,winhud,hud]"
       - name: pytest
         run: python -m pytest -q
 
@@ -48,7 +48,7 @@ jobs:
       - name: 의존성 설치
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,winhud]" "pyinstaller>=6.0"
+          pip install -e ".[dev,winhud,hud]" "pyinstaller>=6.0"
       - name: 음성 모델 받기 (Release 자산)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,7 +75,7 @@ jobs:
       - name: 의존성 설치
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,winhud]" "pyinstaller>=6.0"
+          pip install -e ".[dev,winhud,hud]" "pyinstaller>=6.0"
       - name: 음성 모델 받기 (Release 자산)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,7 +107,7 @@ jobs:
         run: |
           win=dist/JARVIS-windows/JARVIS-windows.zip
           mac=dist/JARVIS-mac/JARVIS-mac.zip
-          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)"
+          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n\n⚠️ 맥(미서명 앱) 첫 실행 — Gatekeeper 차단 해제(1회):\n압축 푼 폴더에서 터미널로 다음 실행 후 JARVIS.app 더블클릭\n    xattr -dr com.apple.quarantine JARVIS.app\n첫 실행 후 '시스템 설정 → 개인정보 보호 및 보안'에서 마이크·손쉬운 사용(Accessibility) 권한을 허용해야 음성·단축키가 동작합니다. (Apple Silicon 전용 빌드)"
           publish() {  # $1=tag  $2=title  $3=notes
             if gh release view "$1" -R "$REPO" >/dev/null 2>&1; then
               gh release upload "$1" "$win" "$mac" --clobber -R "$REPO"

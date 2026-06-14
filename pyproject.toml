@@ -66,7 +66,10 @@ voice = [
 training = ["yt-dlp", "demucs"]
 # [hud] — native macOS overlay window for the JARVIS HUD (transparent WKWebView).
 # Without it the HUD still runs; use hud_open_browser=True or open the URL manually.
-hud = ["pyobjc-framework-Cocoa>=10.1", "pyobjc-framework-WebKit>=10.1"]
+hud = [
+    "pyobjc-framework-Cocoa>=10.1; sys_platform == 'darwin'",
+    "pyobjc-framework-WebKit>=10.1; sys_platform == 'darwin'",
+]
 # [winhud] — 진짜 투명 풀스크린 윈도우 오버레이(pywebview). 없어도 overlay_win이
 # Edge 앱 모드(탭 없는 전용 창)로 폴백하므로 윈도우 HUD는 무설치로도 동작한다.
 winhud = ["pywebview>=5.0; sys_platform == 'win32'"]

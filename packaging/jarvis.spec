@@ -288,6 +288,15 @@ if importlib.util.find_spec("webview") is not None:
     ]
     print("[jarvis.spec] pywebview found — 윈도우 투명 오버레이 번들")
 
+# macOS 네이티브 투명 오버레이(pyobjc WKWebView) — [hud] 설치돼 있을 때만 번들.
+# overlay_mac이 'from WebKit import WKWebView' 등을 하는데 런타임에 -m로 spawn돼
+# 정적 추적이 안 되므로 pyobjc 프레임워크 모듈을 명시 수집한다(없으면 'No module
+# named WebKit'로 오버레이가 죽는다). 윈도우/미설치 환경에선 건너뛴다.
+if sys.platform == "darwin" and importlib.util.find_spec("WebKit") is not None:
+    hiddenimports += ["WebKit", "Cocoa", "Quartz", "objc",
+                      "Foundation", "AppKit", "CoreFoundation"]
+    print("[jarvis.spec] pyobjc WebKit found — 맥 투명 오버레이 번들")
+
 # ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
