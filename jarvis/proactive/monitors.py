@@ -16,6 +16,16 @@ _FIVE_MIN = 300.0
 _TEN_MIN = 600.0
 _ONE_HOUR = 3600.0
 
+# 아침 인사/브리핑 — 매번 '날씨·일정 보고'를 똑같이 반복하지 않게 다양성을 강제한다.
+# 자비스 톤(위트·관찰)으로, 그날 의미 있는 한두 가지만 골라 자연스럽게.
+_BRIEFING_PROMPT = (
+    "주인님께 아침 인사 — 매번 다르게 하라. '날씨·일정 보고'를 기계적으로 반복하지 말고, "
+    "자비스다운 위트나 가벼운 관찰을 곁들여 한두 마디로 산뜻하게. 그날 가장 의미 있는 "
+    "것 한두 가지만 골라 자연스럽게 녹여라 — 어떤 날은 날씨, 어떤 날은 일정 하나, 어떤 "
+    "날은 짧은 소식이나 한마디. 필요할 때만 get_weather·get_reminders·get_calendar_events를 "
+    "쓰되 매번 전부 나열하지 말 것. 짧게."
+)
+
 
 class BatteryMonitor:
     """pmset -g batt 파싱. 문턱 하향 돌파/전원 전이/완충 시 각각 1회."""
@@ -108,8 +118,7 @@ class SessionMonitor:
         self._briefed_on = self._today()
         return Announcement(
             "briefing",
-            "오늘의 아침 브리핑을 하라 — get_weather, get_reminders, "
-            "get_calendar_events 도구로 날씨·미리알림·오늘 일정을 모아 짧게 보고",
+            _BRIEFING_PROMPT,
             2, now, now + self._briefing_expire_s)
 
     def poll(self) -> list[Announcement]:
@@ -320,8 +329,7 @@ class MorningBriefingMonitor:
         now = self._clock()
         return [Announcement(
             "briefing",
-            "오늘의 아침 브리핑을 하라 — get_weather, get_reminders, "
-            "get_calendar_events 도구로 날씨·미리알림·오늘 일정을 모아 짧게 보고",
+            _BRIEFING_PROMPT,
             2, now, now + 7200.0)]
 
 

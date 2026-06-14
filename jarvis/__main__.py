@@ -284,7 +284,8 @@ async def _amain() -> None:
             # 부팅 인사 — 화면이 이미 해제 상태면 SessionMonitor의 첫 브리핑이 이걸
             # 대체한다(enqueue 규칙). 엔진과 같은 단조시계 사용.
             orch.proactive.enqueue(Announcement(
-                "boot_greet", "자비스가 방금 기동했다 — 시스템 정상임을 짧게 보고하며 인사",
+                "boot_greet", "자비스가 방금 기동했다 — 매번 똑같지 않게 가볍고 다양하게 한마디로 "
+                "인사하라(자비스 톤). '시스템 정상 보고'를 매번 반복하지 말 것.",
                 3, now, now + 300))
         # SIGTERM(트레이 '종료'·kill)·SIGHUP(터미널 닫힘)에도 finally가 돌게 우아한
         # 종료로 변환한다 — 기본 동작(즉사)은 오버레이/트레이를 유령으로 남겼다.
