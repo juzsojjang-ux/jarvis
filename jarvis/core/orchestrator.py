@@ -597,9 +597,14 @@ class Orchestrator:
 
     async def _attentive_expiry(self) -> None:
         loop = asyncio.get_running_loop()
-        await asyncio.sleep(max(0.0, self._follow_up_until - loop.time()))
+        deadline = self._follow_up_until
+        await asyncio.sleep(max(0.0, deadline - loop.time()))
         # 창이 연장(새 답변/명령)되지 않았고 여전히 한가할 때만 처리.
-        if self.state == State.IDLE and loop.time() >= self._follow_up_until:
+        # loop.time() >= deadline 비교 대신 '창이 연장되지 않았는가'(_follow_up_until가
+        # 우리가 잔 마감 이후로 밀리지 않음)로 판정한다 — Windows의 거친 단조시계 분해능
+        # (~15ms)에서 asyncio가 타이머를 마감보다 먼저 깨워 loop.time() >= deadline가
+        # 거짓이 되는 플레이크(인사 누락)를 제거한다. macOS(분해능 ~1µs)는 영향 없음.
+        if self.state == State.IDLE and self._follow_up_until <= deadline:
             if self._greet_if_idle:
                 # 3초간 말이 없었다 — 그제야 "네 주인님?"으로 응답(이후 일반 follow-up 창).
                 self._greet_if_idle = False
