@@ -53,10 +53,13 @@ def test_auto_uses_xtts_when_runtime_and_ref_present(tmp_path):
 
 
 def test_make_tts_pocket(tmp_path):
+    from jarvis.tts.composite import FallbackTTS
     py, ref = _ready(tmp_path)
     tts = make_tts(_s(tts_backend="pocket", pocket_python=py, pocket_ref_path=ref))
-    assert isinstance(tts, PocketTTS) and tts._cmd[1:] == ["-m", "jarvis.tts.pocket_worker"]
-    assert tts.sample_rate == 24000 and tts._env["JARVIS_POCKET_REF"] == ref
+    # Pocket은 edge 폴백으로 감싸 반환된다(워커 사망 시 무음 금지).
+    assert isinstance(tts, FallbackTTS) and isinstance(tts._primary, PocketTTS)
+    assert tts._primary._cmd[1:] == ["-m", "jarvis.tts.pocket_worker"]
+    assert tts.sample_rate == 24000 and tts._primary._env["JARVIS_POCKET_REF"] == ref
 
 
 def test_pocket_falls_back_to_auto_when_not_ready():
@@ -65,9 +68,10 @@ def test_pocket_falls_back_to_auto_when_not_ready():
 
 
 def test_auto_prefers_pocket_over_everything(tmp_path):
+    from jarvis.tts.composite import FallbackTTS
     py, ref = _ready(tmp_path)
     tts = make_tts(_s(tts_backend="auto", pocket_python=py, pocket_ref_path=ref))
-    assert isinstance(tts, PocketTTS)
+    assert isinstance(tts, FallbackTTS) and isinstance(tts._primary, PocketTTS)
 
 
 def test_auto_falls_back_to_say_when_not_ready():

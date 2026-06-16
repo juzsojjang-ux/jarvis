@@ -63,10 +63,17 @@ def make_tts(settings) -> TTSBackend:
         else:
             worker_cmd = [os.path.expanduser(settings.pocket_python),
                           "-m", "jarvis.tts.pocket_worker"]
-        return PocketTTS(
+        pocket = PocketTTS(
             worker_cmd=worker_cmd,
             ref_path=settings.pocket_ref_path,
             hf_home=getattr(settings, "pocket_hf_home", "") or None)
+        # Pocket 워커가 죽어도(가중치 로드 실패·torch 문제 등) edge로 소리는 나게 감싼다.
+        # (audit critical #2: 주석만 폴백을 약속했고 실제 폴백이 없어 런타임 실패 시 무음이던
+        # 것을 실배선. edge는 자체적으로 say로 또 폴백 → Pocket→edge→say 3중 안전망.)
+        from jarvis.tts.composite import FallbackTTS
+        from jarvis.tts.edge_tts_backend import EdgeTTS
+        edge = EdgeTTS(voice=getattr(settings, "edge_tts_voice", "en-GB-RyanNeural"))
+        return FallbackTTS(pocket, edge)
     if backend == "say":
         from jarvis.tts.system_say import SystemSayTTS
         return SystemSayTTS()

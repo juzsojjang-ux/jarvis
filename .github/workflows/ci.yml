@@ -59,15 +59,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download voice-models-v1 --dir voice_models --skip-existing
-      - name: Pocket 음색 가중치 받기·전개 (오프라인 번들용, 심볼릭 해제)
+      - name: Pocket 음색 가중치 받기·전개 (심볼릭→실파일, 윈도우 안전)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download voice-weights --pattern 'pocket-voice-weights.tar.gz' --dir /tmp/pkw --skip-existing
-          mkdir -p voice_models/pocket_hf
-          tar -xzf /tmp/pkw/pocket-voice-weights.tar.gz -C voice_models/pocket_hf
-          python packaging/desymlink_hf.py voice_models/pocket_hf   # 윈도우 심볼릭 깨짐 방지
+          python packaging/extract_hf_tar.py /tmp/pkw/pocket-voice-weights.tar.gz voice_models/pocket_hf
           test -d "voice_models/pocket_hf/hub/models--kyutai--pocket-tts" \
             || { echo '가중치 레이아웃 불일치(hub/models--kyutai--pocket-tts 없음)'; exit 1; }
       - name: 디스크 여유 (pip 캐시 정리)
@@ -113,14 +111,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download voice-models-v1 --dir voice_models --skip-existing
-      - name: Pocket 음색 가중치 받기·전개 (오프라인 번들용)
+      - name: Pocket 음색 가중치 받기·전개 (심볼릭→실파일, 양 플랫폼 동일)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download voice-weights --pattern 'pocket-voice-weights.tar.gz' --dir /tmp/pkw --skip-existing
-          mkdir -p voice_models/pocket_hf
-          tar -xzf /tmp/pkw/pocket-voice-weights.tar.gz -C voice_models/pocket_hf
-          python packaging/desymlink_hf.py voice_models/pocket_hf   # 심볼릭 의존 제거(양 플랫폼 동일)
+          python packaging/extract_hf_tar.py /tmp/pkw/pocket-voice-weights.tar.gz voice_models/pocket_hf
           test -d "voice_models/pocket_hf/hub/models--kyutai--pocket-tts" \
             || { echo '가중치 레이아웃 불일치(hub/models--kyutai--pocket-tts 없음)'; exit 1; }
       - name: PyInstaller 빌드

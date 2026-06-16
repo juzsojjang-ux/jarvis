@@ -3,9 +3,12 @@
 _UNSET 센티넬·자동감지(None 보존) 계약을 그대로 따른다(통역 모드 필수)."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 _UNSET = object()  # 미지정과 '의도적 None(자동감지)' 구분
+_log = logging.getLogger(__name__)
 
 
 class FasterWhisperSTT:
@@ -48,5 +51,11 @@ class FasterWhisperSTT:
             segments, _info = model.transcribe(
                 audio, language=lang, condition_on_previous_text=False, **kw)
             return "".join(getattr(s, "text", "") for s in segments).strip()
-        except Exception:  # noqa: BLE001 - 전사 실패는 빈 문자열(상위가 IDLE 처리)
+        except Exception as exc:  # noqa: BLE001 - 전사 실패는 빈 문자열(상위가 IDLE 처리)
+            # 1회 경고 — 모델 repo가 CT2 비호환(예: 윈도우에 MLX repo)이면 '조용한 무음'으로
+            # 끝나던 것을 드러낸다(audit critical #1). 매 발화 스팸은 막는다.
+            if not getattr(self, "_warned", False):
+                _log.warning("faster-whisper 전사 실패(%s: %s) — 빈 문자열(모델 repo 확인: %s)",
+                             type(exc).__name__, exc, self._repo)
+                self._warned = True
             return ""

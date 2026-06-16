@@ -197,6 +197,12 @@ class Orchestrator:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        # await 중 새 턴(_on_release/_on_wake/_announce)이 self._task를 다시 채웠다면, 그
+        # 새 턴의 재생/펌프를 지우면 안 된다(audit high #4: 옛 task가 blocking thread 안이라
+        # cancel이 늦게 풀리는 사이 새 턴이 시작되면, 막 큐된 새 답변 오디오가 통째로 날아가
+        # 무음이 되던 경합). self._task를 시작 시 None으로 비웠으므로 non-None = 새 턴.
+        if self._task is not None:
+            return
         self._drain_levels()  # stop the orb animating speech that was just cancelled
         if self._spk_pump is not None and not self._spk_pump.done():
             self._spk_pump.cancel()
