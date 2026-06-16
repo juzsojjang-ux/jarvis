@@ -66,6 +66,8 @@ jobs:
   build-macos:
     name: 맥 .app 빌드
     runs-on: macos-latest
+    env:
+      JARVIS_BUNDLE_POCKET: "1"      # 맥은 Pocket(torch) 무설치 번들 (spec이 이 토글을 본다)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,14 +78,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,winhud,hud]" "pyinstaller>=6.0"
+      - name: Pocket(torch) 빌드 의존성 설치
+        # PyInstaller Analysis는 '빌드 머신 메인 venv'에서 import해 추적한다 — 여기 없으면
+        # spec의 find_spec('pocket_tts') 분기가 스킵돼 조용히 무음 번들이 나간다.
+        run: pip install "pocket-tts[audio]" "torch>=2.5"
       - name: 음성 모델 받기 (Release 자산)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download voice-models-v1 --dir voice_models --skip-existing
+      - name: Pocket 음색 가중치 받기·전개 (오프라인 번들용)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download voice-weights --pattern 'pocket-voice-weights.tar.gz' --dir /tmp/pkw --skip-existing
+          mkdir -p voice_models/pocket_hf
+          tar -xzf /tmp/pkw/pocket-voice-weights.tar.gz -C voice_models/pocket_hf
+          test -d "voice_models/pocket_hf/hub/models--kyutai--pocket-tts" \
+            || { echo '가중치 레이아웃 불일치(hub/models--kyutai--pocket-tts 없음)'; exit 1; }
       - name: PyInstaller 빌드
         run: pyinstaller packaging/jarvis.spec --noconfirm
+      - name: Pocket 스모크 게이트 (무음 빌드 차단)
+        # 빌드된 .app에서 실제 1발화 합성(torch import + 오프라인 가중치 로드)을 돌려본다.
+        # 실패하면 여기서 잡 실패 → 깨진/무음 빌드가 릴리스로 안 나간다.
+        run: ./dist/JARVIS.app/Contents/MacOS/JARVIS --pocket-smoke
       - name: 압축 (.app)
         run: ditto -c -k --keepParent dist/JARVIS.app JARVIS-mac.zip
+      - name: 디스크 정리 (압축 후 dist/build 제거 — 러너 디스크 여유)
+        run: rm -rf dist build || true
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-mac
@@ -93,6 +114,9 @@ jobs:
   release:
     name: 설치파일 릴리스
     needs: [build-windows, build-macos]
+    # workflow_dispatch(브랜치 검증 빌드)에서는 릴리스를 올리지 않는다 — 'latest' 오염 방지.
+    # main 푸시/태그 푸시일 때만 게시. 검증은 빌드 잡의 스모크 게이트 + Artifacts로.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write          # 릴리스 생성/자산 업로드 권한

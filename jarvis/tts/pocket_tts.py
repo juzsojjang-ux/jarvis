@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 
 from jarvis.tts.melotts_kr import MeloTTSKR
 
@@ -24,8 +25,15 @@ class PocketTTS(MeloTTSKR):
             os.path.expanduser("~/jarvis/.venv-pocket/bin/python"),
             "-m", "jarvis.tts.pocket_worker",
         ]
-        self._repo_root = os.path.expanduser(repo_root or "~/jarvis")
-        env = {**os.environ, "PYTHONPATH": self._repo_root}
+        env = {**os.environ}
+        # frozen 번들: 워커는 같은 번들 인터프리터(--child=)로 떠 jarvis가 이미 번들 아카이브에
+        # 있다. 소스 repo PYTHONPATH를 걸면 stale/충돌 import가 되므로 걸지 않는다.
+        # dev: 워커가 별도 .venv-pocket이라 소스 jarvis를 import하도록 PYTHONPATH 주입.
+        if getattr(sys, "frozen", False):
+            self._repo_root = None
+        else:
+            self._repo_root = os.path.expanduser(repo_root or "~/jarvis")
+            env["PYTHONPATH"] = self._repo_root
         if ref_path:
             env["JARVIS_POCKET_REF"] = os.path.expanduser(ref_path)
         # 배포 설치본: 게이트된 음색 가중치를 토큰 없이 오프라인 로드. HF_HOME/오프라인을

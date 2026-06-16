@@ -313,6 +313,59 @@ if sys.platform == "darwin" and importlib.util.find_spec("WebKit") is not None:
     print("[jarvis.spec] pyobjc WebKit found — 맥 투명 오버레이 번들")
 
 # ---------------------------------------------------------------------------
+# 번들 Pocket(무설치 자비스 영어 음색) — JARVIS_BUNDLE_POCKET=1 일 때만 torch+pocket_tts 동봉.
+# 미설정(기본/경량 빌드)이면 기존처럼 torch를 excludes로 빼 가볍게(edge→ONNX) 유지한다.
+# CI(맥) 빌드 잡이 이 env를 켜고, pocket-tts[audio]+torch를 빌드 venv에 설치하고,
+# pocket-voice-weights.tar.gz 를 voice_models/pocket_hf 에 풀어둔다.
+# ---------------------------------------------------------------------------
+binaries = []
+excludes = [
+    # Heavy torch-based voice venvs — NOT bundled (post-install optional upgrade)
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "TTS",                 # coqui XTTS
+    "transformers",        # only pulled in by optional voice path
+    "faiss",
+    "noisereduce",
+    "demucs",
+    # Testing
+    "pytest",
+    "ruff",
+]
+_BUNDLE_POCKET = os.environ.get("JARVIS_BUNDLE_POCKET") == "1"
+if _BUNDLE_POCKET and importlib.util.find_spec("pocket_tts") is not None:
+    from PyInstaller.utils.hooks import collect_all
+    print("[jarvis.spec] JARVIS_BUNDLE_POCKET=1 — torch + pocket_tts 번들(무설치 Pocket 음성)")
+    for _pkg in ("torch", "torchaudio"):   # torch는 더는 제외하지 않는다(번들 대상)
+        if _pkg in excludes:
+            excludes.remove(_pkg)
+    for _pkg in ("torch", "pocket_tts"):
+        _d, _b, _h = collect_all(_pkg)
+        datas += _d
+        binaries += _b
+        hiddenimports += _h
+    # torch가 import-time에 lazy로 끌어오는 것들 — 놓치면 'No module named sympy' 류로
+    # torch import 자체가 실패해 Pocket이 통째 무음이 된다. 명시 보강.
+    hiddenimports += [
+        "pocket_tts", "jarvis.tts.pocket_worker", "jarvis.tts.pocket_tts",
+        "jarvis.tts.tts_worker", "jarvis.tts.ipc",
+        "torch", "einops", "safetensors", "sentencepiece", "beartype",
+        "scipy", "huggingface_hub", "sympy", "networkx", "mpmath",
+        "filelock", "fsspec", "jinja2",
+    ]
+    # 음색 가중치 캐시(HF 레이아웃, ~167MB)·영어 레퍼런스 wav 동봉.
+    _pk_cache = _data(REPO_ROOT / "voice_models" / "pocket_hf", "voice_models/pocket_hf")
+    if _pk_cache is not None:
+        datas.append(_pk_cache)
+    else:
+        print("[jarvis.spec] WARNING: voice_models/pocket_hf 없음 — Pocket 가중치 미동봉(무음 위험)",
+              file=sys.stderr)
+    _pk_ref = _data(REPO_ROOT / "voice_models" / "jarvis_en_ref.wav", "voice_models")
+    if _pk_ref is not None:
+        datas.append(_pk_ref)
+
+# ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
 block_cipher = None   # no encryption; None is the modern default
@@ -320,26 +373,13 @@ block_cipher = None   # no encryption; None is the modern default
 a = Analysis(
     [str(REPO_ROOT / "packaging" / "jarvis_launch.py")],
     pathex=[str(REPO_ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        # Heavy torch-based voice venvs — NOT bundled (post-install optional upgrade)
-        "torch",
-        "torchaudio",
-        "torchvision",
-        "TTS",                 # coqui XTTS
-        "transformers",        # only pulled in by optional voice path
-        "faiss",
-        "noisereduce",
-        "demucs",
-        # Testing
-        "pytest",
-        "ruff",
-    ],
+    excludes=excludes,
     noarchive=False,
     cipher=block_cipher,
 )

@@ -23,7 +23,11 @@ multiprocessing.freeze_support()
 # frozen 번들에서 본체가 오버레이/트레이를 띄울 때 자기 자신(JARVIS.exe)을 이
 # 플래그로 재실행한다. 본체 부팅 코드보다 반드시 먼저 처리해야 한다 — 안 그러면
 # 자식마다 본체가 통째로 또 떠 무한 증식한다(__main__._child_cmd 참조).
-_ALLOWED_CHILDREN = {"jarvis.hud.overlay_mac", "jarvis.hud.overlay_win", "jarvis.hud.tray"}
+_ALLOWED_CHILDREN = {"jarvis.hud.overlay_mac", "jarvis.hud.overlay_win", "jarvis.hud.tray",
+                     # 번들 Pocket: 본체 인터프리터를 --child=로 재실행해 torch 워커를 띄운다
+                     # (별도 .venv-pocket 없이). 이 디스패치는 _install_dist_logging 이전이라
+                     # sys.stdout이 진짜 fd → pocket_worker.main()의 dup IPC가 안전하다.
+                     "jarvis.tts.pocket_worker"}
 if len(sys.argv) >= 2 and sys.argv[1].startswith("--child="):
     _mod = sys.argv[1].split("=", 1)[1]
     if _mod not in _ALLOWED_CHILDREN:
@@ -63,6 +67,22 @@ if _voice_preset == "jarvis":
     except Exception:  # noqa: BLE001 - 마커 처리 실패가 부팅을 막으면 안 된다
         _FULL_VOICE = False
 
+# --- 2b) 번들된 Pocket(무설치) — 번들에 가중치(pocket_hf)+ref가 있으면 기본 음성을 Pocket으로.
+# 반드시 edge 기본값(3단계)보다 먼저 set해야 한다(setdefault라 먼저 정한 게 이김). 자산이
+# 없으면(경량 빌드) 아무것도 안 해 edge로 폴백 → 무음 방지. 마커(_FULL_VOICE)·사용자 지정이 우선.
+_meipass = getattr(sys, "_MEIPASS", None)
+if _meipass and not _FULL_VOICE and _voice_preset == "jarvis":
+    _vmp = Path(_meipass) / "voice_models"
+    _pk_hf = _vmp / "pocket_hf"
+    _pk_ref = _vmp / "jarvis_en_ref.wav"
+    if _pk_hf.is_dir() and _pk_ref.is_file():
+        os.environ.setdefault("JARVIS_TTS_BACKEND", "pocket")
+        os.environ.setdefault("JARVIS_VC_BACKEND", "null")   # Pocket=이미 자비스 영어 음색
+        os.environ.setdefault("JARVIS_REPLY_LANGUAGE", "en")
+        os.environ.setdefault("JARVIS_POCKET_PYTHON", sys.executable)
+        os.environ.setdefault("JARVIS_POCKET_REF_PATH", str(_pk_ref))
+        os.environ.setdefault("JARVIS_POCKET_HF_HOME", str(_pk_hf))
+
 # --- 3) 그래도 미정이면 torch-free 기본값(edge/onnx). setdefault라 위에서 정해졌으면 유지 ---
 os.environ.setdefault("JARVIS_TTS_BACKEND", "edge")
 os.environ.setdefault("JARVIS_VC_BACKEND", "onnx")
@@ -72,7 +92,6 @@ os.environ.setdefault("JARVIS_REPLY_LANGUAGE", "en")
 # config의 절대경로 기본값을 번들 경로로 덮어쓴다(사용자 env가 있으면 유지).
 # VAD(웨이크워드)·ONNX 음색 모델은 풀음성 여부와 무관하게 번들 경로를 기본으로 둔다
 # (풀음성 마커가 TTS/VC를 명시적으로 덮으면 ONNX 경로는 그냥 안 쓰일 뿐).
-_meipass = getattr(sys, "_MEIPASS", None)
 if _meipass:
     _vm = Path(_meipass) / "voice_models"
     os.environ.setdefault("JARVIS_ONNX_MODEL_PATH", str(_vm / "jarvis.onnx"))
@@ -161,6 +180,36 @@ def _install_dist_logging():
     crash_log = open(_LOG_DIR / "crash.log", "a", encoding="utf-8", errors="replace", buffering=1)
     faulthandler.enable(crash_log)
     return crash_log
+
+
+# --- 빌드 게이트: --pocket-smoke 는 번들 Pocket이 진짜 도는지 1발화 합성으로 검증하고 종료 ---
+# CI가 빌드된 .app에서 이걸 돌려 (torch import + 오프라인 가중치 로드 + 합성)이 되는지 확인한다.
+# 무음 빌드(torch/hiddenimport 누락)를 사용자에게 내보내기 전에 잡는 게이트.
+def _pocket_smoke() -> int:
+    hf = os.environ.get("JARVIS_POCKET_HF_HOME")
+    if hf:
+        os.environ["HF_HOME"] = os.path.expanduser(hf)
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    ref = os.environ.get("JARVIS_POCKET_REF_PATH")
+    if ref:
+        os.environ["JARVIS_POCKET_REF"] = ref
+    try:
+        from jarvis.tts.pocket_worker import make_pocket_synth
+        synth = make_pocket_synth()
+        pcm, sr = synth("Good evening, sir. All systems are online.")
+        n = int(getattr(pcm, "size", 0))
+        print(f"[POCKET-SMOKE] pcm_samples={n} sr={sr} hf={hf!r} ref={ref!r}")
+        return 0 if n > 0 else 3
+    except Exception as exc:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        print(f"[POCKET-SMOKE] FAILED: {type(exc).__name__}: {exc}")
+        return 4
+
+
+if "--pocket-smoke" in sys.argv:
+    sys.exit(_pocket_smoke())
 
 
 from jarvis.__main__ import main
