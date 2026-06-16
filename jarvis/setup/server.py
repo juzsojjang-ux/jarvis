@@ -519,7 +519,7 @@ SETUP_HTML = """\
   // --- 개인용 풀음성 업그레이드 ---
   const btnUpgrade = document.getElementById('btnUpgrade');
   const vpLog = document.getElementById('vpLog');
-  let pollTimer = null;
+  let upgradeTimer = null;
 
   function vmode() {
     const c = document.querySelector('input[name="vmode"]:checked');
@@ -532,11 +532,11 @@ SETUP_HTML = """\
       const s = await res.json();
       if (s.log) { vpLog.textContent = s.log; vpLog.scrollTop = vpLog.scrollHeight; }
       if (s.state === 'done') {
-        clearInterval(pollTimer); pollTimer = null;
+        clearInterval(upgradeTimer); upgradeTimer = null;
         btnUpgrade.disabled = false;
         btnUpgrade.textContent = '✓ 완료 — 자비스를 재시작하세요';
       } else if (s.state === 'error') {
-        clearInterval(pollTimer); pollTimer = null;
+        clearInterval(upgradeTimer); upgradeTimer = null;
         btnUpgrade.disabled = false;
         btnUpgrade.textContent = '실패 — 다시 시도';
       }
@@ -561,7 +561,7 @@ SETUP_HTML = """\
         vpLog.textContent = data.error || '시작 실패';
         return;
       }
-      if (!pollTimer) pollTimer = setInterval(pollStatus, 2000);
+      if (!upgradeTimer) upgradeTimer = setInterval(pollStatus, 2000);
     } catch (e) {
       btnUpgrade.disabled = false;
       btnUpgrade.textContent = '개인용 풀음성으로 업그레이드';
