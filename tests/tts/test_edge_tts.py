@@ -33,13 +33,49 @@ def test_empty_text_returns_empty():
     assert out.dtype == np.float32 and len(out) == 0
 
 
-def test_fetch_failure_returns_silence_not_raise():
+class _FakeSay:
+    """주입용 가짜 say 폴백 — 고정 톤 반환."""
+    def __init__(self, sample_rate=22050):
+        self.sample_rate = sample_rate
+        self.calls = []
+
+    async def synth(self, text):
+        self.calls.append(text)
+        return (0.1 * np.ones(2205, dtype=np.float32))
+
+
+def test_fetch_failure_falls_back_to_say():
+    # edge 실패 시 무음이 아니라 say 폴백으로 소리가 나야 한다(배포 .app 무음 회귀 방지).
     async def boom(text, voice):
         raise RuntimeError("network down")
 
-    tts = EdgeTTS(fetch=boom)
+    say = _FakeSay()
+    tts = EdgeTTS(fetch=boom, fallback=say)
     out = asyncio.run(tts.synth("hi"))
-    assert len(out) == 0  # 무음, 예외 없음
+    assert len(out) > 0 and out.dtype == np.float32  # 폴백 오디오
+    assert say.calls == ["hi"]                       # 폴백이 실제로 호출됨
+    assert tts.sample_rate == 22050                  # 폴백의 샘플레이트로 갱신
+
+
+def test_empty_audio_falls_back_to_say():
+    # edge가 '성공'했지만 빈 오디오를 주면 그것도 실패로 보고 폴백.
+    async def empty(text, voice):
+        return b""
+
+    say = _FakeSay()
+    out = asyncio.run(EdgeTTS(fetch=empty, fallback=say).synth("yo"))
+    assert len(out) > 0 and say.calls == ["yo"]
+
+
+def test_fetch_failure_no_fallback_nonmac_returns_silence(monkeypatch):
+    # 비-macOS이고 폴백이 없으면(말 그대로 낼 수단이 없으면) 무음 — 단, 예외는 안 난다.
+    monkeypatch.setattr("jarvis.tts.edge_tts_backend.sys.platform", "linux")
+
+    async def boom(text, voice):
+        raise RuntimeError("network down")
+
+    out = asyncio.run(EdgeTTS(fetch=boom).synth("hi"))
+    assert len(out) == 0
 
 
 def test_stereo_downmixed_to_mono():

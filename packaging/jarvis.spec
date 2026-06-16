@@ -201,6 +201,18 @@ hiddenimports = [
     # Third-party runtime deps imported lazily
     "edge_tts",
     "edge_tts.communicate",
+    # edge-tts의 HTTP/SSL 백엔드 = aiohttp. aiohttp는 aiosignal을 필수로 import하는데
+    # (aiohttp.metadata requires 'aiosignal>=1.4.0'; import aiohttp가 곧 aiosignal 로드)
+    # PyInstaller가 aiosignal을 놓쳐 번들에서 빠지면 'import aiohttp'가 ImportError로
+    # 죽고 → edge-tts가 통째로 무음이 된다(배포 .app 목소리 안 남 버그의 진짜 원인).
+    # aiosignal 외 yarl/multidict/frozenlist/propcache/certifi는 보강(대개 자동 포함).
+    "aiohttp",
+    "aiosignal",
+    "yarl",
+    "multidict",
+    "frozenlist",
+    "propcache",
+    "certifi",
     "faster_whisper",
     "soundfile",
     "sounddevice",
