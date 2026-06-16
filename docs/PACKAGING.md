@@ -231,6 +231,7 @@ signtool sign /fd SHA256 /p12 cert.pfx /p <password> `
 | Unsigned app on developer Mac | Works (right-click → Open) | — |
 | Distribution to end-users (Mac) | **BLOCKED** | Apple Developer ID ($99/yr) + notarization |
 | Distribution to end-users (Windows) | **BLOCKED** | EV code-signing cert (~$300-600/yr) |
+| Pocket JARVIS-clone voice | Post-install (first-run "Pocket 설치") | Needs Python 3.11 + ~GB torch; **no Hugging Face token** — weights (CC-BY-4.0) are fetched token-free from the `voice-weights` release and loaded offline, scoped to the Pocket worker so Whisper STT still downloads normally |
 | RVC JARVIS-clone voice | Not included | Post-install upgrade (see below) |
 | macOS Accessibility permission | Works | Manual grant in System Settings |
 

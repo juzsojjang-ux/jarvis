@@ -70,13 +70,31 @@ print("==> 마커 작성:", marker)
 
 if ($Mode -eq "pocket") {
     $Venv = Join-Path $Base "venv-pocket"
+    $HfCache = Join-Path $Base "hf-cache"
     $py   = Join-Path $Venv "Scripts\python.exe"
     $pip  = Join-Path $Venv "Scripts\pip.exe"
     Write-Host "==> Pocket venv 생성 -> $Venv"
     if (-not (Test-Path $py)) { & $PythonExe -m venv $Venv }
     & $pip install -U pip wheel | Out-Null
-    Write-Host "==> pocket-tts + 런타임 의존성 설치"
+    Write-Host "==> pocket-tts + 런타임 의존성 설치(torch 포함 — 수백 MB)"
     & $pip install pocket-tts numpy soundfile
+
+    # 음색 가중치(CC-BY-4.0): 토큰 없이 우리 릴리스에서 받아 HF 캐시에 배치. 오프라인
+    # 플래그는 Pocket 워커에만 스코프(JARVIS_POCKET_HF_HOME) — 전역이면 Whisper STT가 막힌다.
+    $WeightsUrl = if ($env:JARVIS_POCKET_WEIGHTS_URL) { $env:JARVIS_POCKET_WEIGHTS_URL } `
+        else { "https://github.com/juzsojjang-ux/jarvis/releases/download/voice-weights/pocket-voice-weights.tar.gz" }
+    if (-not (Test-Path (Join-Path $HfCache "hub\models--kyutai--pocket-tts"))) {
+        Write-Host "==> 음색 가중치 내려받기(=167MB) -> $HfCache"
+        New-Item -ItemType Directory -Force -Path $HfCache | Out-Null
+        $Tarb = Join-Path $Base "pocket-weights.tar.gz"
+        Invoke-WebRequest -Uri $WeightsUrl -OutFile $Tarb
+        # Windows 10+ 의 bsdtar(tar.exe)가 .tar.gz 를 풀 수 있다.
+        & tar -xzf $Tarb -C $HfCache
+        Remove-Item -Force $Tarb
+    } else {
+        Write-Host "==> 음색 가중치 이미 있음 — 건너뜀"
+    }
+
     Copy-Item -Force "$Assets\jarvis_en_ref.wav" "$Models\jarvis_en_ref.wav"
     Inject-Pth $Venv
     Write-Marker $py "pocket" @(
@@ -84,15 +102,12 @@ if ($Mode -eq "pocket") {
         "JARVIS_VC_BACKEND=null",
         "JARVIS_REPLY_LANGUAGE=en",
         "JARVIS_POCKET_PYTHON=$py",
-        "JARVIS_POCKET_REF_PATH=$Models\jarvis_en_ref.wav"
+        "JARVIS_POCKET_REF_PATH=$Models\jarvis_en_ref.wav",
+        "JARVIS_POCKET_HF_HOME=$HfCache"
     )
     Write-Host ""
-    Write-Host "================================================================"
-    Write-Host " Pocket 음색 가중치는 Hugging Face 게이트입니다(1회 수동):"
-    Write-Host "   1) https://huggingface.co/kyutai/pocket-tts 에서 'Agree and access'"
-    Write-Host "   2) Read 토큰 발급 후:  $Venv\Scripts\hf.exe auth login --token hf_xxxxx"
-    Write-Host " 그다음 JARVIS 재시작 시 개인용과 동일한 자비스 영어 음성이 켜집니다."
-    Write-Host "================================================================"
+    Write-Host "==> Pocket 음성 설치 완료 - HF 토큰 불필요. JARVIS를 재시작하세요."
+    Write-Host "    음색 모델: Kyutai pocket-tts (CC-BY-4.0)"
 }
 elseif ($Mode -eq "rvc") {
     # edge → torch-RVC(자비스 음색). fairseq-free(transformers hubert). ⚠ 검증 필요.

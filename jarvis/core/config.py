@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     # Clean 16s continuous English JARVIS take — Pocket reproduces the sample's quality,
     # so a single clean reference clones more consistently than a concatenation.
     pocket_ref_path: str = "~/jarvis/voice_models/jarvis_en_ref.wav"
+    # 배포 설치(upgrade_full_voice)가 가리키는 HF 캐시. 비어 있지 않으면 Pocket 워커
+    # *프로세스에만* HF_HOME + HF_HUB_OFFLINE=1을 건다 — 게이트된 음색 가중치를 토큰
+    # 없이 오프라인 로드(전역에 걸면 아직 캐시 안 된 Whisper STT 다운로드가 막힌다).
+    pocket_hf_home: str = ""
     xtts_python: str = "~/jarvis/.venv-xtts/bin/python"
     xtts_ref_path: str = "~/jarvis/voice_models/jarvis_ref.wav"
     xtts_device: str = "cpu"          # "cpu" (safe) | "mps" (faster, occasionally flaky)
@@ -103,6 +107,9 @@ class Settings(BaseSettings):
     wake_words: list[str] = ["자비스", "쟈비스", "재비스", "자비쓰", "자뷔스",
                              "지비스", "jarvis", "일어나", "일어나봐"]
     follow_up_s: float = 8.0          # 답변 후 웨이크워드 없이 듣는 창
+    # "자비스"만 부르면 바로 "네 주인님?"으로 막지 않고 이 시간(초)만큼 듣는다 —
+    # 그 안에 '말을 시작하면' 명령으로 받는다(웨이크워드 생략). 정적이면 그제야 인사.
+    wake_grace_s: float = 3.0
     wake_vad_threshold: float = 0.5   # silero 말소리 확률 문턱값
     wake_silence_ms: int = 800        # 이만큼 조용하면 발화 종료
     wake_max_utterance_s: float = 30.0  # 긴 대화를 통째로 변환하는 낭비 방지 캡

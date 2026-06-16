@@ -60,6 +60,8 @@ class Orchestrator:
         self._ack_cache: dict[str, np.ndarray] = {}
         # 연속대화: 답변 직후 이 시각까지는 웨이크워드 없이 follow-up을 받는다.
         self._follow_up_until = 0.0
+        # "자비스"만 부른 뒤 3초 듣는 창이 정적으로 끝나면 그제야 "네 주인님?" 인사할지.
+        self._greet_if_idle = False
         # 에코 쿨다운: 자비스 발화 직후 잔향을 자기 목소리로 오인하지 않도록.
         self._wake_blocked_until = 0.0
         self._last_stt_s: float | None = None
@@ -458,6 +460,13 @@ class Orchestrator:
     # 전체를 변환해 명령 전문을 얻는다.
     _WAKE_PREFIX_S = 4.0
 
+    @staticmethod
+    def _speech_start(arrived: float, n_samples: int, sample_rate: int = 16000) -> float:
+        """발화가 '시작된' 대략 시각 = 도착(무음으로 종료 확정) 시각 − 캡처 길이.
+        follow-up/3초 창 판정을 '말을 끝낸 시점'이 아니라 '말을 시작한 시점' 기준으로
+        만든다 — 사용자 요청("3초 안에 말을 시작하면 듣기")을 그대로 구현."""
+        return arrived - (n_samples / float(sample_rate))
+
     def _on_wake_utterance(self, pcm: np.ndarray) -> None:
         # WakeListener가 같은 루프에서 호출. self._task로 돌려 PTT 바지인이
         # 기존 경로 그대로 취소할 수 있게 한다.
@@ -476,9 +485,9 @@ class Orchestrator:
         try:
             loop = asyncio.get_running_loop()
             t0 = loop.time()
-            # follow-up 판정은 발화가 '도착한' 시각 기준 — STT가 걸린 시간만큼
-            # 창이 잠식되어 끝자락 follow-up이 조용히 버려지는 일을 막는다.
-            ref = arrived if arrived is not None else loop.time()
+            # follow-up 판정은 '말을 시작한' 시각 기준(도착 시각 − 캡처 길이) — 3초 창
+            # 끝자락에서 시작해 길게 말한 명령이 '끝낸 시각'으로 잘려 버려지지 않게 한다.
+            ref = self._speech_start(arrived, len(pcm)) if arrived is not None else loop.time()
             in_follow_up = ref < self._follow_up_until
             prefix_n = int(self._WAKE_PREFIX_S * 16000)
             gate_pcm = pcm if in_follow_up or len(pcm) <= prefix_n else pcm[:prefix_n]
@@ -498,7 +507,8 @@ class Orchestrator:
                 if m2:
                     command = c2  # 전문에서 명령을 다시 뽑는다(접두 변환은 잘려 있다)
             if not command:
-                await self._wake_greet()  # "자비스"만 불렀다
+                # "자비스"만 불렀다 — 바로 인사로 막지 말고 3초 듣는다(사용자 요청).
+                self._listen_after_wake()
                 return
             self._last_stt_s = loop.time() - t0
             await self._pipeline_text(command)
@@ -511,11 +521,25 @@ class Orchestrator:
         self.state = State.IDLE
         self._enter_attentive()  # 웨이크 경로에서만 도달 — 리스너 존재가 보장된다
 
-    def _enter_attentive(self) -> None:
+    def _listen_after_wake(self) -> None:
+        """"자비스"만 불렀을 때: 바로 "네 주인님?"으로 마이크를 막지 않고, wake_grace_s초
+        동안(웨이크워드 생략 가능) 듣는다. 그 안에 '말을 시작하면' 그 발화를 명령으로
+        받는다(_handle_wake의 follow-up 경로). 정적이면 그제야 가볍게 인사한다. 우리가
+        말하지 않으니 에코 쿨다운 0 — 사용자가 곧장 말해도 첫 음절이 잘리지 않는다."""
+        self.state = State.IDLE
+        self._enter_attentive(window=self.settings.wake_grace_s,
+                              greet_if_idle=True, echo_cooldown=0.0)
+
+    def _enter_attentive(self, *, window: float | None = None,
+                         greet_if_idle: bool = False,
+                         echo_cooldown: float | None = None) -> None:
         # follow-up 창을 열고 HUD에 '아직 듣는 중'을 은은하게 표시한다.
         loop = asyncio.get_running_loop()
-        self._follow_up_until = loop.time() + self.settings.follow_up_s
-        self._wake_blocked_until = loop.time() + self.settings.wake_echo_cooldown_s
+        win = self.settings.follow_up_s if window is None else window
+        cd = self.settings.wake_echo_cooldown_s if echo_cooldown is None else echo_cooldown
+        self._follow_up_until = loop.time() + win
+        self._wake_blocked_until = loop.time() + cd
+        self._greet_if_idle = greet_if_idle
         self._publish("attentive")
         if self._attentive_timer is not None and not self._attentive_timer.done():
             self._attentive_timer.cancel()
@@ -525,9 +549,15 @@ class Orchestrator:
     async def _attentive_expiry(self) -> None:
         loop = asyncio.get_running_loop()
         await asyncio.sleep(max(0.0, self._follow_up_until - loop.time()))
-        # 창이 연장(새 답변)되지 않았고 여전히 한가할 때만 STANDBY로 복귀.
+        # 창이 연장(새 답변/명령)되지 않았고 여전히 한가할 때만 처리.
         if self.state == State.IDLE and loop.time() >= self._follow_up_until:
-            self._publish("idle")
+            if self._greet_if_idle:
+                # 3초간 말이 없었다 — 그제야 "네 주인님?"으로 응답(이후 일반 follow-up 창).
+                self._greet_if_idle = False
+                self._attentive_timer = None  # 자기 자신 취소 회피(_wake_greet이 새 창을 연다)
+                await self._wake_greet()
+            else:
+                self._publish("idle")
 
     # ----- 전권 위임 모드 -----
     def _trust_command(self, text: str) -> str | None:

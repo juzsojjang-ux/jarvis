@@ -181,19 +181,50 @@ def test_wake_command_runs_pipeline():
     assert orch.state == State.IDLE
 
 
-def test_bare_wake_word_greets_and_opens_follow_up():
+def test_bare_wake_listens_then_greets_on_silence():
+    # 새 동작: "자비스"만 부르면 바로 막지 말고 wake_grace_s초 듣는다. 그 안에 말을
+    # 시작하면 명령으로 받고, 정적이면 그제야 "네 주인님?"으로 인사한다.
     orch, pb = _make()
     orch.stt = _WakeSTT("자비스")
+    orch.settings.wake_grace_s = 0.05  # 테스트용 짧은 창
 
     async def run():
         orch._on_wake_utterance(np.zeros(8000, dtype=np.float32))
         await orch._task
-        return asyncio.get_running_loop().time() < orch._follow_up_until
+        no_greet_yet = len(pb.feeds) == 0  # 즉시 막지 않음(피드 없음)
+        in_window = asyncio.get_running_loop().time() < orch._follow_up_until
+        greet_armed = orch._greet_if_idle  # 정적이면 인사하도록 무장
+        await orch._attentive_timer        # 0.05s 정적 경과 → 인사
+        return no_greet_yet, in_window, greet_armed
 
-    in_window = asyncio.run(run())
-    assert len(pb.feeds) == 1          # "Yes, sir?" 한 마디
+    no_greet_yet, in_window, greet_armed = asyncio.run(run())
+    assert no_greet_yet
     assert in_window
+    assert greet_armed
+    assert len(pb.feeds) == 1          # 정적 후에야 "Yes, sir?" 한 마디
     assert orch.state == State.IDLE
+
+
+def test_speech_start_uses_start_not_end_of_utterance():
+    # 1.0s(16000샘플) 발화가 t=10.0에 도착(종료) → 시작은 t≈9.0
+    assert abs(Orchestrator._speech_start(10.0, 16000) - 9.0) < 1e-6
+    assert Orchestrator._speech_start(5.0, 0) == 5.0  # 빈 발화: 시작=도착
+
+
+def test_long_command_started_in_window_is_accepted():
+    # 창이 '말 끝'으로는 이미 닫혔지만 '말 시작'은 창 안 → 시작 시점 기준이라 수용.
+    orch, pb = _make()
+    orch.wake = object()
+    orch.stt = _WakeSTT("내일 오후 일정 전부 정리해서 알려줘")  # 웨이크워드 없음
+
+    async def run():
+        now = asyncio.get_running_loop().time()
+        orch._follow_up_until = now - 0.5          # 발화 끝(now)은 창 밖
+        pcm = np.zeros(32000, dtype=np.float32)    # 2.0s → 시작 now-2.0 (창 안)
+        await orch._handle_wake(pcm, arrived=now)
+        return len(pb.feeds)
+
+    assert asyncio.run(run()) >= 1                  # 시작이 창 안이라 명령으로 수용
 
 
 def test_non_wake_utterance_discarded():

@@ -53,7 +53,8 @@ def make_tts(settings) -> TTSBackend:
         return PocketTTS(
             worker_cmd=[os.path.expanduser(settings.pocket_python),
                         "-m", "jarvis.tts.pocket_worker"],
-            ref_path=settings.pocket_ref_path)
+            ref_path=settings.pocket_ref_path,
+            hf_home=getattr(settings, "pocket_hf_home", "") or None)
     if backend == "say":
         from jarvis.tts.system_say import SystemSayTTS
         return SystemSayTTS()

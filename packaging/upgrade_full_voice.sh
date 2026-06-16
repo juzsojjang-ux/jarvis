@@ -91,13 +91,36 @@ print("==> 마커 작성:", marker)
 
 if [ "$MODE" = "pocket" ]; then
   VENV="$BASE/venv-pocket"
+  HFCACHE="$BASE/hf-cache"
   PYV="${JARVIS_POCKET_PYTHON_BIN:-python3.11}"
   command -v "$PYV" >/dev/null 2>&1 || { echo "ERROR: $PYV 없음. brew install python@3.11" >&2; exit 1; }
   echo "==> Pocket venv 생성 → $VENV ($PYV)"
   [ -x "$VENV/bin/python" ] || "$PYV" -m venv "$VENV"
   "$VENV/bin/pip" install -U pip wheel >/dev/null
-  echo "==> pocket-tts + 런타임 의존성 설치"
+  echo "==> pocket-tts + 런타임 의존성 설치(torch 포함 — 수백 MB)"
   "$VENV/bin/pip" install pocket-tts numpy soundfile
+
+  # --- 음색 가중치(209MB, CC-BY-4.0): 토큰 없이 우리 릴리스에서 받아 HF 캐시에 배치 ---
+  # Kyutai pocket-tts 가중치는 HF에서 게이트(수동 동의)되지만 라이선스가 CC-BY-4.0이라
+  # 재배포가 허용된다(© Kyutai, CC-BY-4.0). 받아서 오프라인으로 쓰므로 수신자는 HF
+  # 계정·토큰·동의가 전혀 필요 없다. 오프라인 플래그는 Pocket 워커에만 스코프된다
+  # (JARVIS_POCKET_HF_HOME) — 전역 HF_HUB_OFFLINE은 Whisper STT 첫 다운로드를 막는다.
+  WEIGHTS_URL="${JARVIS_POCKET_WEIGHTS_URL:-https://github.com/juzsojjang-ux/jarvis/releases/download/voice-weights/pocket-voice-weights.tar.gz}"
+  if [ ! -d "$HFCACHE/hub/models--kyutai--pocket-tts" ]; then
+    echo "==> 음색 가중치 내려받기(≈167MB) → $HFCACHE"
+    mkdir -p "$HFCACHE"
+    TARB="$BASE/pocket-weights.tar.gz"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fL --retry 3 -o "$TARB" "$WEIGHTS_URL"
+    else
+      wget -O "$TARB" "$WEIGHTS_URL"
+    fi
+    tar -xzf "$TARB" -C "$HFCACHE"
+    rm -f "$TARB"
+  else
+    echo "==> 음색 가중치 이미 있음 — 건너뜀"
+  fi
+
   cp -f "$ASSETS/jarvis_en_ref.wav" "$MODELS/jarvis_en_ref.wav"
   inject_pth "$VENV"
   write_marker "$VENV/bin/python" pocket \
@@ -105,15 +128,11 @@ if [ "$MODE" = "pocket" ]; then
     "JARVIS_VC_BACKEND=null" \
     "JARVIS_REPLY_LANGUAGE=en" \
     "JARVIS_POCKET_PYTHON=$VENV/bin/python" \
-    "JARVIS_POCKET_REF_PATH=$MODELS/jarvis_en_ref.wav"
+    "JARVIS_POCKET_REF_PATH=$MODELS/jarvis_en_ref.wav" \
+    "JARVIS_POCKET_HF_HOME=$HFCACHE"
   echo
-  echo "================================================================"
-  echo " Pocket 음색 가중치는 Hugging Face 게이트입니다(1회 수동):"
-  echo "   1) https://huggingface.co/kyutai/pocket-tts 에서 'Agree and access'"
-  echo "   2) Read 토큰 발급 후:"
-  echo "      $VENV/bin/hf auth login --token hf_xxxxx"
-  echo " 그다음 JARVIS를 재시작하면 개인용과 동일한 자비스 영어 음성이 켜집니다."
-  echo "================================================================"
+  echo "==> Pocket 음성 설치 완료 — HF 토큰 불필요. JARVIS를 재시작하세요."
+  echo "    음색 모델: Kyutai pocket-tts (CC-BY-4.0)"
 
 elif [ "$MODE" = "rvc" ]; then
   # 개인용 한국어 음색: MeloTTS-KR → torch-RVC. torch/fairseq 빌드라 무겁다.
