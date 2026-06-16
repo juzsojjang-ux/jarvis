@@ -73,6 +73,19 @@ def split_for_pocket(text: str, budget: float = _TOKEN_BUDGET) -> list[str]:
     return merged
 
 
+def _trim_edge_silence(a: np.ndarray, sr: int, thresh: float = 0.012,
+                       keep_ms: int = 35) -> np.ndarray:
+    """조각의 앞뒤 무음/늘어지는 꼬리를 다듬는다 — Pocket이 조각 끝에 붙이는 긴 무음이
+    '중간에 늘어지는' 체감을 만든다. keep_ms 만큼만 남겨 자연스러운 호흡은 유지."""
+    if a.size == 0:
+        return a
+    nz = np.where(np.abs(a) > thresh)[0]
+    if nz.size == 0:
+        return a[: int(keep_ms * sr / 1000)]
+    keep = int(keep_ms * sr / 1000)
+    return a[max(0, nz[0] - keep): min(a.size, nz[-1] + keep)]
+
+
 def make_pocket_synth():
     """Build the Pocket-TTS synth: english text -> (float32 pcm, 24000), JARVIS voice."""
     from pocket_tts import TTSModel
@@ -84,7 +97,7 @@ def make_pocket_synth():
     temp = float(os.environ.get("JARVIS_POCKET_TEMP", "0.45"))
     model = TTSModel.load_model(temp=temp)
     voice_state = model.get_state_for_audio_prompt(ref)  # clone once at startup
-    gap = np.zeros(int(0.06 * SAMPLE_RATE), dtype=np.float32)  # 60ms between pieces
+    gap = np.zeros(int(0.025 * SAMPLE_RATE), dtype=np.float32)  # 25ms — 늘어짐/끊김 줄임
 
     fade_n = int(0.005 * SAMPLE_RATE)  # 조각 경계 5ms 페이드 — 클릭/뭉개짐 방지
     fade_in = np.linspace(0.0, 1.0, fade_n, dtype=np.float32)
@@ -97,9 +110,11 @@ def make_pocket_synth():
             return np.zeros(0, dtype=np.float32), SAMPLE_RATE
         parts: list[np.ndarray] = []
         for i, piece in enumerate(pieces):
-            audio = model.generate_audio(voice_state, piece)
+            # frames_after_eos=1: 문장 끝 뒤에 생성하는 여분 프레임 최소화(늘어지는 꼬리↓)
+            audio = model.generate_audio(voice_state, piece, frames_after_eos=1)
             a = audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio)
             a = np.asarray(a, dtype=np.float32).reshape(-1)
+            a = _trim_edge_silence(a, int(model.sample_rate))  # 앞뒤 무음 꼬리 다듬기
             if a.size > 2 * fade_n:  # 경계 페이드(첫/끝 5ms)
                 a[:fade_n] *= fade_in
                 a[-fade_n:] *= fade_out

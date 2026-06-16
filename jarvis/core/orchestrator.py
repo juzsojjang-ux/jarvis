@@ -321,6 +321,7 @@ class Orchestrator:
 
         producer = asyncio.create_task(_produce())
         spoken_parts: list[str] = []
+        seg_samples: list[int] = []  # 문장별 재생 샘플 수 — 자막을 재생에 맞춰 띄우려고
         try:
             while True:
                 sentence = await synth_q.get()
@@ -329,8 +330,8 @@ class Orchestrator:
                 _mark_first()
                 spoken_parts.append(sentence)
                 # 발화 중엔 영어 자막을 띄우지 않는다(영어 자막 방지). 한국어 자막은
-                # 아래 _finish_speaking에서 짧게 끊어 순차로 보여준다.
-                await self._speak(sentence)
+                # 아래 _finish_speaking에서 문장 단위로 재생에 맞춰 보여준다.
+                seg_samples.append(await self._speak(sentence))
         finally:
             if not producer.done():
                 producer.cancel()
@@ -343,7 +344,7 @@ class Orchestrator:
         # 마지막 자막: 두뇌가 붙인 한국어 번역([KO])을 우선. 그게 비었으면(두뇌가 번역을
         # 빼먹은 경우) 말한 내용을 한국어로 번역해 채운다 — '번역 안 된 영어 자막'을 막는다.
         subtitle = await self._korean_subtitle(spoken_parts)
-        await self._finish_speaking(subtitle)
+        await self._finish_speaking(subtitle, seg_samples=seg_samples)
         # 이번 턴 토큰 사용량 집계(있으면) — "사용량" 명령으로 조회한다.
         try:
             u = getattr(self.brain, "last_usage", None)
@@ -412,11 +413,52 @@ class Orchestrator:
         # 영어로 말하고 한국어 자막을 띄우므로 유용 → 유지.
         return not str(getattr(self.settings, "reply_language", "en")).lower().startswith("ko")
 
-    async def _finish_speaking(self, subtitle: str) -> None:
-        # 자막을 한 번에 다 띄우면 길어서 화면을 가린다 — 짧은 청크로 나눠, 남은
-        # 오디오 길이에 맞춰 간격을 배분해 말하는 것과 같이 흘러가게 한다(동기).
+    @staticmethod
+    def _split_ko_sentences(text: str) -> list[str]:
+        """한국어 자막을 문장 단위로 쪼갠다(문장부호 기준, 줄바꿈 포함)."""
+        parts = re.split(r"(?<=[.!?。…])\s+|\n+", (text or "").strip())
+        return [p.strip() for p in parts if p.strip()]
+
+    async def _subtitle_synced(self, ko_sents: list[str], seg_samples: list[int]) -> None:
+        """한국어 문장을 영어 문장의 '재생 구간'에 맞춰 띄운다. 재생 위치(playback.pending)를
+        추적해, 지금 재생 중인 영어 문장 i에 해당하는 한국어 문장 i를 보여준다 — 자막이
+        발화와 타이밍이 맞는다(균등 분배가 아니라 실제 재생 기준)."""
+        total = sum(seg_samples)
+        if total <= 0:
+            self._publish("speaking", 0.3, ko_sents[0] if ko_sents else None)
+            return
+        cum, s = [], 0
+        for n in seg_samples:
+            s += n
+            cum.append(s)  # 문장 i의 끝 누적 샘플
+        shown = -1
+        for _ in range(int(45 / _HUD_HOP_S)):  # ~45s 안전 캡
+            pending = self.playback.pending() if hasattr(self.playback, "pending") else 0
+            played = total - min(total, max(0, pending))  # 답변 중 재생된 양(샘플)
+            i = 0
+            while i < len(cum) - 1 and played >= cum[i]:
+                i += 1
+            if i != shown and i < len(ko_sents):
+                shown = i
+                self._publish("speaking", 0.28, ko_sents[i])
+            pump_busy = self._spk_pump is not None and not self._spk_pump.done()
+            if pending <= 0 and not pump_busy:
+                break
+            await asyncio.sleep(_HUD_HOP_S)
+
+    async def _finish_speaking(self, subtitle: str,
+                               seg_samples: list[int] | None = None) -> None:
         if not self._subtitles_on():
             subtitle = ""  # 한국어 모드: 자막 끔
+        # 문장 단위 동기: 한국어 문장 i를 영어 문장 i가 '재생되는 동안' 띄운다(타이밍 일치).
+        # 재생 위치 추적이 가능(pending)하고 한국어/영어 문장 수가 같을 때만. 아니면 청크 폴백.
+        if subtitle and seg_samples and hasattr(self.playback, "pending"):
+            ko = self._split_ko_sentences(subtitle)
+            segs = [n for n in seg_samples if n and n > 0]
+            if len(ko) > 1 and len(ko) == len(segs):
+                await self._subtitle_synced(ko, segs)
+                return
+        # 폴백: 자막을 짧은 청크로 나눠 남은 오디오에 맞춰 흘린다(문장 수 불일치/단문).
         chunks = self._split_subtitle(subtitle)
         idx = 0
         if chunks:
@@ -1009,11 +1051,13 @@ class Orchestrator:
             self._spk_pump = asyncio.create_task(self._spk_pump_loop())
         self.playback.feed(out)
 
-    async def _speak(self, sentence: str, subtitle: str | None = None) -> None:
+    async def _speak(self, sentence: str, subtitle: str | None = None) -> int:
+        # 반환: 이 문장의 재생 샘플 수(playback_rate 기준). 자막을 문장 단위로 재생에
+        # 맞춰 띄우려고 호출부가 쓴다. 실패/스킵이면 0.
         # Empty/whitespace chunks make MeloTTS emit empty audio, which crashes RVC
         # (zero-size reduction) and killed the whole turn with no sound — skip them.
         if not sentence.strip():
-            return
+            return 0
         self.state = State.SPEAKING
         # 합성을 1회 재시도한다 — 일시적 TTS 오류로 문장을 통째로 잃으면(=말이 끊김)
         # 안 되므로. 두 번 다 실패할 때만 포기한다.
@@ -1025,10 +1069,10 @@ class Orchestrator:
             except Exception:  # noqa: BLE001 - 마지막 시도까지 실패하면 그 문장만 건너뜀
                 audio = None
         if audio is None:
-            return
+            return 0
         arr = np.asarray(audio, dtype=np.float32).reshape(-1)
         if arr.size == 0 or float(np.max(np.abs(arr))) < 1e-4:  # empty/silent crashes RVC
-            return
+            return 0
         audio = arr
         try:
             converted = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
@@ -1037,6 +1081,7 @@ class Orchestrator:
             out = resample(np.asarray(audio, dtype=np.float32).reshape(-1),
                            self.tts.sample_rate, self.settings.playback_rate)
         self._queue_audio(out, subtitle or None)
+        return int(np.asarray(out).reshape(-1).size)
 
     async def _spk_pump_loop(self) -> None:
         with contextlib.suppress(asyncio.CancelledError):
