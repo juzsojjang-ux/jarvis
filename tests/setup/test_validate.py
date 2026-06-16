@@ -46,15 +46,23 @@ def _make_openai_client(*, success: bool):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_claude_always_ok():
-    ok, msg = await validate("claude", "")
+async def test_claude_ok_when_logged_in():
+    ok, msg = await validate("claude", "", claude_check=lambda: True)
     assert ok is True
     assert "Claude" in msg
 
 
 @pytest.mark.anyio
-async def test_claude_with_any_key_ok():
-    ok, msg = await validate("claude", "some-key")
+async def test_claude_rejected_when_not_logged_in():
+    # 로그인 안 됐으면 '시작'을 막아 거짓 완료/두뇌 먹통을 방지.
+    ok, msg = await validate("claude", "", claude_check=lambda: False)
+    assert ok is False
+    assert "로그인" in msg
+
+
+@pytest.mark.anyio
+async def test_claude_key_ignored_when_logged_in():
+    ok, _ = await validate("claude", "some-key", claude_check=lambda: True)
     assert ok is True
 
 

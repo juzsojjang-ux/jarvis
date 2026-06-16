@@ -28,9 +28,13 @@ def claude_bin() -> str:
     이렇게 해야 새 컴퓨터에서도 따로 설치 안 하고 로그인할 수 있다."""
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        cand = Path(meipass) / "claude_agent_sdk" / "_bundled" / "claude"
-        if cand.exists():
-            return str(cand)
+        base = Path(meipass) / "claude_agent_sdk" / "_bundled"
+        # 윈도우 번들은 claude.exe(.cmd) — 'claude'만 찾으면 못 찾아 spawn이
+        # FileNotFoundError로 죽는다("로그인 실행 실패"). 플랫폼 확장자를 함께 본다.
+        for name in ("claude", "claude.exe", "claude.cmd"):
+            cand = base / name
+            if cand.exists():
+                return str(cand)
     found = shutil.which("claude")
     return found or "claude"
 

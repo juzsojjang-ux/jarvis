@@ -217,10 +217,16 @@ async def _amain() -> None:
     # AsyncExitStack stays open for the whole process lifetime (MCP sessions live).
     async with contextlib.AsyncExitStack() as stack:
         orch = await build_orchestrator(exit_stack=stack)
-        # Warm models + persona cache before listening.
-        orch.stt.warm()
-        orch.tts.warm()
-        orch.vc.warm()
+        # 음성 모델 예열 — 신규 기기는 STT 모델(~1.5GB) 첫 다운로드가 여기서 일어난다.
+        # 무가드면 오프라인/네트워크 지연/디스크부족 시 부팅이 통째로 크래시하거나 수 분
+        # 행이 되어 '준비 완료'·PTT까지 못 간다(다운로드 앱은 콘솔도 안 보여 '안 켜짐'으로
+        # 보임). 각각 try/except + 스레드로 감싸 실패해도 부팅이 계속되게 한다(STT는 첫
+        # 발화에서 lazy-load).
+        for _wname, _wcomp in (("STT", orch.stt), ("TTS", orch.tts), ("VC", orch.vc)):
+            try:
+                await asyncio.to_thread(_wcomp.warm)
+            except Exception as _wexc:  # noqa: BLE001
+                print(f"[예열] {_wname} 예열 실패(계속 진행): {_wexc}")
         # 필러(ack) 프레이즈 미리 합성 — 로컬·빠름. 첫 지연 때 즉시 음성이 나가게.
         try:
             await orch.warm_phrases()

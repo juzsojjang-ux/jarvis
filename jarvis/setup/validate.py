@@ -10,6 +10,11 @@ def _default_codex_check() -> bool:
     return is_codex_logged_in()
 
 
+def _default_claude_check() -> bool:
+    from jarvis.setup.login import claude_logged_in
+    return claude_logged_in()
+
+
 async def validate(
     provider: str,
     key: str,
@@ -17,11 +22,17 @@ async def validate(
     gemini_client: Any = None,
     openai_client: Any = None,
     codex_check: Callable[[], bool] | None = None,
+    claude_check: Callable[[], bool] | None = None,
 ) -> tuple[bool, str]:
     provider = (provider or "").strip()
 
     if provider == "claude":
-        return True, "Claude 구독으로 사용합니다."
+        # 로그인 안 된 채 '시작'을 누르면 '설정 완료'로 통과해버려 두뇌가 먹통이
+        # 되고 다음 부팅에 첫실행이 또 뜬다(거짓 완료). 로그인 완료만 통과시킨다.
+        check = claude_check or _default_claude_check
+        if check():
+            return True, "Claude 구독으로 사용합니다."
+        return False, "먼저 'Claude 로그인' 버튼으로 로그인을 완료한 뒤 다시 시작하세요."
 
     if provider == "gemini":
         if not key.strip():
