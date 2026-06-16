@@ -10,33 +10,40 @@ from jarvis.core import permissions
 def test_non_mac_short_circuits(monkeypatch):
     monkeypatch.setattr(permissions, "_is_mac", lambda: False)
     assert permissions.accessibility_trusted(prompt=True) is True
+    assert permissions.input_monitoring_granted(prompt=True) is True
     assert permissions.screen_capture_trusted() is True
-    assert permissions.ensure_permissions() == {"accessibility": True, "screen": True}
+    assert permissions.ensure_permissions() == {
+        "input_monitoring": True, "accessibility": True, "screen": True}
 
 
 def test_accessibility_trusted_returns_bool_without_prompt():
     # prompt=False라 다이얼로그를 띄우지 않고 상태만 본다.
     assert isinstance(permissions.accessibility_trusted(prompt=False), bool)
+    assert isinstance(permissions.input_monitoring_granted(prompt=False), bool)
 
 
 def test_ensure_permissions_all_granted(monkeypatch):
     monkeypatch.setattr(permissions, "_is_mac", lambda: True)
+    monkeypatch.setattr(permissions, "input_monitoring_granted", lambda prompt=False: True)
     monkeypatch.setattr(permissions, "accessibility_trusted", lambda prompt=False: True)
     monkeypatch.setattr(permissions, "screen_capture_trusted", lambda: True)
-    assert permissions.ensure_permissions() == {"accessibility": True, "screen": True}
+    assert permissions.ensure_permissions() == {
+        "input_monitoring": True, "accessibility": True, "screen": True}
 
 
-def test_ensure_permissions_missing_opens_settings_and_announces(monkeypatch):
+def test_ensure_permissions_missing_input_monitoring_opens_settings(monkeypatch):
+    # PTT 키 권한(입력 모니터링)이 없으면 그 설정창을 열고 음성 안내한다.
     calls: list[str] = []
     msgs: list[str] = []
     monkeypatch.setattr(permissions, "_is_mac", lambda: True)
-    monkeypatch.setattr(permissions, "accessibility_trusted", lambda prompt=False: False)
+    monkeypatch.setattr(permissions, "input_monitoring_granted", lambda prompt=False: False)
+    monkeypatch.setattr(permissions, "accessibility_trusted", lambda prompt=False: True)
     monkeypatch.setattr(permissions, "screen_capture_trusted", lambda: True)
     monkeypatch.setattr(permissions, "open_settings_pane", lambda anchor: calls.append(anchor))
     r = permissions.ensure_permissions(announce=lambda m: msgs.append(m))
-    assert r["accessibility"] is False
-    assert "Privacy_Accessibility" in calls  # 설정 창을 열어 안내
-    assert msgs and "손쉬운 사용" in msgs[0]   # 음성 안내 호출
+    assert r["input_monitoring"] is False
+    assert "Privacy_ListenEvent" in calls          # 입력 모니터링 설정창
+    assert msgs and "입력 모니터링" in msgs[0]      # 음성 안내(PTT 키 권한)
 
 
 def test_ensure_permissions_never_raises(monkeypatch):

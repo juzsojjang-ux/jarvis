@@ -66,6 +66,27 @@ def screen_capture_trusted() -> bool:
         return True  # 알 수 없으면 막지 않는다
 
 
+def input_monitoring_granted(prompt: bool = False) -> bool:
+    """입력 모니터링(Input Monitoring) 권한 — **키보드 전역 감시(PTT 오른쪽 옵션 키)에 필수**.
+    macOS 10.15+는 키보드 이벤트 감시에 '손쉬운 사용'이 아니라 입력 모니터링을 요구한다.
+    prompt=True면 없을 때 시스템에 요청한다(다이얼로그 + 입력 모니터링 목록에 앱 추가).
+    API 불가 시 보수적으로 False."""
+    if not _is_mac():
+        return True
+    try:
+        from Quartz import (  # type: ignore
+            CGPreflightListenEventAccess,
+            CGRequestListenEventAccess,
+        )
+        if CGPreflightListenEventAccess():
+            return True
+        if prompt:
+            return bool(CGRequestListenEventAccess())  # 시스템 프롬프트를 띄운다
+        return False
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def open_settings_pane(anchor: str) -> None:
     """시스템 설정의 개인정보 보호 창을 연다(예: Privacy_Accessibility)."""
     if not _is_mac():
@@ -83,34 +104,41 @@ def ensure_permissions(announce: Callable[[str], None] | None = None) -> dict[st
 
     - 손쉬운 사용: 없으면 시스템 다이얼로그(prompt) + 설정 창 + 안내 출력/음성.
     - 화면 녹화: 상태만 확인(강제 안 함).
-    반환 {"accessibility": bool, "screen": bool}. 예외 없음."""
+    반환 {"input_monitoring": bool, "accessibility": bool, "screen": bool}. 예외 없음."""
     if not _is_mac():
-        return {"accessibility": True, "screen": True}
+        return {"input_monitoring": True, "accessibility": True, "screen": True}
     try:
         return _ensure_permissions_mac(announce)
     except Exception as exc:  # noqa: BLE001 - 권한 점검이 부팅을 막거나 깨면 안 된다
         print(f"[권한] 점검 중 오류(계속 진행): {exc}")
-        return {"accessibility": False, "screen": True}
+        return {"input_monitoring": False, "accessibility": False, "screen": True}
 
 
 def _ensure_permissions_mac(announce: Callable[[str], None] | None) -> dict[str, bool]:
-    acc = accessibility_trusted(prompt=True)  # 없으면 여기서 시스템 다이얼로그가 뜬다
+    # PTT(오른쪽 옵션) 키 = 입력 모니터링, 화면 제어(cliclick) = 손쉬운 사용. 둘은 다르다.
+    listen = input_monitoring_granted(prompt=True)  # 없으면 시스템에 요청(다이얼로그)
+    acc = accessibility_trusted(prompt=True)
     scr = screen_capture_trusted()
+    need_msg = []
+    if not listen:
+        need_msg.append("입력 모니터링(오른쪽 옵션 PTT 키)")
+        open_settings_pane("Privacy_ListenEvent")
     if not acc:
-        print("[권한] ⚠ 손쉬운 사용(접근성) 권한이 필요합니다 — 오른쪽 옵션(PTT) 키와 "
-              "화면 제어가 동작하려면, 방금 열린 시스템 설정 > 개인정보 보호 및 보안 > "
-              "손쉬운 사용에서 'JARVIS'를 켠 뒤 자비스를 다시 실행하세요. "
-              "(웨이크워드 '자비스'는 권한 없이도 됩니다.)")
+        need_msg.append("손쉬운 사용(화면 제어)")
         open_settings_pane("Privacy_Accessibility")
+    if need_msg:
+        print("[권한] ⚠ 다음 권한이 필요합니다: " + ", ".join(need_msg) + " — 방금 열린 "
+              "시스템 설정 > 개인정보 보호 및 보안에서 'JARVIS'를 켠 뒤 자비스를 다시 "
+              "실행하세요. (웨이크워드 '자비스'는 권한 없이도 됩니다.)")
         if announce is not None:
             try:
-                announce("손쉬운 사용 권한이 필요합니다. 시스템 설정을 열었으니 자비스를 "
-                         "허용하고 다시 실행해 주세요. 그동안은 자비스라고 부르시면 됩니다.")
+                announce("키를 쓰려면 입력 모니터링 권한이 필요합니다. 시스템 설정을 열었으니 "
+                         "자비스를 허용하고 다시 실행해 주세요. 그동안은 자비스라고 부르시면 됩니다.")
             except Exception:  # noqa: BLE001
                 pass
     else:
-        print("[권한] 손쉬운 사용 권한 OK.")
+        print("[권한] 입력 모니터링·손쉬운 사용 권한 OK.")
     if not scr:
         print("[권한] (참고) 화면 녹화 권한은 아직 없습니다 — '화면 봐줘'를 쓰실 때 "
               "OS가 자동으로 요청합니다.")
-    return {"accessibility": acc, "screen": scr}
+    return {"input_monitoring": listen, "accessibility": acc, "screen": scr}
