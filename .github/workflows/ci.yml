@@ -39,6 +39,8 @@ jobs:
   build-windows:
     name: 윈도우 EXE 빌드
     runs-on: windows-latest
+    env:
+      JARVIS_BUNDLE_POCKET: "1"      # 윈도우도 Pocket(torch CPU) 무설치 번들
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,14 +51,39 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,winhud,hud]" "pyinstaller>=6.0"
+      - name: Pocket(torch CPU) 빌드 의존성 설치
+        # 윈도우 torch는 CPU 휠로 고정(CUDA 휠 유입 차단 — 용량/불필요). PyInstaller
+        # Analysis가 추적하려면 빌드 venv에 반드시 설치돼 있어야 한다.
+        run: pip install "pocket-tts[audio]" "torch>=2.5" --extra-index-url https://download.pytorch.org/whl/cpu
       - name: 음성 모델 받기 (Release 자산)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download voice-models-v1 --dir voice_models --skip-existing
+      - name: Pocket 음색 가중치 받기·전개 (오프라인 번들용, 심볼릭 해제)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download voice-weights --pattern 'pocket-voice-weights.tar.gz' --dir /tmp/pkw --skip-existing
+          mkdir -p voice_models/pocket_hf
+          tar -xzf /tmp/pkw/pocket-voice-weights.tar.gz -C voice_models/pocket_hf
+          python packaging/desymlink_hf.py voice_models/pocket_hf   # 윈도우 심볼릭 깨짐 방지
+          test -d "voice_models/pocket_hf/hub/models--kyutai--pocket-tts" \
+            || { echo '가중치 레이아웃 불일치(hub/models--kyutai--pocket-tts 없음)'; exit 1; }
+      - name: 디스크 여유 (pip 캐시 정리)
+        run: pip cache purge
       - name: PyInstaller 빌드
         run: pyinstaller packaging/jarvis.spec --noconfirm
-      - name: 압축
-        run: Compress-Archive -Path dist/JARVIS -DestinationPath JARVIS-windows.zip
+      - name: Pocket 스모크 게이트 (무음 빌드 차단)
+        # 빌드된 .exe에서 실제 1발화 합성을 돌려본다. 실패 시 잡 실패 → 깨진 빌드 미배포.
+        run: |
+          & dist\JARVIS\JARVIS.exe --pocket-smoke
+          if ($LASTEXITCODE -ne 0) { Write-Error "POCKET-SMOKE 실패 (exit $LASTEXITCODE)"; exit 1 }
+      - name: 압축 (7z — 대용량 안정)
+        # Compress-Archive는 2GB+ 디렉토리에서 불안정/느림 → 러너 내장 7z 사용.
+        run: 7z a -tzip -mx=5 JARVIS-windows.zip .\dist\JARVIS\* | Out-Null
+      - name: 디스크 정리 (압축 후 dist/build 제거)
+        run: Remove-Item -Recurse -Force dist,build -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-windows
@@ -93,6 +120,7 @@ jobs:
           gh release download voice-weights --pattern 'pocket-voice-weights.tar.gz' --dir /tmp/pkw --skip-existing
           mkdir -p voice_models/pocket_hf
           tar -xzf /tmp/pkw/pocket-voice-weights.tar.gz -C voice_models/pocket_hf
+          python packaging/desymlink_hf.py voice_models/pocket_hf   # 심볼릭 의존 제거(양 플랫폼 동일)
           test -d "voice_models/pocket_hf/hub/models--kyutai--pocket-tts" \
             || { echo '가중치 레이아웃 불일치(hub/models--kyutai--pocket-tts 없음)'; exit 1; }
       - name: PyInstaller 빌드
