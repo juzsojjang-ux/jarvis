@@ -55,12 +55,20 @@ def _check_error_log(log_dir: Path | None = None) -> Check:
     if not f.exists():
         return Check("오류 로그", True, "실행 로그 없음(개발 모드)")
     try:
-        tail = f.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
-        errs = [ln for ln in tail if "[오류]" in ln or "예열 실패" in ln]
+        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        # 현재 세션만 본다 — 마지막 'JARVIS start' 마커 이후. 이전 실행(이미 고쳐진)의
+        # 오류가 건강한 이번 세션을 오탐으로 빨갛게 만들지 않게 한다.
+        start = 0
+        for i in range(len(lines) - 1, -1, -1):
+            if "JARVIS start" in lines[i]:
+                start = i
+                break
+        session = lines[start:]
+        errs = [ln for ln in session if "[오류]" in ln or "예열 실패" in ln]
         if errs:
             return Check("오류 로그", False,
-                         f"최근 오류 {len(errs)}건 — 마지막: {errs[-1].strip()[:80]}")
-        return Check("오류 로그", True, "최근 로그에 오류 없음")
+                         f"이번 세션 오류 {len(errs)}건 — 마지막: {errs[-1].strip()[:80]}")
+        return Check("오류 로그", True, "이번 세션 로그에 오류 없음")
     except Exception as exc:  # noqa: BLE001
         return Check("오류 로그", False, f"jarvis.log 읽기 실패: {exc}")
 

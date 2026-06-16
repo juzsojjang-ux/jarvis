@@ -40,6 +40,18 @@ def test_error_log_flags_recent_errors(tmp_path: Path):
     assert not c.ok and "Command failed" in c.detail
 
 
+def test_error_log_ignores_previous_session_errors(tmp_path: Path):
+    # 이전 실행(이미 고쳐진)의 오류는 마지막 'JARVIS start' 이전이므로 무시 — 건강한
+    # 현재 세션을 오탐으로 빨갛게 만들지 않는다.
+    (tmp_path / "jarvis.log").write_text(
+        "=== JARVIS start 2026-06-16T21:24:00 ===\n"
+        "[예열] TTS 예열 실패(계속 진행): '_Tee' object has no attribute 'fileno'\n"
+        "=== JARVIS start 2026-06-16T21:39:00 ===\n"
+        "[HUD] ok\n자비스 준비 완료.\n", encoding="utf-8")
+    c = _check_error_log(log_dir=tmp_path)
+    assert c.ok and "이번 세션" in c.detail
+
+
 def test_format_report_marks_bad_items():
     checks = [Check("두뇌", True, "SubscriptionBrain"),
               Check("마이크", False, "입력 장치가 없습니다")]
