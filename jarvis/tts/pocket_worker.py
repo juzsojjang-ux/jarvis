@@ -79,7 +79,10 @@ def make_pocket_synth():
 
     ref = os.environ.get(
         "JARVIS_POCKET_REF", os.path.expanduser("~/jarvis/voice_models/jarvis_ref.wav"))
-    model = TTSModel.load_model()
+    # temp 0.45: 사용자 청취 비교로 확정 — 기본 0.7보다 레퍼런스(진짜 자비스)에 더 충실해
+    # 음색 유사도가 높다(JARVIS_POCKET_TEMP로 재정의 가능). 낮을수록 충실/차분.
+    temp = float(os.environ.get("JARVIS_POCKET_TEMP", "0.45"))
+    model = TTSModel.load_model(temp=temp)
     voice_state = model.get_state_for_audio_prompt(ref)  # clone once at startup
     gap = np.zeros(int(0.06 * SAMPLE_RATE), dtype=np.float32)  # 60ms between pieces
 
