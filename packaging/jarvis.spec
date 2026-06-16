@@ -294,7 +294,9 @@ if importlib.util.find_spec("webview") is not None:
 # named WebKit'로 오버레이가 죽는다). 윈도우/미설치 환경에선 건너뛴다.
 if sys.platform == "darwin" and importlib.util.find_spec("WebKit") is not None:
     hiddenimports += ["WebKit", "Cocoa", "Quartz", "objc",
-                      "Foundation", "AppKit", "CoreFoundation"]
+                      "Foundation", "AppKit", "CoreFoundation",
+                      # 권한 확인·요청(AXIsProcessTrustedWithOptions) — permissions.py
+                      "ApplicationServices", "HIServices"]
     print("[jarvis.spec] pyobjc WebKit found — 맥 투명 오버레이 번들")
 
 # ---------------------------------------------------------------------------

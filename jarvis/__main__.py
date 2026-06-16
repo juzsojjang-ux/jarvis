@@ -214,6 +214,15 @@ async def _amain() -> None:
     os.environ.setdefault("JARVIS_BRAIN_PROVIDER", configured_provider() or "claude")
     apply_setup_env()  # 첫 설정의 보이스/이름 선택 → env (사용자 env가 우선)
 
+    # 권한 확인·요청(맥) — 손쉬운 사용(PTT 키)이 없으면 시스템 다이얼로그 + 설정 창을 띄운다.
+    # 서명 없는 빌드는 재빌드마다 TCC 권한이 리셋되므로 부팅 때마다 확인한다(조용히 넘어가지
+    # 않음 — 사용자 요구). PTT 리스너(activator)가 켜지기 전에 호출해 안내가 먼저 나가게 한다.
+    try:
+        from jarvis.core.permissions import ensure_permissions
+        ensure_permissions()
+    except Exception as _pexc:  # noqa: BLE001 - 권한 점검이 부팅을 막으면 안 된다
+        print(f"[권한] 점검 건너뜀(계속 진행): {_pexc}")
+
     # AsyncExitStack stays open for the whole process lifetime (MCP sessions live).
     async with contextlib.AsyncExitStack() as stack:
         orch = await build_orchestrator(exit_stack=stack)
