@@ -605,6 +605,13 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address) -> None:
+        # 설정 페이지가 닫히거나 폴링 중 끊기면 ConnectionReset이 정상적으로 난다 —
+        # 트레이스백을 로그에 토하지 않는다.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
 
 # ---------------------------------------------------------------------------
 # SetupServer

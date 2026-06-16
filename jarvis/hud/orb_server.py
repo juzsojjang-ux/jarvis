@@ -218,6 +218,13 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address) -> None:
+        # 브라우저/오버레이가 SSE 스트림을 끊으면 ConnectionReset/BrokenPipe가 정상적으로
+        # 난다 — 트레이스백을 로그에 토하지 않는다(자가진단 '오류 로그' 오탐 방지).
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
 
 class OrbServer:
     """Background HTTP/SSE server for the orb. start() is non-blocking; publish() is

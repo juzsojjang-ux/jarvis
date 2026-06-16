@@ -7,9 +7,21 @@ from __future__ import annotations
 
 import hmac
 import json
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class _QuietHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        # 아이폰/클라가 연결을 끊으면 ConnectionReset이 정상적으로 난다 — 트레이스백
+        # 으로 로그를 더럽히지 않는다(자가진단 '오류 로그' 오탐 방지).
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 class RemoteServer:
@@ -83,7 +95,7 @@ class RemoteServer:
             def do_GET(self):  # noqa: N802 - http.server 계약
                 self._send(404, {"reply": "없는 경로입니다."})
 
-        self._httpd = ThreadingHTTPServer((self._host, self.port), _Handler)
+        self._httpd = _QuietHTTPServer((self._host, self.port), _Handler)
         self.port = self._httpd.server_address[1]
         self._thread = threading.Thread(target=self._httpd.serve_forever,
                                         name="jarvis-remote", daemon=True)

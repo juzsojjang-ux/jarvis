@@ -119,6 +119,20 @@ class _Tee:
             except Exception:  # noqa: BLE001
                 pass
 
+    def fileno(self):
+        # 진짜 fd가 필요한 경우(예: subprocess.Popen(stderr=sys.stderr)로 Pocket/Melo/RVC
+        # 워커를 띄울 때)를 위해 밑단 fd를 내준다. _Tee에 fileno가 없으면 워커 spawn이
+        # '_Tee has no attribute fileno'로 죽어 배포 앱 Pocket 음성이 통째로 먹통이 된다.
+        # 원본 stderr가 없으면(GUI .app는 None일 수 있다) 로그파일 fd로 폴백 — 워커
+        # stderr가 사라지지 않게.
+        for s in (self._stream, self._log):
+            try:
+                if s is not None:
+                    return s.fileno()
+            except (OSError, ValueError, AttributeError):
+                continue
+        raise OSError("jarvis _Tee: 사용할 수 있는 fileno가 없습니다")
+
 
 def _install_dist_logging():
     import faulthandler
