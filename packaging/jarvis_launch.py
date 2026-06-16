@@ -41,18 +41,32 @@ if len(sys.argv) >= 2 and sys.argv[1] == "--settings":
     run_settings()
     sys.exit(0)
 
-# --- 1) 개인용 풀음성 업그레이드 마커(있으면 개인용 동일 음성을 켠다) ----------------
+# --- 1) 설정에서 고른 보이스 프리셋을 먼저 적용 ---------------------------------
+# 명시적으로 고른 음성(jarvis_ko/female_us 등)이 마커·기본값보다 우선해야 한다 — 전부
+# setdefault라 먼저 적용한 것이 이긴다. 'jarvis'(기본 Pocket 체인) 프리셋은 빈 dict라
+# 아무것도 set하지 않으므로, 그때만 아래 마커가 음색을 정한다. (예전엔 마커가 먼저라
+# 프리셋 선택이 무시되던 버그)
+_voice_preset = "jarvis"
 try:
-    from jarvis.core.voice_full import apply_voice_full
-    _FULL_VOICE = apply_voice_full()  # ~/.jarvis/voice_full.json 유효 시 env 주입
-except Exception:  # noqa: BLE001 - 마커 처리 실패가 부팅을 막으면 안 된다
-    _FULL_VOICE = False
+    from jarvis.setup.store import apply_setup_env, load_setup
+    _voice_preset = (load_setup() or {}).get("voice", "jarvis")
+    apply_setup_env()
+except Exception:  # noqa: BLE001 - 설정 적용 실패가 부팅을 막으면 안 된다
+    pass
 
-# --- 2) 풀음성이 아니면 torch-free 기본값 강제 -----------------------------------
-if not _FULL_VOICE:
-    os.environ.setdefault("JARVIS_TTS_BACKEND", "edge")
-    os.environ.setdefault("JARVIS_VC_BACKEND", "onnx")
-    os.environ.setdefault("JARVIS_REPLY_LANGUAGE", "en")
+# --- 2) 개인용 풀음성 마커는 보이스가 'jarvis'(기본 Pocket 체인)일 때만 적용 --------
+_FULL_VOICE = False
+if _voice_preset == "jarvis":
+    try:
+        from jarvis.core.voice_full import apply_voice_full
+        _FULL_VOICE = apply_voice_full()  # ~/.jarvis/voice_full.json 유효 시 env 주입
+    except Exception:  # noqa: BLE001 - 마커 처리 실패가 부팅을 막으면 안 된다
+        _FULL_VOICE = False
+
+# --- 3) 그래도 미정이면 torch-free 기본값(edge/onnx). setdefault라 위에서 정해졌으면 유지 ---
+os.environ.setdefault("JARVIS_TTS_BACKEND", "edge")
+os.environ.setdefault("JARVIS_VC_BACKEND", "onnx")
+os.environ.setdefault("JARVIS_REPLY_LANGUAGE", "en")
 
 # 프로즌 번들에서는 모델 파일이 ~/jarvis가 아니라 _MEIPASS/voice_models에 있다.
 # config의 절대경로 기본값을 번들 경로로 덮어쓴다(사용자 env가 있으면 유지).

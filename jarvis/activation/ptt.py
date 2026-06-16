@@ -29,12 +29,14 @@ class PushToTalk:
 
     def _handle_press(self, key) -> None:
         if key == self._key and not self._held:
+            print(f"[PTT] {key} 눌림 → 듣기 시작")  # 진단: 키 감지 확인용 로그
             self._held = True
             if self._on_press:
                 self._on_press()
 
     def _handle_release(self, key) -> None:
         if key == self._key and self._held:
+            print(f"[PTT] {key} 뗌 → 처리")
             self._held = False
             if self._on_release:
                 self._on_release()

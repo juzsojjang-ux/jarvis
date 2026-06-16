@@ -407,9 +407,16 @@ class Orchestrator:
                 chunks.append(p)
         return chunks
 
+    def _subtitles_on(self) -> bool:
+        # 한국어 모드(발화 자체가 한국어)면 자막은 중복 → 끈다(사용자 요구). 영어 모드는
+        # 영어로 말하고 한국어 자막을 띄우므로 유용 → 유지.
+        return not str(getattr(self.settings, "reply_language", "en")).lower().startswith("ko")
+
     async def _finish_speaking(self, subtitle: str) -> None:
         # 자막을 한 번에 다 띄우면 길어서 화면을 가린다 — 짧은 청크로 나눠, 남은
         # 오디오 길이에 맞춰 간격을 배분해 말하는 것과 같이 흘러가게 한다(동기).
+        if not self._subtitles_on():
+            subtitle = ""  # 한국어 모드: 자막 끔
         chunks = self._split_subtitle(subtitle)
         idx = 0
         if chunks:

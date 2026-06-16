@@ -12,7 +12,7 @@ def test_subscribe_replays_current_state():
     hub = OrbHub()
     hub.publish("thinking", 0.4)
     q = hub.subscribe()
-    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": "", "expand": False, "panels": []}
+    assert q.get_nowait() == {"state": "thinking", "level": 0.4, "text": "", "notice": "", "expand": True, "panels": []}
 
 
 def test_publish_fans_out_to_clients():
@@ -20,7 +20,7 @@ def test_publish_fans_out_to_clients():
     q = hub.subscribe()
     q.get_nowait()  # drop the replayed idle
     hub.publish("speaking", 0.7, "안녕하세요")
-    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": "", "expand": False, "panels": []}
+    assert q.get_nowait() == {"state": "speaking", "level": 0.7, "text": "안녕하세요", "notice": "", "expand": True, "panels": []}
 
 
 def test_subtitle_persists_then_clears_when_not_speaking():

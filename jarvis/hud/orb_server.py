@@ -73,9 +73,10 @@ class OrbHub:
         self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
         self._notice = ""  # 우측 정보(두뇌 show_panel) — 명시적으로 비울 때까지 유지
         self._telemetry: list[dict] = []  # 자비스 실시간 텔레메트리 패널(주기 갱신)
-        self._expand = False  # A↔B 전환 상태(sticky) — 명시적으로 바꿀 때까지 유지
+        # 시작 시 오브를 중앙·크게(expand=True). 사용자가 "작게"로 코너로 보낼 때까지 유지.
+        self._expand = True  # A↔B 전환 상태(sticky) — 명시적으로 바꿀 때까지 유지
         self._last = {"state": "idle", "level": 0.0, "text": "", "notice": "",
-                      "expand": False, "panels": []}
+                      "expand": True, "panels": []}
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=64)
