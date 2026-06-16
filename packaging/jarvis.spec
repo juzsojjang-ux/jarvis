@@ -180,7 +180,8 @@ hiddenimports = [
 
     # TTS backends (selected by tts_backend setting)
     "jarvis.tts.edge_tts_backend",
-    "jarvis.tts.system_say",
+    "jarvis.tts.system_say",            # macOS edge 실패 폴백
+    "jarvis.tts.system_sapi",           # 윈도우 edge 실패 폴백(System.Speech)
 
     # STT backends
     "jarvis.stt.faster_whisper_stt",   # Windows / Linux default

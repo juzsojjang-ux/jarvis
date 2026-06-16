@@ -67,8 +67,8 @@ def test_empty_audio_falls_back_to_say():
     assert len(out) > 0 and say.calls == ["yo"]
 
 
-def test_fetch_failure_no_fallback_nonmac_returns_silence(monkeypatch):
-    # 비-macOS이고 폴백이 없으면(말 그대로 낼 수단이 없으면) 무음 — 단, 예외는 안 난다.
+def test_fetch_failure_no_fallback_unsupported_os_returns_silence(monkeypatch):
+    # macOS·윈도우가 아니고 폴백도 없으면(말 그대로 낼 수단이 없으면) 무음 — 예외는 안 난다.
     monkeypatch.setattr("jarvis.tts.edge_tts_backend.sys.platform", "linux")
 
     async def boom(text, voice):
@@ -76,6 +76,25 @@ def test_fetch_failure_no_fallback_nonmac_returns_silence(monkeypatch):
 
     out = asyncio.run(EdgeTTS(fetch=boom).synth("hi"))
     assert len(out) == 0
+
+
+def test_default_os_fallback_picks_say_on_mac(monkeypatch):
+    monkeypatch.setattr("jarvis.tts.edge_tts_backend.sys.platform", "darwin")
+    from jarvis.tts.system_say import SystemSayTTS
+    fb = EdgeTTS._default_os_fallback()
+    assert isinstance(fb, SystemSayTTS)
+
+
+def test_default_os_fallback_picks_sapi_on_windows(monkeypatch):
+    monkeypatch.setattr("jarvis.tts.edge_tts_backend.sys.platform", "win32")
+    from jarvis.tts.system_sapi import SystemSapiTTS
+    fb = EdgeTTS._default_os_fallback()
+    assert isinstance(fb, SystemSapiTTS)
+
+
+def test_default_os_fallback_none_on_unsupported(monkeypatch):
+    monkeypatch.setattr("jarvis.tts.edge_tts_backend.sys.platform", "linux")
+    assert EdgeTTS._default_os_fallback() is None
 
 
 def test_stereo_downmixed_to_mono():

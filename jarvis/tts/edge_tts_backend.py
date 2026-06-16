@@ -75,23 +75,33 @@ class EdgeTTS:
             return await self._say_fallback(text)
 
     async def _say_fallback(self, text: str) -> np.ndarray:
-        """edge 실패 시 macOS `say`로 최소한의 음성을 낸다. 폴백 음성도 이후 RVC 음색
-        변환을 거치므로 자비스 톤은 유지된다. 폴백조차 불가하면(비-macOS 등) 무음."""
+        """edge 실패 시 OS 내장 음성으로 최소한의 소리를 낸다 — macOS는 `say`,
+        윈도우는 SAPI(System.Speech). 폴백 음성도 이후 RVC 음색 변환을 거치므로 자비스
+        톤은 유지된다. 폴백조차 불가하면(미지원 OS·도구 없음) 무음."""
         fb = self._fallback
         if fb is None:
-            if sys.platform != "darwin":
+            fb = self._default_os_fallback()
+            if fb is None:
                 return np.zeros(0, dtype=np.float32)
-            try:
-                from jarvis.tts.system_say import SystemSayTTS
-                fb = SystemSayTTS()
-                self._fallback = fb
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("say 폴백 생성 실패(%s: %s)", type(exc).__name__, exc)
-                return np.zeros(0, dtype=np.float32)
+            self._fallback = fb
         try:
             audio = await fb.synth(text)
             self.sample_rate = getattr(fb, "sample_rate", self.sample_rate)
             return np.ascontiguousarray(audio, dtype=np.float32)
         except Exception as exc:  # noqa: BLE001
-            _log.warning("say 폴백 합성 실패(%s: %s)", type(exc).__name__, exc)
+            _log.warning("OS 폴백 합성 실패(%s: %s)", type(exc).__name__, exc)
             return np.zeros(0, dtype=np.float32)
+
+    @staticmethod
+    def _default_os_fallback() -> Optional[_FallbackTTS]:
+        """플랫폼별 OS 내장 TTS 폴백을 만든다(macOS=say, 윈도우=SAPI). 없으면 None."""
+        try:
+            if sys.platform == "darwin":
+                from jarvis.tts.system_say import SystemSayTTS
+                return SystemSayTTS()
+            if sys.platform.startswith("win"):
+                from jarvis.tts.system_sapi import SystemSapiTTS
+                return SystemSapiTTS()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("OS 폴백 생성 실패(%s: %s)", type(exc).__name__, exc)
+        return None
