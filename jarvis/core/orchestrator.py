@@ -1083,7 +1083,13 @@ class Orchestrator:
             return {"ok": False}
         if self._remote_busy or self._text_busy or not self._can_announce():
             return {"ok": False}
-        await self._speak_reply(en, ko)
+        try:
+            await self._speak_reply(en, ko)
+        finally:
+            # _speak_reply는 오디오를 '큐에 넣고' 즉시 반환하므로(재생 완료를 기다리지
+            # 않음) 여기서 상태를 IDLE로 되돌린다 — 안 하면 SPEAKING에 영구히 갇혀
+            # 이후 능동알림/웨이크/타자·🔊 턴이 전부 막힌다(text_turn의 finally와 동일).
+            self._to_idle()
         return {"ok": True}
 
     async def _speak_reply(self, en: str, ko: str = "") -> None:

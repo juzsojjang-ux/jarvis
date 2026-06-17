@@ -1217,3 +1217,6 @@ def test_speak_text_plays_given_english():
     orch, pb = _make()
     res = asyncio.run(orch.speak_text("hello there", "안녕하세요"))
     assert res["ok"] is True and len(pb.feeds) == 1
+    # 🔊 재생 후 상태가 IDLE로 복귀해야 한다 — 안 그러면 SPEAKING에 갇혀
+    # 이후 능동알림/웨이크/타자 턴이 전부 막힌다(스왈로된 회귀).
+    assert orch.state == State.IDLE and orch._can_announce()
