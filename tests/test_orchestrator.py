@@ -1104,3 +1104,37 @@ def test_route_command_handles_known_command_else_false():
     assert asyncio.run(orch._route_command("오늘 날씨 어때")) is False
     # _expand_command가 잡는 "크게 띄워" → 명령으로 처리(True)
     assert asyncio.run(orch._route_command("크게 띄워줘")) is True
+
+
+def test_announce_error_does_not_repeat_same_error_voice(monkeypatch):
+    """같은 오류가 연달아 나도 '음성'은 한 번만 — 시각 알림은 매번 갱신(소음 차단)."""
+    import jarvis.core.orchestrator as orch_mod
+    spoken = []
+    monkeypatch.setattr(orch_mod.sys, "platform", "darwin")
+    monkeypatch.setattr(orch_mod, "interpret_speak_korean",
+                        lambda text, voice: spoken.append(text))
+    orch, _pb = _make()
+
+    async def run():
+        await orch._announce_error(RuntimeError("boom"))
+        await orch._announce_error(RuntimeError("boom"))   # 같은 오류 즉시 반복
+    asyncio.run(run())
+    assert len(spoken) == 1            # 같은 오류는 한 번만 음성화
+    assert orch.last_bug == "boom"     # 시각 알림(last_bug)은 매번 갱신
+
+
+def test_announce_error_rate_limits_distinct_errors(monkeypatch):
+    """서로 다른 오류라도 _ERR_MIN_GAP_S 안에는 음성 폭주를 막는다."""
+    import jarvis.core.orchestrator as orch_mod
+    spoken = []
+    monkeypatch.setattr(orch_mod.sys, "platform", "darwin")
+    monkeypatch.setattr(orch_mod, "interpret_speak_korean",
+                        lambda text, voice: spoken.append(text))
+    orch, _pb = _make()
+
+    async def run():
+        await orch._announce_error(RuntimeError("alpha"))
+        await orch._announce_error(RuntimeError("beta"))   # 다른 오류지만 너무 빠름
+    asyncio.run(run())
+    assert len(spoken) == 1            # 8초 안 연속 오류는 음성 1회로 캡
+    assert orch.last_bug == "beta"     # 그래도 최신 오류는 시각 알림에 기록

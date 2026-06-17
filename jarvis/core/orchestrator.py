@@ -34,6 +34,11 @@ class Orchestrator:
     suppressed) and aborts playback. ``hud`` (optional OrbServer) receives best-effort
     {state, level} publishes so the on-screen orb reacts to the conversation."""
 
+    # 오류 '음성' 알림 폭주 차단 — 시각 알림(우측 카드)은 매번 갱신하되, 같은 오류가
+    # 쏟아질 때 스피커로 "오류가 발생했습니다"를 반복하지 않는다(사용자: '계속 시끄러워').
+    _ERR_MIN_GAP_S = 8.0     # 서로 다른 오류라도 이 간격보다 자주 음성으로 알리지 않는다
+    _ERR_REPEAT_S = 60.0     # 같은 오류는 이 시간 안에는 다시 음성화하지 않는다(시각 알림만)
+
     def __init__(self, *, settings, activator, capture, stt, brain, chunker, tts, vc,
                  playback, hud=None, micstream=None, wake=None):
         self.settings = settings
@@ -75,6 +80,8 @@ class Orchestrator:
         self._watch_task = None  # 화면 감시 모드 루프
         self.usage = UsageTracker()  # 토큰 사용량 집계(세션+누적)
         self.last_bug: str | None = None  # 마지막 오류 상세 — "고쳐줘" 참조 + 우측 알림
+        self._err_spoken_at = -1e9  # 마지막으로 '음성' 오류를 낸 시각(첫 호출은 항상 말함)
+        self._err_last = ""         # 마지막으로 음성화한 오류 상세(동일 오류 반복 차단)
         self._panel_muted = False
         self._ack_delay_s = 0.9  # 이 시간 안에 두뇌 첫 문장이 오면 "잠시만요" 필러 생략
         # 두뇌의 show_panel/hide_panel 도구가 이 HUD에 닿도록 알림 싱크를 건다.
@@ -820,12 +827,23 @@ class Orchestrator:
             self._publish("idle")
 
     async def _announce_error(self, exc: Exception) -> None:
-        """버그/오류를 조용히 삼키지 말고 음성+우측 알림으로 알린다(수정 요청 가능하게)."""
+        """버그/오류를 조용히 삼키지 말고 우측 알림으로 알린다(수정 요청 가능하게). 단,
+        같은 오류가 쏟아질 때 '음성'을 반복하지 않는다 — 시각 알림은 매번 갱신하되 음성은
+        쿨다운(_ERR_MIN_GAP_S)·동일오류 차단(_ERR_REPEAT_S)으로 폭주를 막는다."""
         detail = (str(exc).strip() or exc.__class__.__name__)
         self.last_bug = detail
         short = detail if len(detail) <= 140 else detail[:137] + "…"
         print(f"[오류] {detail}")
-        self._notify(f"⚠ 오류\n{short}")
+        self._notify(f"⚠ 오류\n{short}")  # 시각 알림은 '항상' 갱신
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        same_recent = detail == self._err_last and (now - self._err_spoken_at) < self._ERR_REPEAT_S
+        too_soon = (now - self._err_spoken_at) < self._ERR_MIN_GAP_S
+        if same_recent or too_soon:
+            self._to_idle()  # 음성 생략 — 반복 소음 차단(시각 알림은 위에서 갱신함)
+            return
+        self._err_last = detail
+        self._err_spoken_at = now
         self.state = State.SPEAKING
         self._publish("speaking", 0.3, "⚠ 오류가 발생했어요.")
         spoke = False
@@ -843,6 +861,8 @@ class Orchestrator:
                 "Something went wrong, sir. Please check the top-right notice.",
                 "⚠ 오류가 발생했어요.")
         await self._finish_speaking("")
+        # 자기 오류 음성을 마이크가 되삼켜 되먹임 루프가 되지 않게 에코 쿨다운을 건다.
+        self._wake_blocked_until = loop.time() + max(self.settings.wake_echo_cooldown_s, 1.0)
         self._to_idle()
 
     # ----- 알림 패널 끄기/켜기 (순수 토글만 — 내용 요청은 두뇌의 show_panel로) -----
