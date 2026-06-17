@@ -197,16 +197,14 @@ class Orchestrator:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        # await 중 새 턴(_on_release/_on_wake/_announce)이 self._task를 다시 채웠다면, 그
-        # 새 턴의 재생/펌프를 지우면 안 된다(audit high #4: 옛 task가 blocking thread 안이라
-        # cancel이 늦게 풀리는 사이 새 턴이 시작되면, 막 큐된 새 답변 오디오가 통째로 날아가
-        # 무음이 되던 경합). self._task를 시작 시 None으로 비웠으므로 non-None = 새 턴.
-        if self._task is not None:
-            return
+        # 옛 턴의 잔여 재생은 '항상' 멈춘다(바지인 응답성 — audit r2 low: 새 턴이 시작됐다고
+        # 옛 오디오를 안 끄면 옛 답변이 계속 들리던 것). 단 새 턴(self._task non-None)이 이미
+        # 시작됐으면 그 턴의 spk_pump는 건드리지 않는다(audit high #4: 새 답변 펌프가 통째로
+        # 죽던 경합). 새 턴은 이 시점에 보통 STT/두뇌 단계라 아직 feed 전이므로 abort가 안전.
         self._drain_levels()  # stop the orb animating speech that was just cancelled
-        if self._spk_pump is not None and not self._spk_pump.done():
-            self._spk_pump.cancel()
         self.playback.abort()
+        if self._task is None and self._spk_pump is not None and not self._spk_pump.done():
+            self._spk_pump.cancel()
         # State transitions are owned by _on_press/_on_release; do NOT set IDLE here —
         # during a barge-in this runs after _on_press already set CAPTURING.
 
@@ -744,11 +742,14 @@ class Orchestrator:
             from ..proactive.events import Announcement
             now = monotonic()
             word = "끝났다" if task.status == "done" else "실패했다"
+            # dedup_key를 작업별로 — 병렬 작업이 잇따라 끝나도 모든 완료가 보고되게 한다
+            # (audit r2: 모두 kind="bg_done"이라 둘째부터 중복제거에 먹히던 것).
+            tid = getattr(task, "id", None) or id(task)
             self.proactive.enqueue(Announcement(
                 "bg_done",
                 f"백그라운드 작업이 {word}: {task.desc[:60]} — 결과 요지를 한두 문장으로 "
                 f"보고하라: {task.result[:300]}",
-                2, now, now + 1800.0))
+                2, now, now + 1800.0, dedup_key=f"bg_done:{tid}"))
 
     # ----- 자가진단 -----
     def _selfcheck_command(self, text: str) -> bool:

@@ -35,8 +35,8 @@ class ProactiveEngine:
         if ann.kind == "briefing":
             # 브리핑이 인사를 겸한다 — 대기 중인 부팅 인사는 무의미.
             self._pending = [a for a in self._pending if a.kind != "boot_greet"]
-        if any(a.kind == ann.kind for a in self._pending):
-            return                          # 같은 종류 중복 대기 금지
+        if any(a.dkey == ann.dkey for a in self._pending):
+            return                          # 같은 인스턴스(dedup_key) 중복 대기 금지
         self._pending.append(ann)
 
     def start(self) -> None:

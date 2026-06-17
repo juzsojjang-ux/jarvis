@@ -130,7 +130,9 @@ async def build_orchestrator(
             announce=orch.announce,
             can_speak=orch._can_announce,
             cooldown_s=settings.proactive_cooldown_min * 60,
-            cooldown_overrides={"timer_done": 0.0},  # 연속 타이머는 정상 동작
+            # 연속 타이머·백그라운드 작업 완료는 정상이라 쿨다운 면제(audit r2: bg_done이
+            # 빠져 다중 완료가 수백 초 막히던 것)
+            cooldown_overrides={"timer_done": 0.0, "bg_done": 0.0},
         )
     return orch
 

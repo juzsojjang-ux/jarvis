@@ -231,7 +231,11 @@ class TimerMonitor:
 
     def poll(self) -> list[Announcement]:
         now = self._clock()
-        return [Announcement("timer_done", f"타이머 종료: {lb}", 1, now, now + 120)
+        # dedup_key를 라벨별로 줘 동시 만기 시 모든 타이머가 큐잉되게 한다(audit r2 high:
+        # 모두 kind="timer_done"이라 둘째부터 중복제거에 먹혀 영구 소실하던 것). kind는
+        # 쿨다운 분류용으로 유지(cooldown_overrides['timer_done']=0이 그대로 적용).
+        return [Announcement("timer_done", f"타이머 종료: {lb}", 1, now, now + 120,
+                             dedup_key=f"timer_done:{lb}")
                 for lb in self._board.pop_due()]
 
 

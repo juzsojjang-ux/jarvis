@@ -19,7 +19,7 @@ class _Res:
 
 
 def _runner(calls, *, fail_capture=False, dpi="144.000", pixel_w="3456"):
-    def run(cmd, capture_output=True, text=True):
+    def run(cmd, capture_output=True, text=True, **kwargs):  # timeout= 등 허용
         calls.append(list(cmd))
         if cmd[0] == "screencapture" and fail_capture:
             return _Res(returncode=1)
@@ -60,7 +60,7 @@ def test_capture_failure_returns_guidance(tmp_path):
 
 
 def test_capture_never_raises(tmp_path):
-    def boom(cmd, capture_output=True, text=True):
+    def boom(cmd, capture_output=True, text=True, **kwargs):
         raise OSError("no screen")
     out = capture_screen_action(runner=boom, path=tmp_path / "shot.png")
     assert "실패" in out
@@ -68,7 +68,7 @@ def test_capture_never_raises(tmp_path):
 
 def test_capture_survives_bad_sips_info(tmp_path):
     """sips 정보 조회 실패해도 캡처 경로는 반환."""
-    def run(cmd, capture_output=True, text=True):
+    def run(cmd, capture_output=True, text=True, **kwargs):
         if cmd[0] == "sips":
             return _Res(stdout="garbage")
         return _Res()

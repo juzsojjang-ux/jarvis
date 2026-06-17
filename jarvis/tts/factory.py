@@ -25,10 +25,13 @@ def _xtts_ready(settings) -> bool:
 
 def _pocket_ready(settings) -> bool:
     # frozen 번들: 워커는 본체 인터프리터(--child=jarvis.tts.pocket_worker)로 떠 별도
-    # pocket_python venv가 필요 없다 — 음색 ref(번들 동봉)만 있으면 ready. (가중치가
-    # 없으면 워커가 죽고 호출부가 edge로 폴백하므로 무음은 안 된다.)
+    # pocket_python venv가 필요 없다. 단 ref만 보면(경량 빌드에 ref 잔여 시) 거짓 ready로
+    # 워커를 헛 spawn한다(audit r2) — 가중치 캐시(pocket_hf)까지 있어야 ready로 본다.
+    # (FallbackTTS가 edge로 폴백하긴 하나, 애초에 헛 spawn을 막는다.)
     if getattr(sys, "frozen", False):
-        return os.path.exists(os.path.expanduser(settings.pocket_ref_path))
+        hf = os.path.expanduser(getattr(settings, "pocket_hf_home", "") or "")
+        return (bool(hf) and os.path.isdir(hf)
+                and os.path.exists(os.path.expanduser(settings.pocket_ref_path)))
     return (os.path.exists(os.path.expanduser(settings.pocket_python))
             and os.path.exists(os.path.expanduser(settings.pocket_ref_path)))
 

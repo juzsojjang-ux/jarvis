@@ -10,6 +10,7 @@ memory file. Helpers take an injectable `runner`/`fetch` so they're unit-testabl
 from __future__ import annotations
 
 import asyncio
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -71,7 +72,12 @@ def open_app_action(app: str, runner=subprocess.run) -> str:
     app = (app or "").strip()
     if not app:
         return "어떤 앱을 열까요?"
-    runner(["open", "-a", app], capture_output=True, text=True)
+    try:  # timeout: 자동화 프롬프트 경로에서 이벤트 루프 동결 방지(audit r2)
+        runner(["open", "-a", app], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return f"{app} 열기가 시간 초과됐습니다."
+    except Exception:  # noqa: BLE001
+        return f"{app}을(를) 열지 못했습니다."
     return f"{app}을(를) 열었습니다."
 
 
@@ -80,7 +86,8 @@ def set_volume_action(level: Any, runner=subprocess.run) -> str:
         lv = max(0, min(100, int(level)))
     except (TypeError, ValueError):
         return "볼륨은 0에서 100 사이 숫자로 말씀해 주세요."
-    runner(["osascript", "-e", f"set volume output volume {lv}"], capture_output=True, text=True)
+    # _osa(타임아웃 내장) 재사용 — osascript 직접호출의 timeout 누락 방지(audit r2)
+    _osa(f"set volume output volume {lv}", runner)
     return f"볼륨을 {lv}로 맞췄습니다."
 
 
@@ -177,7 +184,14 @@ def calendar_text(hours: Any = 24, fetch=fetch_events) -> str:
 
 
 def battery_action(runner=subprocess.run) -> str:
-    res = runner(["pmset", "-g", "batt"], capture_output=True, text=True)
+    # timeout 필수: 두뇌 도구 경로는 이벤트 루프에서 직접 await돼, powerd 무응답 시 timeout이
+    # 없으면 음성·웨이크·원격이 전부 동결한다(audit r2; 모니터 쪽은 이미 timeout=10).
+    try:
+        res = runner(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return "배터리 상태를 읽지 못했습니다(시간 초과)."
+    except Exception:  # noqa: BLE001
+        return "배터리 상태를 읽지 못했습니다."
     out = (getattr(res, "stdout", "") or "")
     import re
     m = re.search(r"(\d+)%", out)
@@ -216,11 +230,15 @@ def mute_action(on: Any = True, runner=subprocess.run) -> str:
 
 
 def lock_screen_action(runner=subprocess.run) -> str:
-    # Cmd+Ctrl+Q = macOS '화면 잠금' 단축키 — 실제로 잠근다. 기존 pmset displaysleepnow는
-    # 디스플레이만 끄고(잠금은 '잠자기 후 암호 요구' 설정에 의존) '잠갔다'고 보고하던 것을
-    # 실제 잠금으로 교정(audit medium). 잠금 직후 디스플레이도 끈다.
-    _osa('tell application "System Events" to keystroke "q" using {command down, control down}',
-         runner)
+    # Cmd+Ctrl+Q = macOS '화면 잠금' 단축키. _osa 반환을 검사해 권한 미부여로 키스트로크가
+    # 막히면(타임아웃 안내문/빈 문자열) '잠갔다'고 거짓 보고하지 않는다(audit r2: 반환값을
+    # 버리고 무조건 성공 보고하던 것). System Events 키스트로크는 손쉬운 사용 권한 필요.
+    out = _osa(
+        'tell application "System Events" to keystroke "q" using {command down, control down}',
+        runner)
+    if out.startswith("(응답이 없어"):   # 권한 대화상자 등에서 타임아웃
+        return ("화면을 잠그지 못했습니다 — 손쉬운 사용(접근성) 권한을 확인해 주세요. "
+                "(우선 디스플레이만 껐습니다)")
     runner(["pmset", "displaysleepnow"], capture_output=True, text=True)
     return "화면을 잠갔습니다."
 
@@ -292,14 +310,19 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
                 return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
             except Exception:  # noqa: BLE001
                 return "화면 캡처에 실패했습니다. 화면 권한을 확인해 주세요."
-        res = runner(["screencapture", "-x", str(target)],
-                     capture_output=True, text=True)
+        # timeout 필수: 두뇌 도구 경로는 이벤트 루프에서 직접 실행돼, 화면 기록 권한
+        # 대화상자에서 screencapture가 멈추면 자비스 전체가 동결한다(audit r2 high).
+        try:
+            res = runner(["screencapture", "-x", str(target)],
+                         capture_output=True, text=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            return "화면 캡처가 시간 초과됐습니다 — 화면 기록 권한을 확인해 주세요."
         if getattr(res, "returncode", 1) != 0:
             return ("화면 캡처에 실패했습니다. 시스템 설정의 화면 기록 권한을 "
                     "확인해 주세요.")
         try:
             info = runner(["sips", "-g", "dpiWidth", "-g", "pixelWidth", str(target)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, timeout=10)
             props = {}
             for line in str(info.stdout).splitlines():
                 if ":" in line:
@@ -309,7 +332,7 @@ def capture_screen_action(runner=subprocess.run, path: Path | None = None) -> st
             if scale > 1:
                 width = int(props["pixelWidth"]) // scale
                 runner(["sips", "--resampleWidth", str(width), str(target)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, timeout=10)
         except Exception:  # noqa: BLE001 - 보정은 최선 노력
             pass
         return f"화면을 캡처했습니다. 이 이미지를 Read 도구로 보세요: {target}"
@@ -651,21 +674,28 @@ def mail_text(count: Any = 5, runner=subprocess.run) -> str:
 
 # control_mac은 두뇌가 임의 AppleScript를 보내 실행하는 만능 경로다. 파괴적 동작 방어가
 # LLM 선의에만 의존하던 것을(audit high #9), 코드 차원에서 위험 키워드를 막는다 — 매칭되면
-# 자동 실행하지 않고 사용자에게 직접 하라고 안내(보수적 거부). 'do shell script'·삭제·디스크
-# 조작 등은 음성 오인식 한 마디로 실행되면 안 되는 동작이다.
+# 자동 실행하지 않고 사용자에게 직접 하라고 안내(보수적 거부).
+# ⚠ 단 따옴표 안 '문자열 리터럴(=데이터)'은 검사에서 제외한다 — 안 그러면 'remove milk'
+# 같은 미리알림 본문, 'restart project' 캘린더 제목 등 비파괴 작업까지 과차단된다(audit r2).
 _DANGEROUS_OSA = (
     "do shell script", "do script", "delete", "erase", "empty trash", "remove",
     "rm -", "sudo", "diskutil", "/usr/bin/", "/bin/", "killall", "shutdown",
-    "restart", "system attribute", "set the clipboard",
+    "restart", "system attribute",
 )
+
+
+def _mask_osa_literals(s: str) -> str:
+    """AppleScript 큰따옴표 문자열 리터럴을 빈 문자열로 마스킹 — 따옴표 안 내용(데이터)은
+    위험 키워드 검사 대상이 아니다. 명령 구문에서만 위험 동사를 잡기 위함."""
+    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', s)
 
 
 def control_mac_action(script: str, runner=subprocess.run) -> str:
     script = (script or "").strip()
     if not script:
         return "무엇을 할까요?"
-    low = script.lower()
-    if any(k in low for k in _DANGEROUS_OSA):
+    masked = _mask_osa_literals(script).lower()   # 리터럴(데이터) 제외, 명령부만 검사
+    if any(k in masked for k in _DANGEROUS_OSA):
         return ("위험할 수 있는 시스템 명령(삭제·셸 실행 등)이라 자동으로 실행하지 않았습니다. "
                 "정말 필요하면 직접 실행하시거나, 무엇을 원하는지 구체적으로 말씀해 주세요.")
     out = _osa(script, runner)

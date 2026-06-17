@@ -18,6 +18,26 @@ def _ann(kind, prio, t, ttl=100.0, prompt=None):
     return Announcement(kind, prompt or kind, prio, t, t + ttl)
 
 
+def test_distinct_dedup_keys_both_enqueue():
+    # 같은 kind라도 dedup_key가 다르면(타이머 라벨별·작업 id별) 둘 다 큐잉돼야 한다 —
+    # 동시 만기 타이머/병렬 작업 완료가 둘째부터 소실되던 것 방지(audit r2).
+    eng = ProactiveEngine([], announce=None, can_speak=lambda: True)
+    eng.enqueue(Announcement("timer_done", "달걀", 1, 0.0, 100.0, dedup_key="timer_done:달걀"))
+    eng.enqueue(Announcement("timer_done", "라면", 1, 0.0, 100.0, dedup_key="timer_done:라면"))
+    assert len(eng._pending) == 2
+    # 같은 dedup_key 두 번째는 여전히 중복제거된다.
+    eng.enqueue(Announcement("timer_done", "달걀", 1, 0.0, 100.0, dedup_key="timer_done:달걀"))
+    assert len(eng._pending) == 2
+
+
+def test_same_kind_no_dedup_key_still_dedups():
+    # dedup_key 없으면 기존 동작(kind로 중복제거) 유지.
+    eng = ProactiveEngine([], announce=None, can_speak=lambda: True)
+    eng.enqueue(_ann("battery_low", 0, 0.0))
+    eng.enqueue(_ann("battery_low", 0, 0.0))
+    assert len(eng._pending) == 1
+
+
 def _engine(monitors, *, can_speak=lambda: True, cooldown_s=0.0):
     spoken = []
     t = {"v": 0.0}
