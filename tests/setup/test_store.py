@@ -226,3 +226,12 @@ def test_apply_setup_env_default_name_keeps_no_override(tmp_path):
     env = {}
     apply_setup_env(env, path=p)
     assert "JARVIS_WAKE_WORDS" not in env
+
+
+def test_apply_setup_env_sets_orb_hotkey(tmp_path):
+    from jarvis.setup.store import apply_setup_env, save_setup
+    p = tmp_path / "setup.json"
+    save_setup("claude", path=p, orb_hotkey="alt+0")
+    env = {}
+    apply_setup_env(env, path=p)
+    assert env.get("JARVIS_ORB_HOTKEY") == "alt+0"

@@ -309,6 +309,12 @@ SETUP_HTML = """\
            style="padding:.5rem .7rem;border-radius:8px;background:#0b1a26;color:#e0f2fe;border:1px solid rgba(94,224,255,.4);font-size:.95rem;">
     <small>타자 입력창(Ask)을 여는 단축키. 맥 기본: alt+space, 윈도우 기본: ctrl+space</small>
   </div>
+  <div class="name-row">
+    <label for="orbHotkey">오브 크기 토글 단축키</label>
+    <input type="text" id="orbHotkey" value="alt+o" maxlength="24" spellcheck="false"
+           style="padding:.5rem .7rem;border-radius:8px;background:#0b1a26;color:#e0f2fe;border:1px solid rgba(94,224,255,.4);font-size:.95rem;">
+    <small>오브를 중앙(크게) ↔ 우측 하단(작게)으로 토글하는 단축키</small>
+  </div>
 </div>
 
 <label class="opt-row" id="shortcutRow">
@@ -457,6 +463,7 @@ SETUP_HTML = """\
       const alEl = document.getElementById('aiAliases');
       const pEl = document.getElementById('pttKey');
       const aEl = document.getElementById('askHotkey');
+      const oEl = document.getElementById('orbHotkey');
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -466,7 +473,8 @@ SETUP_HTML = """\
                                name: nEl ? nEl.value.trim() : '',
                                aliases: alEl ? alEl.value : '',
                                ptt_key: pEl ? pEl.value : 'alt_r',
-                               ask_hotkey: aEl ? aEl.value.trim() : 'alt+space' }),
+                               ask_hotkey: aEl ? aEl.value.trim() : 'alt+space',
+                               orb_hotkey: oEl ? oEl.value.trim() : 'alt+o' }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -510,6 +518,7 @@ SETUP_HTML = """\
       if (ale && c.aliases) ale.value = Array.isArray(c.aliases) ? c.aliases.join(', ') : c.aliases;
       const pe = document.getElementById('pttKey'); if (pe && c.ptt_key) pe.value = c.ptt_key;
       const ae = document.getElementById('askHotkey'); if (ae && c.ask_hotkey) ae.value = c.ask_hotkey;
+      const oe = document.getElementById('orbHotkey'); if (oe && c.orb_hotkey) oe.value = c.orb_hotkey;
     } catch (e) {}
     updateUI();
   }
@@ -617,6 +626,7 @@ class SetupServer:
                         "aliases": s.get("aliases", []),
                         "ptt_key": s.get("ptt_key", "alt_r"),
                         "ask_hotkey": s.get("ask_hotkey", "alt+space"),
+                        "orb_hotkey": s.get("orb_hotkey", "alt+o"),
                     })
                 elif path == "/login-status":
                     from urllib.parse import parse_qs, urlparse
@@ -662,6 +672,7 @@ class SetupServer:
                     aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()]
                     ptt_key = str(data.get("ptt_key", "") or "").strip()
                     ask_hotkey = str(data.get("ask_hotkey", "") or "").strip()
+                    orb_hotkey = str(data.get("orb_hotkey", "") or "").strip()
                 except Exception:  # noqa: BLE001
                     self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
                     return
@@ -678,7 +689,7 @@ class SetupServer:
                         try:
                             outer._store_save(provider, key, voice=voice, name=name,
                                               ptt_key=ptt_key, ask_hotkey=ask_hotkey,
-                                              aliases=aliases)
+                                              orb_hotkey=orb_hotkey, aliases=aliases)
                         except TypeError:
                             try:
                                 outer._store_save(provider, key, voice=voice, name=name)
@@ -704,7 +715,7 @@ class SetupServer:
                         try:
                             outer._store_save(provider, key, voice=voice, name=name,
                                               ptt_key=ptt_key, ask_hotkey=ask_hotkey,
-                                              aliases=aliases)
+                                              orb_hotkey=orb_hotkey, aliases=aliases)
                         except TypeError:
                             # 구형 시그니처 호환(ptt_key/voice/name 미지원 콜백)
                             try:
@@ -749,8 +760,9 @@ def _default_store_save(provider: str, key: str, *,
                         voice: str | None = None, name: str | None = None,
                         ptt_key: str | None = None,
                         ask_hotkey: str | None = None,
+                        orb_hotkey: str | None = None,
                         aliases: list[str] | None = None) -> None:
     save_setup(provider, voice=voice, name=name, ptt_key=ptt_key, ask_hotkey=ask_hotkey,
-               aliases=aliases)
+               orb_hotkey=orb_hotkey, aliases=aliases)
     if key:
         save_key(provider, key)

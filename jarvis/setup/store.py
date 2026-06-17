@@ -27,6 +27,7 @@ def save_setup(provider: str, path: Path | None = None, *,
                voice: str | None = None, name: str | None = None,
                ptt_key: str | None = None,
                ask_hotkey: str | None = None,
+               orb_hotkey: str | None = None,
                aliases: list[str] | None = None) -> None:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +41,8 @@ def save_setup(provider: str, path: Path | None = None, *,
         data["ptt_key"] = ptt_key       # 마이크(말하기) 키 — pynput Key 이름
     if ask_hotkey is not None:
         data["ask_hotkey"] = ask_hotkey.strip() or "alt+space"
+    if orb_hotkey is not None:
+        data["orb_hotkey"] = orb_hotkey.strip() or "alt+o"
     if aliases is not None:
         # 공백/빈 항목 제거; 기본 이름(자비스)이어도 저장은 허용(apply에서 무시)
         data["aliases"] = [a.strip() for a in aliases if a and a.strip()]
@@ -108,6 +111,9 @@ def apply_setup_env(environ=None, path: Path | None = None) -> None:
     ask = (s.get("ask_hotkey") or "").strip()
     if ask:
         target.setdefault("JARVIS_ASK_HOTKEY", ask)
+    orb = (s.get("orb_hotkey") or "").strip()
+    if orb:
+        target.setdefault("JARVIS_ORB_HOTKEY", orb)
 
 
 def save_key(provider: str, key: str) -> None:

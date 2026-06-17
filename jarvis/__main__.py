@@ -253,6 +253,7 @@ async def _amain() -> None:
         print(f"[음성] {voice_msg}")
         overlay = None
         ask_hotkey = None
+        orb_hotkey = None
         if orch.hud is not None:
             try:
                 orch.hud.start()
@@ -302,6 +303,19 @@ async def _amain() -> None:
                 print(f"[타자] 단축키 '{getattr(orch.settings, 'ask_hotkey', 'alt+space')}'로 입력창을 띄웁니다.")
             except Exception as exc:  # noqa: BLE001 - 핫키 실패가 부팅을 막으면 안 된다
                 print(f"[타자] 단축키 비활성화(무시): {exc}")
+        if orch.hud is not None:
+            def _toggle_orb() -> None:
+                try:
+                    orch.hud.toggle_expand()
+                except Exception as exc:  # noqa: BLE001 - 토글 실패가 리스너를 죽이면 안 된다
+                    print(f"[오브] 크기 토글 실패(무시): {exc}")
+            try:
+                from .activation.ask_hotkey import AskHotkey
+                orb_hotkey = AskHotkey(getattr(orch.settings, "orb_hotkey", "alt+o"))
+                orb_hotkey.start(_toggle_orb)
+                print(f"[오브] 단축키 '{getattr(orch.settings, 'orb_hotkey', 'alt+o')}'로 크기를 토글합니다.")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[오브] 크기 토글 단축키 비활성화(무시): {exc}")
         tray = None
         if getattr(orch.settings, "tray_enabled", True):
             tray = _spawn_tray()
@@ -362,6 +376,8 @@ async def _amain() -> None:
                 remote.stop()
             if ask_hotkey is not None:
                 ask_hotkey.stop()
+            if orb_hotkey is not None:
+                orb_hotkey.stop()
 
 
 def main() -> None:

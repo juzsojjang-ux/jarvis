@@ -235,3 +235,11 @@ def test_post_ask_speak_uses_handler(server):
     r = _post(server.url + "ask/speak", {"en": "hi", "ko": "안녕"})
     assert _json.loads(r.read().decode())["ok"] is True
     assert got == [("hi", "안녕")]
+
+
+def test_toggle_expand_flips_sticky_state():
+    from jarvis.hud.orb_server import OrbHub
+    hub = OrbHub()
+    assert hub._last["expand"] is True          # 시작은 크게(중앙)
+    assert hub.toggle_expand()["expand"] is False   # 토글 → 작게(우측하단)
+    assert hub.toggle_expand()["expand"] is True    # 다시 → 크게

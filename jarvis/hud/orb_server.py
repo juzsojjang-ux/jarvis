@@ -124,6 +124,14 @@ class OrbHub:
             last = self._last
             return self._emit(last.get("state", "idle"), last.get("level", 0.0))
 
+    def toggle_expand(self) -> dict:
+        """오브 크기(중앙 큰 ↔ 우측하단 작은) 토글 — 단축키 콜백(다른 스레드)에서 호출.
+        sticky 상태를 뒤집고 현재 상태/레벨로 재방출한다."""
+        with self._lock:
+            self._expand = not self._expand
+            last = self._last
+            return self._emit(last.get("state", "idle"), last.get("level", 0.0))
+
     def _emit(self, state: str, level: float) -> dict:
         panels = _brain_cards(self._notice) + list(self._telemetry)
         evt = {"state": state, "level": round(max(0.0, min(1.0, float(level))), 4),
@@ -329,6 +337,9 @@ class OrbServer:
 
     def publish_notice(self, notice: str | None) -> None:
         self.hub.publish_notice(notice)
+
+    def toggle_expand(self) -> None:
+        self.hub.toggle_expand()
 
     def stop(self) -> None:
         if self._httpd is not None:

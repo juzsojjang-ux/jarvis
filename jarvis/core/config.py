@@ -166,6 +166,7 @@ class Settings(BaseSettings):
     # --- 타자 입력(Ask) ---
     ask_enabled: bool = True
     ask_hotkey: str = "alt+space"   # 입력창 호출 단축키(설정에서 변경). 윈도우=ctrl+space
+    orb_hotkey: str = "alt+o"       # 오브 크기 토글 단축키(중앙↔우측하단, 설정에서 변경)
 
     @property
     def api_key(self) -> str:
