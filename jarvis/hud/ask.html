@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+         display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+  #thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+            gap: 8px; padding: 4px; }
+  .msg { max-width: 86%; padding: 8px 12px; border-radius: 14px; font-size: 14px;
+         line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .me { align-self: flex-end; background: #1f6feb; color: #fff; }
+  .jv { align-self: flex-start; background: rgba(20,40,56,.92); color: #e0f2fe;
+        border: 1px solid rgba(94,224,255,.35); position: relative; }
+  .jv .spk { cursor: pointer; opacity: .65; margin-left: 8px; font-size: 12px; }
+  .jv .spk:hover { opacity: 1; }
+  #bar { display: flex; gap: 8px; align-items: center; }
+  #q { flex: 1; padding: 10px 12px; border-radius: 12px; font-size: 14px;
+       background: #0b1a26; color: #e0f2fe; border: 1px solid rgba(94,224,255,.4);
+       outline: none; resize: none; max-height: 96px; }
+  #voice { cursor: pointer; user-select: none; font-size: 13px; color: #9fb6c4; }
+  #voice.on { color: #5ee0ff; }
+</style>
+</head>
+<body>
+  <div id="thread"></div>
+  <div id="bar">
+    <textarea id="q" rows="1" placeholder="무엇이든 물어보세요…" autofocus></textarea>
+    <span id="voice" title="자동 음성">🔈 음성</span>
+  </div>
+<script>
+  const thread = document.getElementById('thread');
+  const q = document.getElementById('q');
+  const voice = document.getElementById('voice');
+  let autoVoice = false;
+  voice.onclick = () => { autoVoice = !autoVoice;
+    voice.classList.toggle('on', autoVoice);
+    voice.textContent = autoVoice ? '🔊 음성' : '🔈 음성'; };
+
+  function bubble(cls, text) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + cls; d.textContent = text;
+    thread.appendChild(d); thread.scrollTop = thread.scrollHeight;
+    return d;
+  }
+  function addSpeaker(node, en, ko) {
+    const s = document.createElement('span');
+    s.className = 'spk'; s.textContent = '🔊';
+    s.onclick = () => fetch('/ask/speak', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({en: en, ko: ko})});
+    node.appendChild(s);
+  }
+
+  async function send() {
+    const text = q.value.trim();
+    if (!text) return;
+    bubble('me', text);
+    q.value = ''; q.style.height = 'auto'; q.disabled = true;
+    const pending = bubble('jv', '…');
+    try {
+      const r = await fetch('/ask', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: text, speak: autoVoice})});
+      const j = await r.json();
+      pending.textContent = j.reply || '답을 만들지 못했습니다.';
+      if (j.reply_en) addSpeaker(pending, j.reply_en, j.reply || '');
+    } catch (e) {
+      pending.textContent = '연결 오류 — 자비스가 실행 중인지 확인하세요.';
+    } finally {
+      q.disabled = false; q.focus();
+    }
+  }
+
+  q.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    else if (e.key === 'Escape') { thread.innerHTML = ''; window.close(); }
+  });
+  q.addEventListener('input', () => {
+    q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 96) + 'px';
+  });
+  window.addEventListener('focus', () => q.focus());
+</script>
+</body>
+</html>
