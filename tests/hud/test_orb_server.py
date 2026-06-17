@@ -192,3 +192,46 @@ def test_assistant_name_injected_into_html(monkeypatch):
     assert "맥스".encode() in _apply_assistant_name(body)
     monkeypatch.delenv("JARVIS_ASSISTANT_NAME")
     assert _apply_assistant_name(body) == body  # 기본명은 무변경
+
+
+# ---- /ask 라우팅 (GET/POST) -----------------------------------------------
+import json as _json
+import urllib.request as _rq
+
+
+def _post(url, obj):
+    req = _rq.Request(url, data=_json.dumps(obj).encode(),
+                      headers={"Content-Type": "application/json"}, method="POST")
+    return _rq.urlopen(req, timeout=3)
+
+
+def test_serves_ask_html(server):
+    body = _rq.urlopen(server.url + "ask", timeout=3).read().decode("utf-8")
+    assert "무엇이든 물어보세요" in body and "/ask" in body
+
+
+def test_post_ask_uses_injected_handler(server):
+    seen = []
+    server.set_ask_handler(lambda text, speak: (seen.append((text, speak))
+                                                 or {"reply": "답: " + text, "reply_en": "ok"}))
+    r = _post(server.url + "ask", {"text": "안녕", "speak": True})
+    out = _json.loads(r.read().decode())
+    assert out["reply"] == "답: 안녕" and out["reply_en"] == "ok"
+    assert seen == [("안녕", True)]
+
+
+def test_post_ask_without_handler_returns_503(server):
+    r = None
+    try:
+        _post(server.url + "ask", {"text": "안녕"})
+    except _rq.HTTPError as e:  # 503
+        r = e
+    assert r is not None and r.code == 503
+
+
+def test_post_ask_speak_uses_handler(server):
+    got = []
+    server.set_speak_handler(lambda en, ko: (got.append((en, ko)) or {"ok": True}))
+    r = _post(server.url + "ask/speak", {"en": "hi", "ko": "안녕"})
+    assert _json.loads(r.read().decode())["ok"] is True
+    assert got == [("hi", "안녕")]

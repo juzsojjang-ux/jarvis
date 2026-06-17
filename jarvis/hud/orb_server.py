@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ORB_HTML = Path(__file__).resolve().parent / "orb.html"
+ASK_HTML = Path(__file__).resolve().parent / "ask.html"
 
 
 _ASSET_CTYPE = {".mov": "video/quicktime", ".webm": "video/webm", ".mp4": "video/mp4"}
@@ -143,7 +144,7 @@ class OrbHub:
             return len(self._clients)
 
 
-def _make_handler(hub: OrbHub):
+def _make_handler(hub: OrbHub, server):
     class OrbHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -156,6 +157,8 @@ def _make_handler(hub: OrbHub):
                 self._serve_events()
             elif path in ("/", "/index.html", "/orb.html"):
                 self._serve_html()
+            elif path == "/ask":
+                self._serve_ask_html()
             elif path.startswith("/assets/") and path.rsplit(".", 1)[-1] in ("mov", "webm", "mp4"):
                 name = path[len("/assets/"):]
                 try:
@@ -190,6 +193,61 @@ def _make_handler(hub: OrbHub):
                 return
             body = _apply_assistant_name(body)
             self._serve_bytes(body, "text/html; charset=utf-8")
+
+        def _serve_ask_html(self) -> None:
+            try:
+                body = ASK_HTML.read_bytes()
+            except OSError:
+                self.send_error(500)
+                return
+            body = _apply_assistant_name(body)
+            self._serve_bytes(body, "text/html; charset=utf-8")
+
+        def _read_json(self) -> dict:
+            try:
+                n = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(n) if n > 0 else b""
+                data = json.loads(raw.decode("utf-8")) if raw else {}
+                return data if isinstance(data, dict) else {}
+            except Exception:  # noqa: BLE001 - 잘못된 본문은 빈 dict
+                return {}
+
+        def _send_json(self, obj: dict, code: int = 200) -> None:
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
+        def do_POST(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+            data = self._read_json()
+            if path == "/ask":
+                fn = server._ask_handler
+                if fn is None:
+                    self._send_json({"reply": "타자 입력이 아직 준비되지 않았습니다."}, 503)
+                    return
+                try:
+                    out = fn(str(data.get("text", "")), bool(data.get("speak", False)))
+                except Exception as exc:  # noqa: BLE001
+                    out = {"reply": f"처리 오류: {exc}"}
+                self._send_json(out if isinstance(out, dict) else {"reply": ""})
+            elif path == "/ask/speak":
+                fn = server._speak_handler
+                if fn is None:
+                    self._send_json({"ok": False}, 503)
+                    return
+                try:
+                    out = fn(str(data.get("en", "")), str(data.get("ko", "")))
+                except Exception:  # noqa: BLE001
+                    out = {"ok": False}
+                self._send_json(out if isinstance(out, dict) else {"ok": False})
+            else:
+                self.send_error(404)
 
         def _serve_bytes(self, body: bytes, ctype: str) -> None:
             self.send_response(200)
@@ -244,13 +302,21 @@ class OrbServer:
         self.hub = OrbHub()
         self._httpd: _Server | None = None
         self._thread: threading.Thread | None = None
+        self._ask_handler = None     # (text:str, speak:bool) -> dict
+        self._speak_handler = None   # (en:str, ko:str) -> dict
+
+    def set_ask_handler(self, fn) -> None:
+        self._ask_handler = fn
+
+    def set_speak_handler(self, fn) -> None:
+        self._speak_handler = fn
 
     @property
     def url(self) -> str:
         return f"http://{self.host}:{self.port}/"
 
     def start(self) -> None:
-        self._httpd = _Server((self.host, self.port), _make_handler(self.hub))
+        self._httpd = _Server((self.host, self.port), _make_handler(self.hub, self))
         self.port = self._httpd.server_address[1]  # reflect the real port (handles port=0)
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
