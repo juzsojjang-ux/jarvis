@@ -105,8 +105,8 @@ class Orchestrator:
             self._loop.call_soon_threadsafe(self._on_release)
 
     def _on_press(self) -> None:
-        if self._remote_busy:
-            return  # 원격 턴 진행 중 — PTT 무시(상태·캡처를 건드리면 게이트가 풀린다)
+        if self._remote_busy or self._text_busy:
+            return  # 원격/타자 턴 진행 중 — PTT 무시(상태·캡처를 건드리면 게이트가 풀린다)
         # Barge-in: a press while a pipeline is running cancels it before re-capturing.
         if self._task is not None and not self._task.done():
             # Keep a strong ref: the loop only weakly references tasks, so a bare
@@ -128,8 +128,8 @@ class Orchestrator:
         if self.wake is None and self.micstream is not None:
             # PTT 전용 모드: 누르는 동안만 마이크 점등(상시-온은 웨이크 모드 전용).
             self.micstream.stop()
-        if self._remote_busy:
-            self._to_idle()  # 원격 턴 진행 중 — PTT 발화 폐기(두뇌 동시 사용 방지)
+        if self._remote_busy or self._text_busy:
+            self._to_idle()  # 원격/타자 턴 진행 중 — PTT 발화 폐기(두뇌 동시 사용 방지)
             return
         self.state = State.TRANSCRIBING
         self._task = asyncio.create_task(self._pipeline(pcm))

@@ -1148,6 +1148,7 @@ def test_text_turn_returns_text_without_voice():
     assert res["reply"]                 # 텍스트 답이 온다
     assert pb.feeds == []               # speak=False → 음성 없음
     assert orch.state == State.IDLE
+    assert not orch._text_busy          # 턴 끝나면 busy 해제(다음 턴이 안 막힘)
 
 
 def test_text_turn_korean_subtitle_preferred():
@@ -1173,6 +1174,17 @@ def test_text_turn_routes_command_with_ack():
     res = asyncio.run(orch.text_turn("화면 제어 모드 켜줘"))
     assert seen == ["화면 제어 모드 켜줘"]
     assert res["reply"] == "처리했습니다."
+    assert orch.state == State.IDLE     # 명령 경로도 finally가 idle 복귀
+    assert not orch._text_busy          # busy 해제(누수 방지)
+
+
+def test_ptt_press_ignored_during_text_turn():
+    # _text_busy는 PTT도 막는다(주석의 약속) — 동시 두뇌 사용(응답 훔치기) 차단.
+    orch, _pb = _make()
+    orch._text_busy = True
+    orch.state = State.IDLE
+    orch._on_press()                    # capture=None이라 가드가 없으면 터졌을 것
+    assert orch.state == State.IDLE     # 캡처로 전환하지 않음(타자 턴 보호)
 
 
 def test_text_turn_busy_blocks():
