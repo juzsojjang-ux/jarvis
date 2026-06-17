@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jarvis"
-version = "3.0.0"
+version = "3.0.1"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "anthropic[mcp]==0.107.1",
