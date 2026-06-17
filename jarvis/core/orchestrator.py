@@ -218,36 +218,35 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 - 한 턴의 실패가 상태를 가두면 안 된다
             await self._announce_error(exc)
 
-    async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
-        if not text.strip():
-            self._to_idle()
-            return
+    async def _route_command(self, text: str) -> bool:
+        """명령 라우팅(모드 토글·사용량·자가진단·감시·패널·확대·통역). 처리하면 True.
+        _pipeline_text와 text_turn이 공유해 명령 처리를 한 곳에서 관리한다."""
         ctl = self._control_command(text)
         if ctl is not None:
             await self._toggle_control(ctl)
-            return
+            return True
         trust = self._trust_command(text)
         if trust is not None:
             await self._toggle_trust(trust)
-            return
+            return True
         cmd = self._interpret_command(text)
         if cmd is not None:
             await self._toggle_interpret(cmd)
-            return
+            return True
         if self._usage_command(text):
             await self._report_usage()
-            return
+            return True
         if self._selfcheck_command(text):
             await self._run_selfcheck()
-            return
+            return True
         wcmd = self._watch_command(text)
         if wcmd is not None:
             await self._toggle_watch(wcmd)
-            return
+            return True
         pcmd = self._panel_command(text)
         if pcmd is not None:
             await self._toggle_panel(pcmd)
-            return
+            return True
         ex = self._expand_command(text)
         if ex is not None:
             if self.hud is not None:
@@ -262,9 +261,17 @@ class Orchestrator:
             await self._play_phrase("Very well, sir.",
                                     "크게 띄웠습니다." if ex else "작게 했습니다.")
             self._to_idle()
-            return
+            return True
         if self.interpret_mode:
             await self._interpret_turn(text)
+            return True
+        return False
+
+    async def _pipeline_text(self, text: str, *, ack: bool = True) -> None:
+        if not text.strip():
+            self._to_idle()
+            return
+        if await self._route_command(text):
             return
         self.state = State.THINKING
         self._publish("thinking")

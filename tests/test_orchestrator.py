@@ -1096,3 +1096,11 @@ def test_await_warm_swallows_exception():
         await o._await_warm()         # 예열 실패를 삼킨다(raise 안 함)
 
     asyncio.run(scenario())
+
+
+def test_route_command_handles_known_command_else_false():
+    orch, _pb = _make()
+    # 알 수 없는 일반 텍스트 → 명령 아님(False)
+    assert asyncio.run(orch._route_command("오늘 날씨 어때")) is False
+    # _expand_command가 잡는 "크게 띄워" → 명령으로 처리(True)
+    assert asyncio.run(orch._route_command("크게 띄워줘")) is True
