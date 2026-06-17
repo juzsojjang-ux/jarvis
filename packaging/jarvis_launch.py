@@ -215,7 +215,10 @@ if "--pocket-smoke" in sys.argv:
 from jarvis.__main__ import main
 
 if __name__ == "__main__":
-    _crash_log = _install_dist_logging()
+    try:  # 로그 셋업(홈 디렉토리 mkdir/open) 실패가 부팅을 무방비로 죽이지 않게(audit r4)
+        _crash_log = _install_dist_logging()
+    except Exception:  # noqa: BLE001
+        _crash_log = None
     try:
         main()
     except SystemExit:
@@ -224,8 +227,9 @@ if __name__ == "__main__":
         import datetime
         import traceback
 
-        _crash_log.write(f"\n=== CRASH {datetime.datetime.now().isoformat()} ===\n")
-        traceback.print_exc(file=_crash_log)
+        if _crash_log is not None:    # 로그 셋업이 실패했어도 콘솔 출력은 남긴다
+            _crash_log.write(f"\n=== CRASH {datetime.datetime.now().isoformat()} ===\n")
+            traceback.print_exc(file=_crash_log)
         traceback.print_exc()
         print(f"\n[JARVIS] 오류로 종료됐습니다. 로그: {_LOG_DIR}")
         if os.name == "nt":

@@ -2,7 +2,15 @@
 현 TTS는 Pocket 영어 전용이라 통역의 한국어 방향은 say로 직접 재생한다."""
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
+
+_WIN_SAY_PS = (
+    "Add-Type -AssemblyName System.Speech;"
+    "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+    "$s.Speak($env:JARVIS_SAY_TEXT);$s.Dispose()"
+)
 
 
 def detect_lang(text: str) -> str:
@@ -21,6 +29,14 @@ def interpret_speak_korean(text: str, voice: str = "Yuna",
     if not text:
         return
     try:
-        runner(["say", "-v", voice, text], capture_output=True, text=True, timeout=30)
+        if sys.platform == "darwin":
+            runner(["say", "-v", voice, text], capture_output=True, text=True, timeout=30)
+        elif sys.platform.startswith("win"):
+            # 윈도우는 say가 없어 통역 한국어가 무음이던 것(audit r4) — System.Speech로 재생.
+            env = dict(os.environ, JARVIS_SAY_TEXT=text)
+            runner(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-Command", _WIN_SAY_PS],
+                   capture_output=True, text=True, timeout=30, env=env)
+        # 그 외(리눅스): 직접 재생 수단이 없어 조용히 스킵
     except Exception:  # noqa: BLE001 - 음성 출력 실패가 통역 모드를 멈추면 안 된다
         pass

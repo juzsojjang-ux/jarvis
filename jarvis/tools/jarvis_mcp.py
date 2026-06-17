@@ -230,6 +230,14 @@ def mute_action(on: Any = True, runner=subprocess.run) -> str:
 
 
 def lock_screen_action(runner=subprocess.run) -> str:
+    if not _is_mac():
+        # 윈도우는 rundll32로 잠근다(맥 pmset/osascript 부재 시 예외 방지 — audit r4).
+        try:
+            runner(["rundll32.exe", "user32.dll,LockWorkStation"],
+                   capture_output=True, text=True, timeout=10)
+            return "화면을 잠갔습니다."
+        except Exception:  # noqa: BLE001
+            return "화면 잠금에 실패했습니다."
     # Cmd+Ctrl+Q = macOS '화면 잠금' 단축키. _osa 반환을 검사해 권한 미부여로 키스트로크가
     # 막히면(타임아웃 안내문/빈 문자열) '잠갔다'고 거짓 보고하지 않는다(audit r2: 반환값을
     # 버리고 무조건 성공 보고하던 것). System Events 키스트로크는 손쉬운 사용 권한 필요.
@@ -239,7 +247,10 @@ def lock_screen_action(runner=subprocess.run) -> str:
     if out.startswith("(응답이 없어"):   # 권한 대화상자 등에서 타임아웃
         return ("화면을 잠그지 못했습니다 — 손쉬운 사용(접근성) 권한을 확인해 주세요. "
                 "(우선 디스플레이만 껐습니다)")
-    runner(["pmset", "displaysleepnow"], capture_output=True, text=True)
+    try:
+        runner(["pmset", "displaysleepnow"], capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        pass
     return "화면을 잠갔습니다."
 
 
@@ -502,10 +513,12 @@ def screen_control_action(action: str, x: Any = None, y: Any = None, text: str =
                 "type, key, scroll 중 하나를 쓰세요.")
     if _is_mac():
         try:
-            res = runner(["cliclick", *args], capture_output=True, text=True)
+            res = runner(["cliclick", *args], capture_output=True, text=True, timeout=15)
         except FileNotFoundError:
             return ("화면 제어에는 cliclick이 필요합니다. 터미널에서 "
                     "brew install cliclick 을 실행해 주세요.")
+        except subprocess.TimeoutExpired:
+            return "화면 조작이 시간 초과됐습니다 — 손쉬운 사용 권한을 확인해 주세요."
         except Exception:  # noqa: BLE001
             return "화면 조작에 실패했습니다."
         if getattr(res, "returncode", 0) != 0:
@@ -536,7 +549,7 @@ _MUSIC_FIND = {
 
 
 def play_music_action(query: str, kind: str = "any", runner=subprocess.run) -> str:
-    q = (query or "").strip().replace('"', '\\"')
+    q = _osa_str((query or "").strip())   # 역슬래시+따옴표 안전 이스케이프(audit r4: 따옴표만 치환하던 것)
     if not q:
         return "무엇을 틀까요?"
     order = [kind] if kind in _MUSIC_FIND else ["track", "artist", "playlist"]
@@ -689,7 +702,7 @@ def mail_text(count: Any = 5, runner=subprocess.run) -> str:
 # ⚠ 단 따옴표 안 '문자열 리터럴(=데이터)'은 검사에서 제외한다 — 안 그러면 'remove milk'
 # 같은 미리알림 본문, 'restart project' 캘린더 제목 등 비파괴 작업까지 과차단된다(audit r2).
 _DANGEROUS_OSA = (
-    "do shell script", "do script", "delete", "erase", "empty trash", "remove",
+    "do shell script", "do script", "run script", "delete", "erase", "empty trash", "remove",
     "rm -", "sudo", "diskutil", "/usr/bin/", "/bin/", "killall", "shutdown",
     "restart", "system attribute",
 )
@@ -738,6 +751,8 @@ def system_toggle_action(target: str, state: str = "toggle", runner=subprocess.r
     off = any(w in state for w in _OFF_WORDS)
     try:
         if target in ("dark_mode", "darkmode", "다크모드"):
+            if not _is_mac():   # 윈도우에서 _osa는 ''라 거짓 성공 보고하던 것(audit r4)
+                return "다크 모드 전환은 맥에서만 지원합니다."
             value = "not dark mode" if not (on or off) else ("true" if on else "false")
             _osa("tell application \"System Events\" to tell appearance preferences "
                  f"to set dark mode to {value}", runner)
@@ -757,6 +772,8 @@ def system_toggle_action(target: str, state: str = "toggle", runner=subprocess.r
                    capture_output=True, text=True, timeout=10)
             return f"블루투스를 {'켰' if on else '껐'}습니다."
         if target in _BRIGHT_KEYS:
+            if not _is_mac():   # 윈도우에서 _osa는 ''라 거짓 성공 보고하던 것(audit r4)
+                return "밝기 조절은 맥에서만 지원합니다."
             for _ in range(4):  # 호출당 4단계(약 25%) — 더 원하면 다시 부탁받는다
                 _osa(f'tell application "System Events" to key code {_BRIGHT_KEYS[target]}',
                      runner)

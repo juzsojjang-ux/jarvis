@@ -15,9 +15,12 @@ _KEY_USER = {"gemini": "gemini_api_key", "gpt": "openai_api_key"}
 def load_setup(path: Path | None = None) -> dict:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 - 없거나 손상 → 빈 설정
         return {}
+    # 유효한 JSON이지만 객체가 아니면([]/"x"/null 등) 빈 dict — 호출부 .get()이 크래시하던 것
+    # 방지(audit r4: 손상 setup.json이 frozen 부팅을 죽이던 것).
+    return data if isinstance(data, dict) else {}
 
 
 def save_setup(provider: str, path: Path | None = None, *,

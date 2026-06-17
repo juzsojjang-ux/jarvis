@@ -71,10 +71,12 @@ class UsageTracker:
     def _load(self) -> dict[str, int]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):   # null/int/list/str이면 .get에서 AttributeError로
+                data = {}                    # 부팅 크래시하던 것 방지(audit r4)
             return {"input": int(data.get("input", 0)),
                     "output": int(data.get("output", 0)),
                     "turns": int(data.get("turns", 0))}
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, AttributeError):
             return {"input": 0, "output": 0, "turns": 0}
 
     def _save(self) -> None:

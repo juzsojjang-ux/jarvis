@@ -8,7 +8,11 @@ class MemoryStore:
         self._text = ""
 
     def load(self) -> None:
-        self._text = self._path.read_text(encoding="utf-8") if self._path.exists() else ""
+        # 손상/판독불가(잘못된 UTF-8·권한 등) 기억 파일이 부팅을 죽이지 않게 가드(audit r4).
+        try:
+            self._text = self._path.read_text(encoding="utf-8") if self._path.exists() else ""
+        except Exception:  # noqa: BLE001
+            self._text = ""
 
     def text(self) -> str:
         return self._text

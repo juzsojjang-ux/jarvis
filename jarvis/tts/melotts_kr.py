@@ -12,6 +12,7 @@ import asyncio
 import os
 import subprocess
 import sys
+import threading
 
 import numpy as np
 
@@ -46,7 +47,25 @@ class MeloTTSKR:
         proc = self._ensure_proc()
         proc.stdin.write(ipc.pack_request("준비 완료"))
         proc.stdin.flush()
-        _pcm, sr = ipc.read_response(proc.stdout)  # discard warm-up audio
+        # 워커가 모델 로드/다운로드에서 멈춰도 부팅이 영구 동결되지 않게 타임아웃(audit r4 high:
+        # synth만 고치고 warm은 무한 블로킹이던 것). 초과 시 워커 kill + 예외(상위 composite가 흡수).
+        box: dict = {}
+
+        def _read():
+            try:
+                box["r"] = ipc.read_response(proc.stdout)
+            except Exception as exc:  # noqa: BLE001
+                box["e"] = exc
+
+        t = threading.Thread(target=_read, daemon=True)
+        t.start()
+        t.join(self._SYNTH_TIMEOUT)
+        if t.is_alive():
+            self._kill_proc()
+            raise RuntimeError("TTS 예열 시간 초과")
+        if "e" in box:
+            raise box["e"]
+        _pcm, sr = box["r"]  # discard warm-up audio
         self.sample_rate = sr
 
     _SYNTH_TIMEOUT = 45.0  # 워커 응답 상한(초) — 멈추면 죽이고 폴백

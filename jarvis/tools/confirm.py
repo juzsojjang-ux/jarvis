@@ -72,9 +72,13 @@ class VoiceConfirm:
         else:
             # 짧게 — 긴 안내문은 Pocket TTS 토큰 한도(50)를 넘겨 단어가 잘렸다.
             await self._speak(f"{prompt} 네 또는 아니오로 답해 주세요.")
+        # try/finally: 확인 턴이 취소(바지인)·예외로 중단돼도 마이크 캡처를 반드시 닫는다
+        # (audit r4: start 후 stop이 안 불려 PTT 전용 모드서 마이크가 켜진 채 남던 것).
         self._capture.start()
-        await asyncio.sleep(self._window_s)
-        pcm = self._capture.stop()
+        try:
+            await asyncio.sleep(self._window_s)
+        finally:
+            pcm = self._capture.stop()
         text = await asyncio.to_thread(
             self._stt.transcribe, pcm, 16000, self._settings.language
         )

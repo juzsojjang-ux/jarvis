@@ -152,7 +152,7 @@ def test_control_unknown_action_guidance():
 
 
 def test_control_missing_cliclick_guidance():
-    def no_bin(cmd, capture_output=True, text=True):
+    def no_bin(cmd, capture_output=True, text=True, **kwargs):  # timeout= 등 허용
         raise FileNotFoundError("cliclick")
     out = screen_control_action("click", x=1, y=1, gate=_gate(), runner=no_bin)
     assert "brew install cliclick" in out
