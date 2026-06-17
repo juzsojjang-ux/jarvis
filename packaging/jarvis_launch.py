@@ -24,6 +24,7 @@ multiprocessing.freeze_support()
 # 플래그로 재실행한다. 본체 부팅 코드보다 반드시 먼저 처리해야 한다 — 안 그러면
 # 자식마다 본체가 통째로 또 떠 무한 증식한다(__main__._child_cmd 참조).
 _ALLOWED_CHILDREN = {"jarvis.hud.overlay_mac", "jarvis.hud.overlay_win", "jarvis.hud.tray",
+                     "jarvis.hud.ask_overlay",
                      # 번들 Pocket: 본체 인터프리터를 --child=로 재실행해 torch 워커를 띄운다
                      # (별도 .venv-pocket 없이). 이 디스패치는 _install_dist_logging 이전이라
                      # sys.stdout이 진짜 fd → pocket_worker.main()의 dup IPC가 안전하다.

@@ -194,6 +194,7 @@ hiddenimports = [
     "jarvis.hud.overlay_mac",
     "jarvis.hud.overlay_win",
     "jarvis.hud.tray",
+    "jarvis.hud.ask_overlay",
     "pystray",
     "PIL",
     "PIL.Image",

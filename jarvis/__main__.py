@@ -252,6 +252,7 @@ async def _amain() -> None:
         _active, voice_msg = vc_status(orch.settings)
         print(f"[음성] {voice_msg}")
         overlay = None
+        ask_hotkey = None
         if orch.hud is not None:
             try:
                 orch.hud.start()
@@ -262,6 +263,45 @@ async def _amain() -> None:
                     webbrowser.open(orch.hud.url)
             except OSError as exc:  # port busy etc. — HUD is optional, keep going
                 print(f"[HUD] HUD 비활성화(서버 시작 실패): {exc}")
+        # 타자 입력(Ask) — 단축키로 포커스 가능한 입력창을 띄우고, 텍스트 턴을 처리한다.
+        if orch.hud is not None and getattr(orch.settings, "ask_enabled", True):
+            loop = asyncio.get_running_loop()
+
+            def _ask_bridge(text: str, speak: bool) -> dict:
+                fut = asyncio.run_coroutine_threadsafe(
+                    orch.text_turn(text, speak=speak), loop)
+                try:
+                    return fut.result(timeout=240.0)
+                except TimeoutError:
+                    fut.cancel()
+                    return {"reply": "처리 시간이 초과되었습니다."}
+
+            def _speak_bridge(en: str, ko: str) -> dict:
+                fut = asyncio.run_coroutine_threadsafe(orch.speak_text(en, ko), loop)
+                try:
+                    return fut.result(timeout=60.0)
+                except TimeoutError:
+                    fut.cancel()
+                    return {"ok": False}
+
+            orch.hud.set_ask_handler(_ask_bridge)
+            orch.hud.set_speak_handler(_speak_bridge)
+
+            ask_url = orch.hud.url + "ask"
+
+            def _open_ask() -> None:
+                try:
+                    subprocess.Popen(_child_cmd("jarvis.hud.ask_overlay", ask_url))
+                except OSError as exc:
+                    print(f"[타자] 입력창 실행 실패(무시): {exc}")
+
+            try:
+                from .activation.ask_hotkey import AskHotkey
+                ask_hotkey = AskHotkey(getattr(orch.settings, "ask_hotkey", "alt+space"))
+                ask_hotkey.start(_open_ask)
+                print(f"[타자] 단축키 '{getattr(orch.settings, 'ask_hotkey', 'alt+space')}'로 입력창을 띄웁니다.")
+            except Exception as exc:  # noqa: BLE001 - 핫키 실패가 부팅을 막으면 안 된다
+                print(f"[타자] 단축키 비활성화(무시): {exc}")
         tray = None
         if getattr(orch.settings, "tray_enabled", True):
             tray = _spawn_tray()
@@ -320,6 +360,8 @@ async def _amain() -> None:
                 tray.terminate()
             if remote is not None:
                 remote.stop()
+            if ask_hotkey is not None:
+                ask_hotkey.stop()
 
 
 def main() -> None:
