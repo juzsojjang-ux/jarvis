@@ -51,15 +51,26 @@ class ProactiveEngine:
 
     async def _poll_due_monitors(self) -> None:
         wall = time.monotonic()           # 폴링 간격은 항상 실제 벽시계로 측정
+        due = []
         for idx, mon in enumerate(self._monitors):
             if wall < self._next_poll.get(idx, 0.0):
                 continue
             self._next_poll[idx] = wall + getattr(mon, "interval_s", 60.0)
+            due.append(mon)
+        if not due:
+            return
+
+        async def _poll_one(mon):
             try:
-                anns = await asyncio.to_thread(mon.poll)
+                return await asyncio.to_thread(mon.poll)
             except Exception as exc:  # noqa: BLE001 - 감시자 하나가 엔진을 죽이면 안 된다
                 print(f"[능동] {type(mon).__name__} 폴링 오류(계속): {exc}")
-                continue
+                return []
+
+        # 동시 폴링 — 느린 osascript 감시자(미리알림/캘린더)가 타이머 폴링을 head-of-line
+        # 블록해 타이머 알림이 늦던 것 방지(audit r3). 각 poll은 자기 스레드로 오프로드.
+        results = await asyncio.gather(*[_poll_one(m) for m in due])
+        for anns in results:
             for a in anns:
                 self.enqueue(a)
 
@@ -82,11 +93,16 @@ class ProactiveEngine:
                 if self._pending and self._can_speak():
                     ann = self._pick()
                     if ann is not None:
-                        self._last_spoken[ann.kind] = self._clock()
+                        self._last_spoken[ann.kind] = self._clock()   # 쿨다운(재시도 스팸 방지)
                         try:
                             await self._announce(ann.prompt)
                         except Exception as exc:  # noqa: BLE001 - 한 건 실패가 엔진을 멈추면 안 된다
                             print(f"[능동] 알림 전달 오류(계속): {exc}")
+                            # 중요 알림(priority 0, 예: 배터리 위험)만 만료 전 재큐잉 — 발화 전에
+                            # 제거돼 한 번의 announce 예외로 영구 소실하던 것 방지(audit r3 low).
+                            # 일반 알림은 드롭(재시도 스팸 방지). 쿨다운은 위에서 이미 적용.
+                            if ann.priority <= 0 and not ann.expired(self._clock()):
+                                self.enqueue(ann)
                 await asyncio.sleep(self._tick_s)
         except asyncio.CancelledError:
             pass

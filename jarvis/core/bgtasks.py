@@ -35,9 +35,21 @@ class BgTaskManager:
         self._max = max_concurrent
         self._tasks: list[BgTask] = []
         self._futures: list[asyncio.Task] = []
+        self._seq = 0                  # id 카운터 — 이력 pruning과 무관하게 단조 증가
+
+    _HISTORY_CAP = 50                  # 완료 작업 이력 상한
 
     def running_count(self) -> int:
         return sum(1 for t in self._tasks if t.status == "running")
+
+    def _prune(self) -> None:
+        # 완료된 future 제거 + 완료 작업 이력 상한 — append-only로 무한 증가하던 것 방지
+        # (audit r3 low). running 작업은 절대 prune하지 않는다.
+        self._futures = [f for f in self._futures if not f.done()]
+        done = [t for t in self._tasks if t.status != "running"]
+        if len(done) > self._HISTORY_CAP:
+            drop = {id(t) for t in done[:-self._HISTORY_CAP]}
+            self._tasks = [t for t in self._tasks if id(t) not in drop]
 
     def start(self, desc: str) -> str:
         desc = (desc or "").strip()
@@ -46,7 +58,9 @@ class BgTaskManager:
         if self.running_count() >= self._max:
             n = self.running_count()
             return f"이미 백그라운드 작업 {n}개가 돌고 있습니다 — 끝나면 시켜주세요."
-        task = BgTask(id=len(self._tasks) + 1, desc=desc)
+        self._prune()
+        self._seq += 1
+        task = BgTask(id=self._seq, desc=desc)
         self._tasks.append(task)
         fut = asyncio.get_running_loop().create_task(self._run(task))
         self._futures.append(fut)

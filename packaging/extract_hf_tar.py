@@ -19,21 +19,38 @@ def extract(tar_path: str, dest: str) -> int:
     os.makedirs(dest, exist_ok=True)
     with tarfile.open(tar_path, "r:*") as tf:
         members = tf.getmembers()
+        root = os.path.realpath(dest)
+
+        def _safe(name: str) -> str | None:
+            # 경로탈출(zip-slip) 방어: dest 밖으로 나가는 멤버는 건너뛴다(audit r3 low).
+            p = os.path.realpath(os.path.join(dest, name))
+            if p == root or p.startswith(root + os.sep):
+                return os.path.join(dest, name)
+            print(f"  경고: 경로탈출 멤버 무시 {name}", file=sys.stderr)
+            return None
+
         for m in members:                       # 1) 디렉토리
-            if m.isdir():
+            if m.isdir() and _safe(m.name):
                 os.makedirs(os.path.join(dest, m.name), exist_ok=True)
         for m in members:                       # 2) 일반 파일(blobs 포함)
-            if m.isfile() and not m.issym() and not m.islnk():
+            if m.isfile() and not m.issym() and not m.islnk() and _safe(m.name):
                 tf.extract(m, dest)
         copied = 0
         for m in members:                       # 3) 심볼릭/하드링크 → 타깃 실제 복사
             if not (m.issym() or m.islnk()):
                 continue
-            link = os.path.join(dest, m.name)
+            link = _safe(m.name)
+            if link is None:
+                continue
             if m.issym():                        # linkname은 링크 위치 기준 상대경로
                 target = os.path.normpath(os.path.join(os.path.dirname(link), m.linkname))
             else:                                # 하드링크는 아카이브 루트 기준
                 target = os.path.join(dest, m.linkname)
+            # 타깃도 dest 안이어야(심볼릭이 밖을 가리키지 못하게)
+            rt = os.path.realpath(target)
+            if not (rt == root or rt.startswith(root + os.sep)):
+                print(f"  경고: 링크 타깃 경로탈출 무시 {m.name} -> {m.linkname}", file=sys.stderr)
+                continue
             os.makedirs(os.path.dirname(link), exist_ok=True)
             if os.path.isfile(target):
                 if os.path.lexists(link):

@@ -199,9 +199,11 @@ class _DueMonitor:
         for ident, title, secs in items:
             if secs <= self._lead_s and ident not in self._announced:
                 mins = max(1, secs // 60)
+                # dedup_key를 항목별로 — 한 폴링에 둘 이상 임박하면 둘째부터 중복제거에
+                # 먹혀 소실하던 것 방지(audit r3; timer_done과 동일 근본). kind는 쿨다운용 유지.
                 out.append(Announcement(
                     self._kind, f"{mins}분 뒤 {self._what}: {title}", 1,
-                    now, now + secs))
+                    now, now + secs, dedup_key=f"{self._kind}:{ident}"))
                 self._announced.add(ident)
         return out
 
@@ -231,12 +233,12 @@ class TimerMonitor:
 
     def poll(self) -> list[Announcement]:
         now = self._clock()
-        # dedup_key를 라벨별로 줘 동시 만기 시 모든 타이머가 큐잉되게 한다(audit r2 high:
-        # 모두 kind="timer_done"이라 둘째부터 중복제거에 먹혀 영구 소실하던 것). kind는
-        # 쿨다운 분류용으로 유지(cooldown_overrides['timer_done']=0이 그대로 적용).
+        # dedup_key를 타이머 고유 tid별로 — 동시 만기/동일 라벨이어도 모두 큐잉되게 한다
+        # (audit r2/r3: kind 또는 라벨 기반은 둘째부터 중복제거에 먹혀 소실). kind는 쿨다운
+        # 분류용으로 유지(cooldown_overrides['timer_done']=0 적용).
         return [Announcement("timer_done", f"타이머 종료: {lb}", 1, now, now + 120,
-                             dedup_key=f"timer_done:{lb}")
-                for lb in self._board.pop_due()]
+                             dedup_key=f"timer_done:{tid}")
+                for tid, lb in self._board.pop_due_items()]
 
 
 def build_monitors(settings, timers=None, platform: str | None = None) -> list:
@@ -265,7 +267,9 @@ def build_monitors(settings, timers=None, platform: str | None = None) -> list:
     mons.append(SelfCheckMonitor())
     if timers is not None:
         mons.append(TimerMonitor(timers))
-    if settings.proactive_late_night:
+    # LateNightMonitor는 Quartz(잠금 감지) 기반이라 darwin 전용 — 비맥에 추가하면 폴링마다
+    # 'No module named Quartz'가 난다(audit r3 medium). darwin에서만 단다.
+    if settings.proactive_late_night and sysname == "darwin":
         mons.append(LateNightMonitor())
     return mons
 

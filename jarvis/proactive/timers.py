@@ -48,16 +48,21 @@ class TimerBoard:
         with self._lock:
             return [(lb, max(0, int(due - now))) for lb, due in self._timers.values()]
 
-    def pop_due(self) -> list[str]:
-        """만기된 타이머 라벨을 꺼내고 보드에서 제거(1회성)."""
+    def pop_due_items(self) -> list[tuple[int, str]]:
+        """만기 타이머를 (tid, label)로 꺼내 보드에서 제거(1회성). tid는 인스턴스 고유 —
+        같은 라벨 타이머가 여럿이어도 구분 가능(audit r3: 라벨 기반 dedup이 동일라벨서 충돌)."""
         now = self._clock()
-        out: list[str] = []
+        out: list[tuple[int, str]] = []
         with self._lock:
             for tid, (lb, due) in list(self._timers.items()):
                 if now >= due:
-                    out.append(lb)
+                    out.append((tid, lb))
                     del self._timers[tid]
         return out
+
+    def pop_due(self) -> list[str]:
+        """만기된 타이머 라벨을 꺼내고 보드에서 제거(1회성)."""
+        return [lb for _, lb in self.pop_due_items()]
 
 
 # 공유 싱글턴 — 배선(__main__)과 jarvis_mcp 기본값이 같은 보드를 쓴다.

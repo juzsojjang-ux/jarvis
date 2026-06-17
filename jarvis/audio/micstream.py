@@ -53,11 +53,19 @@ class MicStream:
     def _open(self) -> None:
         # InputStream 생성은 여기 한 곳뿐 — start/ensure_running이 장치 인자를
         # 따로 들고 있다가 한쪽만 고쳐지는 사고를 막는다.
-        self._stream = sd.InputStream(
+        st = sd.InputStream(
             samplerate=self.sample_rate, blocksize=self._blocksize,
             channels=1, dtype="float32", callback=self._callback,
         )
-        self._stream.start()
+        try:
+            st.start()
+        except Exception:   # start 실패 시 생성된 스트림을 닫는다 — 핸들 누수 방지(audit r3)
+            try:
+                st.close()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        self._stream = st
         self._last_chunk_t = time.monotonic()  # 새 스트림 기준으로 생존 판정 리셋
 
     def start(self) -> None:
@@ -65,6 +73,11 @@ class MicStream:
         if self._stream is not None:
             return
         self._open()
+
+    def wanted(self) -> bool:
+        """상시 가동을 원하는 상태인가(웨이크 모드면 True). MicCapture가 '자기가 연
+        스트림인지' 판별해 PTT 전용 모드에서만 닫게 하는 데 쓴다."""
+        return self._want_running
 
     def stop(self) -> None:
         self._want_running = False

@@ -500,13 +500,16 @@ class Orchestrator:
 
     # ----- wake word (영화식 호출: 키 없이 "자비스") -----
     def _wake_gate(self) -> bool:
-        # WakeListener는 IDLE이고 에코 쿨다운이 지난 동안만 들을 수 있다.
+        # WakeListener는 IDLE이고 에코 쿨다운이 지난 동안만 들을 수 있다. 추가로 '아직 재생
+        # 중(pending>0)'이면 막는다 — 30s 안전캡이 오디오가 남은 채 풀려 IDLE/attentive로
+        # 가면 마이크가 자비스 자신의 음성을 잡아 명령으로 받던 self-echo 방지(audit r3).
         try:
             now = asyncio.get_running_loop().time()
         except RuntimeError:
             return False
+        pending = self.playback.pending() if hasattr(self.playback, "pending") else 0
         return (self.state == State.IDLE and now >= self._wake_blocked_until
-                and not self._remote_busy)
+                and pending <= 0 and not self._remote_busy)
 
     # 웨이크 판정엔 발화 앞부분만 변환한다 — 잡담 전체(최대 30초)를 위스퍼에
     # 태우는 게 상시 청취의 지배적 배터리 비용이라서다. 매칭이 확정된 뒤에만

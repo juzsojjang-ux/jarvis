@@ -109,16 +109,19 @@ class WebDriver:
                 return
             except Exception:  # noqa: BLE001 - 죽은 소켓: 재연결
                 self._ws = None
-        if not self._alive():
-            if not self._launch():
+        # _alive/_launch/_get_json은 동기 urlopen(최대 3초 블록) — to_thread로 오프로드해
+        # 크롬 무응답 시 이벤트 루프(음성·웨이크)가 멎지 않게 한다(audit r3 low).
+        if not await asyncio.to_thread(self._alive):
+            if not await asyncio.to_thread(self._launch):
                 raise RuntimeError("크롬을 찾을 수 없습니다 — Chrome 설치가 필요합니다.")
             for _ in range(40):
                 await asyncio.sleep(0.25)
-                if self._alive():
+                if await asyncio.to_thread(self._alive):
                     break
             else:
                 raise RuntimeError("자비스 크롬이 시간 안에 뜨지 않았습니다.")
-        pages = [t for t in self._get_json("/json/list") if t.get("type") == "page"]
+        pages = [t for t in await asyncio.to_thread(self._get_json, "/json/list")
+                 if t.get("type") == "page"]
         if not pages:
             raise RuntimeError("크롬에 열린 페이지가 없습니다.")
         ws_url = pages[0]["webSocketDebuggerUrl"]

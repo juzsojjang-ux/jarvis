@@ -62,7 +62,7 @@ class SystemSapiTTS:
             subprocess.run(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                  "-Command", _PS_SCRIPT],
-                check=True, env=env,
+                check=True, env=env, timeout=30,   # PowerShell SAPI가 멈춰 폴백이 영구 정지하는 것 방지(audit r3)
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             with wave.open(out, "rb") as f:

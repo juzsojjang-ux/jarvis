@@ -88,6 +88,9 @@ class GPTBrain:
             self._client_instance = client_factory()
         else:
             self._client_instance = None  # lazy — created on first _ensure_client() call
+        # 401 복구 시 토큰을 '강제 갱신'할지 — 클라만 폐기하고 get_access(force=False)면
+        # 캐시된 만료 토큰을 그대로 다시 받아 영구 401이 풀리지 않는다(audit r3 high).
+        self._force_refresh = False
 
         self._tools_cache: list[dict] | None = None  # cached OpenAI tools payload
 
@@ -164,7 +167,8 @@ class GPTBrain:
             from openai import AsyncOpenAI  # noqa: PLC0415
 
             from jarvis.brain.codex_auth import get_access  # noqa: PLC0415
-            token, acct = await get_access()
+            token, acct = await get_access(force=self._force_refresh)
+            self._force_refresh = False        # 강제 갱신은 1회성
             self._client_instance = AsyncOpenAI(
                 base_url=self._sub_base,
                 api_key=token,
@@ -268,9 +272,11 @@ class GPTBrain:
 
         except Exception as exc:  # noqa: BLE001
             if _is_auth_error(exc):
-                # 401(토큰 만료 등) → 캐시 클라이언트 폐기. 다음 턴 _ensure_client가 새 토큰으로
-                # 재생성한다(audit high #7: 영구 401로 세션이 죽던 것 방지).
+                # 401(토큰 만료 등) → 캐시 클라이언트 폐기 + 다음 _ensure_client에서 토큰을
+                # 강제 갱신(force=True)하게 표시. 강제 갱신 없이는 캐시된 만료 토큰을 그대로
+                # 다시 받아 영구 401이 안 풀린다(audit #7 + r3).
                 self._client_instance = None
+                self._force_refresh = True
                 self.last_error = "auth"
             elif is_limit_error(exc):
                 self.last_error = "limit"
@@ -380,9 +386,11 @@ class GPTBrain:
 
         except Exception as exc:  # noqa: BLE001
             if _is_auth_error(exc):
-                # 401(토큰 만료 등) → 캐시 클라이언트 폐기. 다음 턴 _ensure_client가 새 토큰으로
-                # 재생성한다(audit high #7: 영구 401로 세션이 죽던 것 방지).
+                # 401(토큰 만료 등) → 캐시 클라이언트 폐기 + 다음 _ensure_client에서 토큰을
+                # 강제 갱신(force=True)하게 표시. 강제 갱신 없이는 캐시된 만료 토큰을 그대로
+                # 다시 받아 영구 401이 안 풀린다(audit #7 + r3).
                 self._client_instance = None
+                self._force_refresh = True
                 self.last_error = "auth"
             elif is_limit_error(exc):
                 self.last_error = "limit"

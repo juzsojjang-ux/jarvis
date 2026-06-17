@@ -39,6 +39,9 @@ class MicCapture:
         return tail[-window:]
 
     def start(self) -> None:
+        # 웨이크 모드면 _want_running이 이미 True → '우리가 연 게 아니다'. PTT 전용 모드면
+        # False → 우리가 연다(stop에서 닫아 마이크 표시등을 끈다, 프라이버시 — audit r3).
+        self._opened_here = not getattr(self._mic, "wanted", lambda: True)()
         with self._lock:
             self._frames = []
             self._active = True
@@ -52,4 +55,12 @@ class MicCapture:
     def stop(self) -> np.ndarray:
         with self._lock:
             self._active = False
-        return self._drain()
+        out = self._drain()
+        # PTT 전용 모드에서 우리가 연 스트림이면 닫는다 — 캡처 후 마이크를 계속 켜두지 않게.
+        # 웨이크 모드(상시 마이크)에선 _opened_here=False라 닫지 않는다(웨이크 리스너 보존).
+        if getattr(self, "_opened_here", False):
+            try:
+                self._mic.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        return out

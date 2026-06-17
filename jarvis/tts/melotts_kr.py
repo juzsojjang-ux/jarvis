@@ -49,9 +49,20 @@ class MeloTTSKR:
         _pcm, sr = ipc.read_response(proc.stdout)  # discard warm-up audio
         self.sample_rate = sr
 
+    _SYNTH_TIMEOUT = 45.0  # 워커 응답 상한(초) — 멈추면 죽이고 폴백
+
     async def synth(self, text: str) -> np.ndarray:
         async with self._lock:
-            pcm, _sr = await asyncio.to_thread(self._synth_blocking, text)
+            try:
+                # 워커가 IPC read에서 멈추면(to_thread가 영원히 안 끝남) async with가 asyncio.Lock을
+                # 영구히 잡아 이후 모든 synth가 데드락한다(audit r3 high). 타임아웃 + 워커 kill로
+                # blocked readline을 EOF로 풀고 예외를 올려 FallbackTTS가 edge로 폴백하게 한다.
+                pcm, _sr = await asyncio.wait_for(
+                    asyncio.to_thread(self._synth_blocking, text),
+                    timeout=self._SYNTH_TIMEOUT)
+            except asyncio.TimeoutError as exc:
+                self._kill_proc()
+                raise RuntimeError("TTS 워커 응답 시간 초과") from exc
             return pcm
 
     def _synth_blocking(self, text: str):
@@ -59,6 +70,14 @@ class MeloTTSKR:
         proc.stdin.write(ipc.pack_request(text))
         proc.stdin.flush()
         return ipc.read_response(proc.stdout)
+
+    def _kill_proc(self) -> None:
+        if self._proc is not None:
+            try:
+                self._proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+            self._proc = None
 
     def close(self) -> None:
         if self._proc and self._proc.poll() is None:

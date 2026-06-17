@@ -42,9 +42,16 @@ def _check_crash_log(now: datetime | None = None, log_dir: Path | None = None) -
         today = (now or datetime.now()).strftime("%Y-%m-%d")
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
         todays = [ln for ln in lines if ln.startswith("=== CRASH ") and today in ln]
-        if todays:
-            return Check("크래시 기록", False,
-                         f"오늘 강제종료 {len(todays)}회 — 마지막: {todays[-1][10:29]}")
+        # faulthandler가 쓰는 네이티브 크래시(세그폴트 등)는 '=== CRASH ' 마커가 없다 —
+        # 'Fatal Python error' 시그니처도 센다(audit r3 low: 네이티브 크래시를 놓치던 것).
+        native = [ln for ln in lines if "Fatal Python error" in ln]
+        if todays or native:
+            parts = []
+            if todays:
+                parts.append(f"오늘 강제종료 {len(todays)}회(마지막 {todays[-1][10:29]})")
+            if native:
+                parts.append(f"네이티브 크래시 {len(native)}건")
+            return Check("크래시 기록", False, " · ".join(parts))
         return Check("크래시 기록", True, "오늘 크래시 없음")
     except Exception as exc:  # noqa: BLE001
         return Check("크래시 기록", False, f"crash.log 읽기 실패: {exc}")

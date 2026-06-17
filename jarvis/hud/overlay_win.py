@@ -59,7 +59,7 @@ def _browser_app_cmd(url: str, browser: str) -> list[str]:
     ]
 
 
-def _run_pywebview(url: str) -> bool:
+def _run_pywebview(url: str, parent_pid: int | None = None) -> bool:
     """pywebview로 프레임 없는·항상 위·투명 오버레이. 성공 시 블로킹(창 닫힐 때까지).
 
     설치 안 됐거나 실패하면 False를 돌려 폴백(앱 모드)으로 넘긴다.
@@ -92,6 +92,13 @@ def _run_pywebview(url: str) -> bool:
             except Exception:
                 pass
 
+        # 부모 감시는 '여기'서만 — webview.start 직전(블로킹 진입 직전)에 건다. 이래야
+        # pywebview를 실제로 띄울 때만 기본 워처(os._exit)가 돌아, app 모드 폴백 경로와 워처가
+        # 겹쳐 고아 브라우저가 남던 레이스가 사라진다(audit r3 high). 창은 우리 소유라 우리가
+        # 죽으면 함께 닫힌다.
+        if parent_pid is not None:
+            from jarvis.hud.procwatch import watch_parent
+            watch_parent(parent_pid)
         webview.start(_clickthrough)
         return True
     except Exception as exc:  # noqa: BLE001
@@ -106,16 +113,13 @@ def main(url: str) -> int:
     from jarvis.hud.procwatch import pid_alive, watch_parent
 
     ppid = os.getppid()  # 메인 자비스 — 죽으면 우리(와 앱 창)도 정리한다
-    # pywebview 창은 '우리 프로세스 소유'라 부모가 죽으면 watch_parent의 기본 동작(os._exit)으로
-    # 우리가 죽으면 창도 함께 닫힌다. 단 이 기본 워처는 '브라우저 Popen 창'은 못 닫는다 — 그래서
-    # pywebview를 실제로 쓸 때(webview 설치 + 토글 ON)만 건다. 안 그러면 app 모드 폴백에서
-    # 고아 브라우저 창이 남는다(audit high #10).
+    # 부모 감시 워처는 두 경로가 '각자' 건다(겹치면 고아 브라우저 레이스 — audit high #10, r3):
+    #  · pywebview 경로: _run_pywebview가 webview.start 직전에 기본 워처(os._exit)를 건다.
+    #  · app(브라우저) 경로: 아래에서 '브라우저까지 닫는' on_dead 워처를 건다.
     use_pw = (os.environ.get("JARVIS_HUD_PYWEBVIEW", "1") != "0"
               and importlib.util.find_spec("webview") is not None)
-    if use_pw:
-        watch_parent(ppid)
-        if _run_pywebview(url):
-            return 0
+    if use_pw and _run_pywebview(url, ppid):
+        return 0
     browser = _find_browser()
     if not browser:
         print("[overlay] Edge/Chrome를 찾지 못했습니다. HUD를 브라우저로 열려면 "

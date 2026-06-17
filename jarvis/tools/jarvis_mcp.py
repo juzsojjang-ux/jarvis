@@ -252,7 +252,10 @@ def quit_app_action(app: str, runner=subprocess.run) -> str:
 
 
 def clipboard_read_action(runner=subprocess.run) -> str:
-    res = runner(["pbpaste"], capture_output=True, text=True, timeout=10)
+    try:  # 타임아웃/비-맥(pbpaste 부재)에 raise 안 함 — 도구는 절대 raise 금지(audit r3)
+        res = runner(["pbpaste"], capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        return "클립보드를 읽지 못했습니다."
     out = (getattr(res, "stdout", "") or "").strip()
     if not out:
         return "클립보드가 비어 있습니다."
@@ -264,7 +267,10 @@ def clipboard_read_action(runner=subprocess.run) -> str:
 def clipboard_write_action(text: str, runner=subprocess.run) -> str:
     if not (text or "").strip():
         return "복사할 내용을 말씀해 주세요."
-    runner(["pbcopy"], capture_output=True, text=True, timeout=10, input=text)
+    try:
+        runner(["pbcopy"], capture_output=True, text=True, timeout=10, input=text)
+    except Exception:  # noqa: BLE001 - 타임아웃/비-맥
+        return "클립보드에 복사하지 못했습니다."
     return "클립보드에 복사했습니다."
 
 
@@ -283,7 +289,10 @@ def run_shortcut_action(name: str, runner=subprocess.run) -> str:
 
 
 def list_shortcuts_action(runner=subprocess.run) -> str:
-    res = runner(["shortcuts", "list"], capture_output=True, text=True, timeout=15)
+    try:  # 타임아웃/비-맥(shortcuts 부재)에 raise 안 함(audit r3)
+        res = runner(["shortcuts", "list"], capture_output=True, text=True, timeout=15)
+    except Exception:  # noqa: BLE001
+        return "단축어 목록을 불러오지 못했습니다."
     names = [ln.strip() for ln in (getattr(res, "stdout", "") or "").splitlines() if ln.strip()]
     if not names:
         return "만들어 둔 단축어가 없습니다."
@@ -606,8 +615,9 @@ def send_message_action(recipient: str, text: str, runner=subprocess.run) -> str
         'end run'
     )
     try:
+        # timeout: 메시지 권한(자동화) 대화상자에서 이벤트 루프 동결 방지(audit r3 high)
         res = runner(["osascript", "-e", script, "--", recipient, text],
-                     capture_output=True, text=True)
+                     capture_output=True, text=True, timeout=20)
         if getattr(res, "returncode", 0) != 0:
             return f"{recipient}에게 메시지를 보내지 못했습니다(권한·수신자를 확인해 주세요)."
         return f"{recipient}에게 메시지를 보냈습니다."
@@ -636,8 +646,9 @@ def send_mail_action(to: str, subject: str = "", body: str = "",
         'end run'
     )
     try:
+        # timeout: 메일 자동화 권한 대화상자에서 이벤트 루프 동결 방지(audit r3 high)
         res = runner(["osascript", "-e", script, "--", to, subject or "", body or ""],
-                     capture_output=True, text=True)
+                     capture_output=True, text=True, timeout=20)
         if getattr(res, "returncode", 0) != 0:
             return f"{to}에게 메일을 보내지 못했습니다(권한·메일 설정을 확인해 주세요)."
         return f"{to}에게 메일을 보냈습니다."
