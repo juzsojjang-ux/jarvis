@@ -195,3 +195,12 @@ def test_save_key_empty_string_noop(fake_keyring):
     """빈 키는 저장하지 않아야 한다."""
     save_key("gemini", "")
     assert len(fake_keyring) == 0
+
+
+def test_apply_setup_env_sets_ask_hotkey(tmp_path):
+    from jarvis.setup.store import apply_setup_env, save_setup
+    p = tmp_path / "setup.json"
+    save_setup("claude", path=p, ask_hotkey="ctrl+space")
+    env = {}
+    apply_setup_env(env, path=p)
+    assert env.get("JARVIS_ASK_HOTKEY") == "ctrl+space"

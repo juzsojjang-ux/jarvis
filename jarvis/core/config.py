@@ -163,6 +163,10 @@ class Settings(BaseSettings):
     # 메뉴 막대(맥)/시스템 트레이(윈도우)에 '자비스 실행 중' 상태 아이콘 표시.
     tray_enabled: bool = True
 
+    # --- 타자 입력(Ask) ---
+    ask_enabled: bool = True
+    ask_hotkey: str = "alt+space"   # 입력창 호출 단축키(설정에서 변경). 윈도우=ctrl+space
+
     @property
     def api_key(self) -> str:
         key = keyring.get_password(self.keyring_service, self.keyring_user)

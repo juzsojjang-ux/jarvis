@@ -14,6 +14,7 @@ _WIN_VOICE = [
     ("rvc_f0_up", 0, -12),
     ("stt_backend", "faster", "mlx"),
     ("stt_repo", "large-v3", "mlx-community/whisper-large-v3-turbo"),
+    ("ask_hotkey", "ctrl+space", "alt+space"),
 ]
 
 

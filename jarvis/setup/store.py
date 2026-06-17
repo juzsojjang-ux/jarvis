@@ -25,7 +25,8 @@ def load_setup(path: Path | None = None) -> dict:
 
 def save_setup(provider: str, path: Path | None = None, *,
                voice: str | None = None, name: str | None = None,
-               ptt_key: str | None = None) -> None:
+               ptt_key: str | None = None,
+               ask_hotkey: str | None = None) -> None:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     data = load_setup(p)
@@ -36,6 +37,8 @@ def save_setup(provider: str, path: Path | None = None, *,
         data["assistant_name"] = name.strip() or "자비스"
     if ptt_key is not None and ptt_key in PTT_KEYS:
         data["ptt_key"] = ptt_key       # 마이크(말하기) 키 — pynput Key 이름
+    if ask_hotkey is not None:
+        data["ask_hotkey"] = ask_hotkey.strip() or "alt+space"
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
@@ -93,6 +96,9 @@ def apply_setup_env(environ=None, path: Path | None = None) -> None:
     ptt = (s.get("ptt_key") or "").strip()
     if ptt in PTT_KEYS:
         target.setdefault("JARVIS_PTT_KEY", ptt)
+    ask = (s.get("ask_hotkey") or "").strip()
+    if ask:
+        target.setdefault("JARVIS_ASK_HOTKEY", ask)
 
 
 def save_key(provider: str, key: str) -> None:
