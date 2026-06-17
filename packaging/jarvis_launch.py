@@ -1,13 +1,12 @@
 """PyInstaller entry-point shim for JARVIS (distributable).
 
 배포 번들은 기본적으로 torch-free 음성(edge-tts → ONNX RVC)을 쓴다 — 가볍고 안 멈춘다.
-다만 사용자가 셋업 UI에서 '개인용 풀음성으로 업그레이드'를 실행하면 ~/.jarvis/voice_full.json
-마커가 생기고, 그때는 개인용과 동일한 Pocket / MeloTTS+RVC 체인을 켠다(하이브리드).
+번들 Pocket(pocket_hf 자산)이 있으면 자동으로 Pocket 체인을 켠다(하이브리드).
 
 순서:
-  1) 풀음성 마커가 유효하면 그 JARVIS_* env를 먼저 적용(개인용 동일 음성).
+  1) 설정에서 고른 보이스 프리셋을 먼저 적용.
   2) 아니면 torch-free 기본값(edge/onnx) 강제.
-사용자가 직접 지정한 env(JARVIS_*)는 둘 다 setdefault라 항상 우선.
+사용자가 직접 지정한 env(JARVIS_*)는 setdefault라 항상 우선.
 
 dev(`python -m jarvis`)는 이 파일을 안 거쳐 현 설정(Pocket) 유지."""
 import multiprocessing
@@ -91,15 +90,12 @@ os.environ.setdefault("JARVIS_REPLY_LANGUAGE", "en")
 
 # 프로즌 번들에서는 모델 파일이 ~/jarvis가 아니라 _MEIPASS/voice_models에 있다.
 # config의 절대경로 기본값을 번들 경로로 덮어쓴다(사용자 env가 있으면 유지).
-# VAD(웨이크워드)·ONNX 음색 모델은 풀음성 여부와 무관하게 번들 경로를 기본으로 둔다
-# (풀음성 마커가 TTS/VC를 명시적으로 덮으면 ONNX 경로는 그냥 안 쓰일 뿐).
+# VAD(웨이크워드)·ONNX 음색 모델은 번들 경로를 기본으로 둔다.
 if _meipass:
     _vm = Path(_meipass) / "voice_models"
     os.environ.setdefault("JARVIS_ONNX_MODEL_PATH", str(_vm / "jarvis.onnx"))
     os.environ.setdefault("JARVIS_ONNX_CONTENTVEC_PATH", str(_vm / "vec-768-layer-12.onnx"))
     os.environ.setdefault("JARVIS_VAD_MODEL_PATH", str(_vm / "silero_vad.onnx"))
-    # 풀음성 업그레이드 스크립트/소스/자산이 번들 어디에 있는지 셋업 UI에 알려준다.
-    os.environ.setdefault("JARVIS_BUNDLE_ROOT", str(Path(_meipass)))
 
 # --- 3) Windows frozen: sounddevice WinError 50 가드 ---------------------------
 # sounddevice는 import 시 PortAudio 초기화 동안 os.dup/dup2로 stderr(fd 2)를

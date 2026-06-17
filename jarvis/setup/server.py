@@ -10,12 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 from .shortcut import create_desktop_shortcut as _default_shortcut
 from .store import save_key, save_setup
@@ -184,27 +182,6 @@ SETUP_HTML = """\
   .done-box .checkmark { font-size: 2.5rem; }
   .done-box p { color: var(--ok); font-size: 1rem; letter-spacing: 0.04em; }
   .done-box small { color: var(--dim); font-size: 0.8rem; }
-  .voice-panel {
-    width: 100%; max-width: 480px; margin-top: 2.2rem;
-    border-top: 1px solid var(--border); padding-top: 1.4rem;
-  }
-  .voice-panel h2 {
-    font-size: 0.95rem; font-weight: 600; letter-spacing: 0.12em;
-    color: var(--accent); text-transform: uppercase; margin-bottom: 0.5rem;
-  }
-  .voice-panel .vp-note {
-    font-size: 0.8rem; color: var(--dim); line-height: 1.5; margin-bottom: 0.9rem;
-  }
-  .vp-modes { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.9rem; }
-  .vp-modes label { font-size: 0.82rem; color: var(--text); cursor: pointer; }
-  .vp-modes input { margin-right: 0.5rem; accent-color: var(--accent); }
-  .btn-upgrade {
-    background: transparent; color: var(--accent); border: 1px solid var(--accent2);
-    border-radius: 8px; padding: 0.6rem 1.6rem; font-size: 0.88rem; cursor: pointer;
-    letter-spacing: 0.04em; transition: background 0.2s, opacity 0.2s;
-  }
-  .btn-upgrade:hover { background: var(--card-selected); }
-  .btn-upgrade:disabled { opacity: 0.45; cursor: default; }
   .vp-log {
     display: none; margin-top: 1rem; max-height: 220px; overflow-y: auto;
     background: #06080c; border: 1px solid var(--border); border-radius: 6px;
@@ -343,27 +320,10 @@ SETUP_HTML = """\
       <li><b>전권 위임</b> — "전권 켜" (확인 없이 작업 수행, 일정 시간 후 자동 해제).</li>
       <li><b>화면 제어</b> — "화면 제어 켜" (화면을 보고 클릭·입력).</li>
       <li><b>사용량 확인</b> — "사용량"이라고 하면 토큰 사용량을 알려줍니다.</li>
-      <li><b>풀음성 업그레이드</b> — 위 <b>음성</b> 칸에서 개인용과 동일한 음색을 설치할 수 있어요.</li>
-      <li><b>실행 표시</b> — 메뉴 막대(맥)/트레이(윈도우)의 자비스 아이콘으로 실행 중을 확인하고, 거기서 종료할 수 있습니다.</li>
+<li><b>실행 표시</b> — 메뉴 막대(맥)/트레이(윈도우)의 자비스 아이콘으로 실행 중을 확인하고, 거기서 종료할 수 있습니다.</li>
     </ul>
     <small>이 창은 닫으셔도 됩니다.</small>
   </div>
-</div>
-
-<div class="voice-panel" id="voicePanel">
-  <h2>음성</h2>
-  <p class="vp-note">
-    기본은 가볍고 안 멈추는 torch-free 음색(edge-tts → ONNX). 개인용과 <b>100% 동일한</b>
-    음성을 원하면 아래 업그레이드를 누르세요 — 이 컴퓨터에 설치되며 수 분 걸립니다.
-  </p>
-  <div class="vp-modes">
-    <label><input type="radio" name="vmode" value="pocket" checked>
-      Pocket — 개인용 <b>기본</b> 음성(영어 자비스, 그대로) · HF 토큰 1회 필요</label>
-    <label><input type="radio" name="vmode" value="rvc">
-      RVC — 한국어 음색(torch, 무거움 · 고급)</label>
-  </div>
-  <button id="btnUpgrade" class="btn-upgrade">개인용 풀음성으로 업그레이드</button>
-  <pre id="vpLog" class="vp-log"></pre>
 </div>
 
 <script>
@@ -516,59 +476,6 @@ SETUP_HTML = """\
     }
   });
 
-  // --- 개인용 풀음성 업그레이드 ---
-  const btnUpgrade = document.getElementById('btnUpgrade');
-  const vpLog = document.getElementById('vpLog');
-  let upgradeTimer = null;
-
-  function vmode() {
-    const c = document.querySelector('input[name="vmode"]:checked');
-    return c ? c.value : 'pocket';
-  }
-
-  async function pollStatus() {
-    try {
-      const res = await fetch('/upgrade-status');
-      const s = await res.json();
-      if (s.log) { vpLog.textContent = s.log; vpLog.scrollTop = vpLog.scrollHeight; }
-      if (s.state === 'done') {
-        clearInterval(upgradeTimer); upgradeTimer = null;
-        btnUpgrade.disabled = false;
-        btnUpgrade.textContent = '✓ 완료 — 자비스를 재시작하세요';
-      } else if (s.state === 'error') {
-        clearInterval(upgradeTimer); upgradeTimer = null;
-        btnUpgrade.disabled = false;
-        btnUpgrade.textContent = '실패 — 다시 시도';
-      }
-    } catch (e) { /* keep polling */ }
-  }
-
-  if (btnUpgrade) btnUpgrade.addEventListener('click', async () => {
-    btnUpgrade.disabled = true;
-    btnUpgrade.textContent = '설치 중… (수 분 소요)';
-    vpLog.classList.add('visible');
-    vpLog.textContent = '시작하는 중…';
-    try {
-      const res = await fetch('/upgrade-voice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: vmode() }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        btnUpgrade.disabled = false;
-        btnUpgrade.textContent = '개인용 풀음성으로 업그레이드';
-        vpLog.textContent = data.error || '시작 실패';
-        return;
-      }
-      if (!upgradeTimer) upgradeTimer = setInterval(pollStatus, 2000);
-    } catch (e) {
-      btnUpgrade.disabled = false;
-      btnUpgrade.textContent = '개인용 풀음성으로 업그레이드';
-      vpLog.textContent = '서버에 연결할 수 없습니다.';
-    }
-  });
-
   // 설정 모드(나중에 옵션 변경): 현재 값을 채우고 라벨을 바꾼다.
   async function applySettingsMode() {
     if (!window.__SETTINGS) return;
@@ -630,7 +537,6 @@ class SetupServer:
         port: int = 0,
         validator: Callable | None = None,
         store_save: Callable | None = None,
-        upgrade_cmd: Callable[[str], list[str]] | None = None,
         shortcut_fn: Callable | None = None,
         settings_mode: bool = False,
     ) -> None:
@@ -638,7 +544,6 @@ class SetupServer:
         self.port = port
         self._validator = validator or _default_validate
         self._store_save = store_save or _default_store_save
-        self._upgrade_cmd = upgrade_cmd or _default_upgrade_cmd
         self._shortcut_fn = shortcut_fn or _default_shortcut
         # 설정 모드: 첫 실행이 아니라 '나중에 옵션 변경'으로 열린 경우. 현재 값을
         # 미리 채우고, 저장 후 '재시작하면 적용' 안내를 띄운다(부팅을 막지 않는다).
@@ -647,51 +552,6 @@ class SetupServer:
         self.chosen: str | None = None
         self._httpd: _Server | None = None
         self._thread: threading.Thread | None = None
-        # 풀음성 업그레이드 진행 상태(UI가 /upgrade-status로 폴링).
-        self._upgrade: dict[str, str] = {"state": "idle", "log": ""}
-        self._upgrade_lock = threading.Lock()
-
-    # --- 개인용 풀음성 업그레이드 ------------------------------------------
-    def upgrade_status(self) -> dict[str, str]:
-        with self._upgrade_lock:
-            return dict(self._upgrade)
-
-    def _start_upgrade(self, mode: str) -> tuple[bool, str]:
-        """업그레이드 스크립트를 백그라운드로 실행. (시작됨?, 메시지)."""
-        if mode not in ("pocket", "rvc"):
-            return False, "알 수 없는 음성 모드입니다."
-        with self._upgrade_lock:
-            if self._upgrade["state"] == "running":
-                return False, "이미 설치가 진행 중입니다."
-            self._upgrade = {"state": "running", "log": "시작하는 중…\n"}
-        cmd = self._upgrade_cmd(mode)
-
-        def _run() -> None:
-            import subprocess
-            try:
-                proc = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1,
-                )
-                lines: list[str] = []
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    lines.append(line)
-                    if len(lines) > 200:
-                        lines = lines[-200:]
-                    with self._upgrade_lock:
-                        self._upgrade["log"] = "".join(lines)
-                rc = proc.wait()
-                with self._upgrade_lock:
-                    self._upgrade["state"] = "done" if rc == 0 else "error"
-                    if rc != 0:
-                        self._upgrade["log"] += f"\n[종료 코드 {rc}]"
-            except Exception as e:  # noqa: BLE001
-                with self._upgrade_lock:
-                    self._upgrade = {"state": "error", "log": f"실행 실패: {e}"}
-
-        threading.Thread(target=_run, name="jarvis-voice-upgrade", daemon=True).start()
-        return True, "started"
 
     @property
     def url(self) -> str:
@@ -737,8 +597,6 @@ class SetupServer:
                         "name": s.get("assistant_name", "자비스"),
                         "ptt_key": s.get("ptt_key", "alt_r"),
                     })
-                elif path == "/upgrade-status":
-                    self._send_json(200, outer.upgrade_status())
                 elif path == "/login-status":
                     from urllib.parse import parse_qs, urlparse
                     q = parse_qs(urlparse(self.path).query)
@@ -767,18 +625,6 @@ class SetupServer:
                     except Exception:  # noqa: BLE001
                         ok, msg = False, "로그인 실행 중 오류가 났습니다."
                     self._send_json(200, {"ok": ok, "message": msg})
-                    return
-                if self.path == "/upgrade-voice":
-                    try:
-                        n = int(self.headers.get("Content-Length", "0"))
-                        data = json.loads(self.rfile.read(n) or b"{}")
-                        mode = str(data.get("mode", "pocket")).strip()
-                    except Exception:  # noqa: BLE001
-                        self._send_json(400, {"ok": False, "error": "잘못된 요청입니다."})
-                        return
-                    ok, msg = outer._start_upgrade(mode)
-                    self._send_json(200 if ok else 409,
-                                    {"ok": ok, "error": None if ok else msg})
                     return
                 if self.path != "/setup":
                     self.send_error(404)
@@ -879,20 +725,3 @@ def _default_store_save(provider: str, key: str, *,
     save_setup(provider, voice=voice, name=name, ptt_key=ptt_key)
     if key:
         save_key(provider, key)
-
-
-def _default_upgrade_cmd(mode: str) -> list[str]:
-    """풀음성 업그레이드 스크립트 실행 커맨드.
-
-    프로즌 번들이면 JARVIS_BUNDLE_ROOT(launcher가 export)에 스크립트가 있고,
-    dev면 repo의 packaging/ 에 있다. 플랫폼별로 bash(.sh) / powershell(.ps1).
-    """
-    bundle = os.environ.get("JARVIS_BUNDLE_ROOT")
-    repo_pkg = Path(__file__).resolve().parents[2] / "packaging"
-    base = Path(bundle) if bundle else repo_pkg
-    if sys.platform.startswith("win"):
-        script = base / "upgrade_full_voice.ps1"
-        return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script),
-                "-Mode", mode]
-    script = base / "upgrade_full_voice.sh"
-    return ["bash", str(script), "--mode", mode]

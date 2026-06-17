@@ -77,19 +77,6 @@ datas_raw = [
     # Setup UI HTML (first-run provider selection screen)
     _data(REPO_ROOT / "jarvis" / "setup" / "index.html", "jarvis/setup"),
 
-    # --- 하이브리드 '개인용 풀음성 업그레이드' 자산 ---------------------------
-    # 사용자가 셋업 UI에서 업그레이드를 누르면 upgrade_full_voice 스크립트가
-    # 이 자산들로 torch venv(Pocket / RVC)를 깐다. 번들 자체는 실행하지 않는다.
-    #   • voice_full_src/jarvis : 워커 venv가 import할 jarvis 소스(.pth로 연결)
-    #   • voice_full_assets     : 음색 모델/레퍼런스(개인용과 동일 자산)
-    #   • upgrade_full_voice.*   : 설치 스크립트(번들 루트)
-    _data(REPO_ROOT / "jarvis", "voice_full_src/jarvis"),
-    _data(REPO_ROOT / "voice_models" / "jarvis_en_ref.wav", "voice_full_assets"),
-    _data(REPO_ROOT / "voice_models" / "jarvis_ref.wav", "voice_full_assets"),
-    _data(REPO_ROOT / "voice_models" / "jarvis.pth", "voice_full_assets"),
-    _data(REPO_ROOT / "voice_models" / "jarvis.index", "voice_full_assets"),
-    _data(REPO_ROOT / "packaging" / "upgrade_full_voice.sh", "."),
-    _data(REPO_ROOT / "packaging" / "upgrade_full_voice.ps1", "."),
 ]
 
 # ---------------------------------------------------------------------------
