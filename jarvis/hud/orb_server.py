@@ -206,7 +206,9 @@ def _make_handler(hub: OrbHub, server):
         def _read_json(self) -> dict:
             try:
                 n = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(n) if n > 0 else b""
+                if not (0 < n <= 64 * 1024):  # remote 서버와 동일한 본문 상한(과대/음수 차단)
+                    return {}
+                raw = self.rfile.read(n)
                 data = json.loads(raw.decode("utf-8")) if raw else {}
                 return data if isinstance(data, dict) else {}
             except Exception:  # noqa: BLE001 - 잘못된 본문은 빈 dict
