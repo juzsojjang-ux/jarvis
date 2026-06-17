@@ -204,3 +204,25 @@ def test_apply_setup_env_sets_ask_hotkey(tmp_path):
     env = {}
     apply_setup_env(env, path=p)
     assert env.get("JARVIS_ASK_HOTKEY") == "ctrl+space"
+
+
+def test_apply_setup_env_custom_name_includes_aliases(tmp_path):
+    from jarvis.setup.store import apply_setup_env, save_setup
+    import json
+    p = tmp_path / "setup.json"
+    save_setup("claude", path=p, name="프라이데이", aliases=["프라이 데이", "후라이데이"])
+    env = {}
+    apply_setup_env(env, path=p)
+    words = json.loads(env["JARVIS_WAKE_WORDS"])
+    assert words[0] == "프라이데이"
+    assert "프라이 데이" in words and "후라이데이" in words
+
+
+def test_apply_setup_env_default_name_keeps_no_override(tmp_path):
+    # 기본 이름(자비스)은 wake_words를 덮지 않는다(풍부한 기본 목록 유지).
+    from jarvis.setup.store import apply_setup_env, save_setup
+    p = tmp_path / "setup.json"
+    save_setup("claude", path=p, name="자비스", aliases=["x"])
+    env = {}
+    apply_setup_env(env, path=p)
+    assert "JARVIS_WAKE_WORDS" not in env

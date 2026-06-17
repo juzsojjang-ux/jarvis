@@ -26,7 +26,8 @@ def load_setup(path: Path | None = None) -> dict:
 def save_setup(provider: str, path: Path | None = None, *,
                voice: str | None = None, name: str | None = None,
                ptt_key: str | None = None,
-               ask_hotkey: str | None = None) -> None:
+               ask_hotkey: str | None = None,
+               aliases: list[str] | None = None) -> None:
     p = Path(path) if path else DEFAULT_SETUP_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     data = load_setup(p)
@@ -39,6 +40,9 @@ def save_setup(provider: str, path: Path | None = None, *,
         data["ptt_key"] = ptt_key       # 마이크(말하기) 키 — pynput Key 이름
     if ask_hotkey is not None:
         data["ask_hotkey"] = ask_hotkey.strip() or "alt+space"
+    if aliases is not None:
+        # 공백/빈 항목 제거; 기본 이름(자비스)이어도 저장은 허용(apply에서 무시)
+        data["aliases"] = [a.strip() for a in aliases if a and a.strip()]
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
@@ -91,8 +95,13 @@ def apply_setup_env(environ=None, path: Path | None = None) -> None:
     name = (s.get("assistant_name") or "").strip()
     if name and name != "자비스":
         target.setdefault("JARVIS_ASSISTANT_NAME", name)
-        # 웨이크워드도 새 이름으로(pydantic은 env의 JSON 리스트를 읽는다)
-        target.setdefault("JARVIS_WAKE_WORDS", json.dumps([name], ensure_ascii=False))
+        # 웨이크워드: 이름 + 별칭(STT 오인식 대비). 기본 이름(자비스)은 풍부한
+        # 기본 목록을 그대로 두므로 커스텀 이름일 때만 덮어쓴다.
+        aliases = s.get("aliases") or []
+        if isinstance(aliases, str):
+            aliases = [a.strip() for a in aliases.split(",") if a.strip()]
+        words = [name] + [a for a in aliases if a and a != name]
+        target.setdefault("JARVIS_WAKE_WORDS", json.dumps(words, ensure_ascii=False))
     ptt = (s.get("ptt_key") or "").strip()
     if ptt in PTT_KEYS:
         target.setdefault("JARVIS_PTT_KEY", ptt)

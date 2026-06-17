@@ -285,6 +285,12 @@ SETUP_HTML = """\
     <small>부르는 말(웨이크워드)과 화면 표시가 이 이름으로 바뀝니다</small>
   </div>
   <div class="name-row">
+    <label for="aiAliases">별칭 (다르게 들릴 때, 쉼표로 구분 · 선택)</label>
+    <input type="text" id="aiAliases" maxlength="80" spellcheck="false" placeholder="예: 프라이 데이, 후라이데이"
+           style="padding:.5rem .7rem;border-radius:8px;background:#0b1a26;color:#e0f2fe;border:1px solid rgba(94,224,255,.4);font-size:.95rem;">
+    <small>STT가 이름을 잘못 들을 때의 대체 철자를 추가하세요 (커스텀 이름에만 필요)</small>
+  </div>
+  <div class="name-row">
     <label for="pttKey">말하기 키 (누르고 말하기)</label>
     <select id="pttKey" style="padding:.5rem .7rem;border-radius:8px;background:#0b1a26;color:#e0f2fe;border:1px solid rgba(94,224,255,.4);font-size:.95rem;">
       <option value="alt_r" selected>오른쪽 Alt (기본)</option>
@@ -448,6 +454,7 @@ SETUP_HTML = """\
       const deskEl = document.getElementById('deskShortcut');
       const vEl = document.querySelector('input[name="vchoice"]:checked');
       const nEl = document.getElementById('aiName');
+      const alEl = document.getElementById('aiAliases');
       const pEl = document.getElementById('pttKey');
       const aEl = document.getElementById('askHotkey');
       const res = await fetch('/setup', {
@@ -457,6 +464,7 @@ SETUP_HTML = """\
                                desktop_shortcut: deskEl ? deskEl.checked : false,
                                voice: vEl ? vEl.value : 'jarvis',
                                name: nEl ? nEl.value.trim() : '',
+                               aliases: alEl ? alEl.value : '',
                                ptt_key: pEl ? pEl.value : 'alt_r',
                                ask_hotkey: aEl ? aEl.value.trim() : 'alt+space' }),
       });
@@ -498,6 +506,8 @@ SETUP_HTML = """\
       const ve = document.querySelector('input[name="vchoice"][value="'+c.voice+'"]');
       if (ve) ve.checked = true;
       const ne = document.getElementById('aiName'); if (ne && c.name) ne.value = c.name;
+      const ale = document.getElementById('aiAliases');
+      if (ale && c.aliases) ale.value = Array.isArray(c.aliases) ? c.aliases.join(', ') : c.aliases;
       const pe = document.getElementById('pttKey'); if (pe && c.ptt_key) pe.value = c.ptt_key;
       const ae = document.getElementById('askHotkey'); if (ae && c.ask_hotkey) ae.value = c.ask_hotkey;
     } catch (e) {}
@@ -604,6 +614,7 @@ class SetupServer:
                         "provider": s.get("brain_provider", "claude"),
                         "voice": s.get("voice", "jarvis"),
                         "name": s.get("assistant_name", "자비스"),
+                        "aliases": s.get("aliases", []),
                         "ptt_key": s.get("ptt_key", "alt_r"),
                         "ask_hotkey": s.get("ask_hotkey", "alt+space"),
                     })
@@ -647,6 +658,8 @@ class SetupServer:
                     want_shortcut = bool(data.get("desktop_shortcut"))
                     voice = str(data.get("voice", "") or "jarvis").strip()
                     name = str(data.get("name", "") or "").strip()
+                    aliases_raw = str(data.get("aliases", "") or "")
+                    aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()]
                     ptt_key = str(data.get("ptt_key", "") or "").strip()
                     ask_hotkey = str(data.get("ask_hotkey", "") or "").strip()
                 except Exception:  # noqa: BLE001
@@ -664,7 +677,8 @@ class SetupServer:
                     try:
                         try:
                             outer._store_save(provider, key, voice=voice, name=name,
-                                              ptt_key=ptt_key, ask_hotkey=ask_hotkey)
+                                              ptt_key=ptt_key, ask_hotkey=ask_hotkey,
+                                              aliases=aliases)
                         except TypeError:
                             try:
                                 outer._store_save(provider, key, voice=voice, name=name)
@@ -689,7 +703,8 @@ class SetupServer:
                     try:
                         try:
                             outer._store_save(provider, key, voice=voice, name=name,
-                                              ptt_key=ptt_key, ask_hotkey=ask_hotkey)
+                                              ptt_key=ptt_key, ask_hotkey=ask_hotkey,
+                                              aliases=aliases)
                         except TypeError:
                             # 구형 시그니처 호환(ptt_key/voice/name 미지원 콜백)
                             try:
@@ -733,7 +748,9 @@ class SetupServer:
 def _default_store_save(provider: str, key: str, *,
                         voice: str | None = None, name: str | None = None,
                         ptt_key: str | None = None,
-                        ask_hotkey: str | None = None) -> None:
-    save_setup(provider, voice=voice, name=name, ptt_key=ptt_key, ask_hotkey=ask_hotkey)
+                        ask_hotkey: str | None = None,
+                        aliases: list[str] | None = None) -> None:
+    save_setup(provider, voice=voice, name=name, ptt_key=ptt_key, ask_hotkey=ask_hotkey,
+               aliases=aliases)
     if key:
         save_key(provider, key)
