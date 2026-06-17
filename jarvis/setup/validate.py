@@ -1,6 +1,7 @@
 """프로바이더 키 검증 — 작은 테스트 호출. 클라이언트 주입 가능(테스트는 가짜)."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -43,10 +44,14 @@ async def validate(
                 from google import genai  # type: ignore[import]
 
                 client = genai.Client(api_key=key)
-            await client.aio.models.generate_content(
-                model="gemini-2.5-flash", contents="hi"
+            # 타임아웃 필수: 네트워크 행(hang) 시 설정 화면이 무한 대기하던 것 방지(audit medium).
+            await asyncio.wait_for(
+                client.aio.models.generate_content(model="gemini-2.5-flash", contents="hi"),
+                timeout=15,
             )
             return True, "Gemini 키가 확인되었습니다."
+        except asyncio.TimeoutError:
+            return False, "Gemini 키 확인 시간이 초과됐습니다(네트워크를 확인해 주세요)."
         except Exception:  # noqa: BLE001
             return False, "Gemini 키가 올바르지 않습니다."
 

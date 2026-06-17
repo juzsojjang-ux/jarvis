@@ -7,10 +7,23 @@ from __future__ import annotations
 
 import hmac
 import json
+import socket
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def _lan_ip() -> str:
+    """기본 라우트로 향하는 UDP 소켓의 로컬 주소 = LAN IP. 패킷은 보내지 않는다. 실패 시 ''."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        s.close()
 
 
 class _QuietHTTPServer(ThreadingHTTPServer):
@@ -36,7 +49,11 @@ class RemoteServer:
 
     @property
     def url(self) -> str:
-        return f"http://{self._host}:{self.port}/ask"
+        # 0.0.0.0(전체 인터페이스 바인드)은 접속 주소가 아니다 — 실제 LAN IP로 안내(audit low).
+        host = self._host
+        if host in ("0.0.0.0", "", "::"):
+            host = _lan_ip() or host
+        return f"http://{host}:{self.port}/ask"
 
     def start(self) -> None:
         outer = self
@@ -70,8 +87,14 @@ class RemoteServer:
                 if self.path != "/ask":
                     self._send(404, {"reply": "없는 경로입니다."})
                     return
+                clen = self.headers.get("Content-Length")
+                if clen is None:
+                    # Content-Length 없는(chunked 등) 요청은 본문을 못 읽어 '비었다'고 오진하던
+                    # 것(audit low) — 411로 원인을 명확히 안내한다.
+                    self._send(411, {"reply": "Content-Length가 필요합니다(텍스트 본문을 직접 보내주세요)."})
+                    return
                 try:
-                    n = int(self.headers.get("Content-Length", "0"))
+                    n = int(clen or "0")
                     if n > 64 * 1024:
                         self._send(413, {"reply": "요청이 너무 큽니다."})
                         return

@@ -30,7 +30,9 @@ def perform(action: str, x: Any = None, y: Any = None, text: str = "", key: str 
     elif action == "key":
         g.press(_KEY_MAP.get(key.strip(), key.strip()))
     elif action == "scroll":
-        g.scroll(int(amount) * 100)  # pyautogui scroll: 양수 위, 음수 아래
+        # amount=None(미지정)이면 1로 — 비-맥 분기가 raw amount를 넘겨 int(None) TypeError로
+        # 모든 스크롤이 실패하던 것 방지(audit low).
+        g.scroll(int(amount if amount is not None else 1) * 100)  # 양수 위, 음수 아래
     else:
         return False
     return True

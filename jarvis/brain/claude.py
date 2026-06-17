@@ -78,13 +78,18 @@ class Brain:
         return [self._persona_block(), {"type": "text", "text": tail}]
 
     async def warm(self) -> None:
-        # Pre-warm: non-streaming max_tokens=0 over the same cached persona prefix.
-        await self._client.messages.create(
-            model=self._settings.model_conversational,
-            max_tokens=0,
-            system=[self._persona_block()],
-            messages=[{"role": "user", "content": "warmup"}],
-        )
+        # Pre-warm: persona 프리픽스 캐시를 데운다. max_tokens는 1 이상이어야 한다 — 0이면
+        # Anthropic API가 400으로 거부해 예열이 매번 실패했다(audit low). 예열 실패는 무해하게
+        # 흡수(subscription.warm과 동일).
+        try:
+            await self._client.messages.create(
+                model=self._settings.model_conversational,
+                max_tokens=1,
+                system=[self._persona_block()],
+                messages=[{"role": "user", "content": "warmup"}],
+            )
+        except Exception:  # noqa: BLE001 - 예열 실패는 무해
+            pass
 
     async def respond(self, user_text: str) -> AsyncIterator[str]:
         if route(user_text) == "conversational":

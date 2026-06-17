@@ -72,7 +72,10 @@ class BatteryMonitor:
                                         3, now, now + _FIVE_MIN))
                 self._warned.clear()              # 충전 시작: 경고 카운터 리셋
             self._full_announced = False
-        if on_ac and pct >= 100 and not self._full_announced:
+        # '완충'은 직전 <100 → 현재 100 전이일 때만(audit low: AC·100%로 부팅하면 첫 폴링마다
+        # 헛발사하던 것). 첫 폴링(_prev_pct=None)·이미 100으로 부팅한 경우는 발사 안 함.
+        if (on_ac and pct >= 100 and not self._full_announced
+                and self._prev_pct is not None and self._prev_pct < 100):
             out.append(Announcement("charge_full", "배터리 완충(100%)", 3, now, now + _TEN_MIN))
             self._full_announced = True
         # 첫 폴링은 prev를 101로 간주 — 이미 임계치 아래로 부팅한 경우에도

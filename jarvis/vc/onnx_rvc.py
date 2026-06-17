@@ -57,7 +57,9 @@ class OnnxRVCConversion:
                  f0_up: int = 0, session_factory=None):
         self.model_path = str(model_path)
         self.contentvec_path = str(contentvec_path)
-        self.sample_rate = sample_rate
+        # 출력은 항상 _SR(모델 고정 출력률)이다. 설정값을 그대로 저장하면 실제 출력률과
+        # 달라 호출부(재생 리샘플)가 잘못된 비율을 쓴다(audit medium). 실제 출력률로 고정.
+        self.sample_rate = _SR
         self.f0_up = f0_up
         self._session_factory = session_factory  # 주입(테스트). None이면 실제 onnxruntime
         self._vec = None

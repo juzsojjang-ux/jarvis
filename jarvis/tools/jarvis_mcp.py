@@ -85,7 +85,14 @@ def set_volume_action(level: Any, runner=subprocess.run) -> str:
 
 
 def _osa(script: str, runner=subprocess.run) -> str:
-    res = runner(["osascript", "-e", script], capture_output=True, text=True)
+    # 타임아웃 필수: AppleScript가 앱 무응답/최초 자동화(TCC) 권한 대화상자에서 멈추면
+    # 타임아웃이 없을 때 이벤트 루프가 통째로 무한 정지한다(audit high #8). 15초로 캡.
+    try:
+        res = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return "(응답이 없어 시간 초과했습니다 — 앱이 멈췄거나 권한 대화상자를 확인해 주세요)"
+    except Exception:  # noqa: BLE001 - osascript 부재(비-맥) 등
+        return ""
     return (getattr(res, "stdout", "") or "").strip()
 
 
@@ -113,11 +120,17 @@ def music_action(action: str, runner=subprocess.run) -> str:
             "prev": "이전 곡으로 돌아갑니다."}[action]
 
 
+def _osa_str(s: str) -> str:
+    """AppleScript 큰따옴표 문자열 리터럴용 이스케이프 — 역슬래시 먼저, 그다음 따옴표.
+    (audit low: 따옴표만 ' 로 치환하던 것은 역슬래시가 든 텍스트에서 스크립트를 깨뜨린다.)"""
+    return (s or "").replace("\\", "\\\\").replace('"', '\\"')
+
+
 def add_reminder_action(text: str, runner=subprocess.run) -> str:
     text = (text or "").strip()
     if not text:
         return "무엇을 알림으로 추가할까요?"
-    safe = text.replace('"', "'")
+    safe = _osa_str(text)
     _osa(f'tell application "Reminders" to make new reminder with properties {{name:"{safe}"}}',
          runner)
     return f"알림에 추가했습니다: {text}"
@@ -127,7 +140,7 @@ def create_note_action(text: str, runner=subprocess.run) -> str:
     text = (text or "").strip()
     if not text:
         return "무슨 내용을 메모할까요?"
-    safe = text.replace('"', "'")
+    safe = _osa_str(text)
     _osa(f'tell application "Notes" to make new note with properties {{body:"{safe}"}}', runner)
     return "메모에 적어두었습니다."
 
@@ -203,6 +216,11 @@ def mute_action(on: Any = True, runner=subprocess.run) -> str:
 
 
 def lock_screen_action(runner=subprocess.run) -> str:
+    # Cmd+Ctrl+Q = macOS '화면 잠금' 단축키 — 실제로 잠근다. 기존 pmset displaysleepnow는
+    # 디스플레이만 끄고(잠금은 '잠자기 후 암호 요구' 설정에 의존) '잠갔다'고 보고하던 것을
+    # 실제 잠금으로 교정(audit medium). 잠금 직후 디스플레이도 끈다.
+    _osa('tell application "System Events" to keystroke "q" using {command down, control down}',
+         runner)
     runner(["pmset", "displaysleepnow"], capture_output=True, text=True)
     return "화면을 잠갔습니다."
 
@@ -631,10 +649,25 @@ def mail_text(count: Any = 5, runner=subprocess.run) -> str:
         f"{who} — {subj}" for who, subj in items)
 
 
+# control_mac은 두뇌가 임의 AppleScript를 보내 실행하는 만능 경로다. 파괴적 동작 방어가
+# LLM 선의에만 의존하던 것을(audit high #9), 코드 차원에서 위험 키워드를 막는다 — 매칭되면
+# 자동 실행하지 않고 사용자에게 직접 하라고 안내(보수적 거부). 'do shell script'·삭제·디스크
+# 조작 등은 음성 오인식 한 마디로 실행되면 안 되는 동작이다.
+_DANGEROUS_OSA = (
+    "do shell script", "do script", "delete", "erase", "empty trash", "remove",
+    "rm -", "sudo", "diskutil", "/usr/bin/", "/bin/", "killall", "shutdown",
+    "restart", "system attribute", "set the clipboard",
+)
+
+
 def control_mac_action(script: str, runner=subprocess.run) -> str:
     script = (script or "").strip()
     if not script:
         return "무엇을 할까요?"
+    low = script.lower()
+    if any(k in low for k in _DANGEROUS_OSA):
+        return ("위험할 수 있는 시스템 명령(삭제·셸 실행 등)이라 자동으로 실행하지 않았습니다. "
+                "정말 필요하면 직접 실행하시거나, 무엇을 원하는지 구체적으로 말씀해 주세요.")
     out = _osa(script, runner)
     return out or "완료했습니다."
 

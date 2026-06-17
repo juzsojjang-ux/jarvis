@@ -33,6 +33,13 @@ def _gpt_key(settings: Any) -> str | None:
         return None
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """401 인증 실패(구독 토큰 만료 등) 감지 — 캐시된 클라이언트를 폐기해야 하는 경우."""
+    if getattr(exc, "status_code", None) == 401 or getattr(exc, "code", None) == 401:
+        return True
+    return type(exc).__name__ in ("AuthenticationError", "PermissionDeniedError")
+
+
 class GPTBrain:
     """OpenAI Chat Completions / Responses API 기반 두뇌 어댑터."""
 
@@ -100,7 +107,10 @@ class GPTBrain:
     def _system_prompt(self) -> str:
         from jarvis.brain.subscription import _guidance_for  # noqa: PLC0415
         memory_text = self._memory.text().strip() if (self._memory is not None and hasattr(self._memory, "text")) else ""
-        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for("en")
+        # reply_language 설정을 따른다(audit medium: GPT를 메인 두뇌로 쓰면 설정 무시하고
+        # 항상 영어로만 답하던 것 — SubscriptionBrain과 동일하게).
+        lang = getattr(self._settings, "reply_language", "ko")
+        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for(lang)
         return f"{self._persona}\n\n{tail}"
 
     def _tools_payload(self) -> list[dict]:
@@ -257,7 +267,12 @@ class GPTBrain:
                     })
 
         except Exception as exc:  # noqa: BLE001
-            if is_limit_error(exc):
+            if _is_auth_error(exc):
+                # 401(토큰 만료 등) → 캐시 클라이언트 폐기. 다음 턴 _ensure_client가 새 토큰으로
+                # 재생성한다(audit high #7: 영구 401로 세션이 죽던 것 방지).
+                self._client_instance = None
+                self.last_error = "auth"
+            elif is_limit_error(exc):
                 self.last_error = "limit"
             print(f"[GPT] 오류: {exc}")
             return
@@ -284,6 +299,12 @@ class GPTBrain:
                     item = getattr(event, "item", None)
                     if item is not None and getattr(item, "type", None) == "function_call":
                         calls.append(item)
+                elif et == "response.completed":
+                    # 스트리밍 종료 이벤트에 토큰 usage가 실려 온다 — 사용량 집계(audit medium:
+                    # 구독 스트리밍 경로에서 usage를 전혀 안 모으던 것).
+                    resp = getattr(event, "response", None)
+                    if resp is not None:
+                        self.last_usage = getattr(resp, "usage", None) or self.last_usage
             return text, calls
         # 비스트림(가짜 테스트/호환)
         resp = result
@@ -358,7 +379,12 @@ class GPTBrain:
                     })
 
         except Exception as exc:  # noqa: BLE001
-            if is_limit_error(exc):
+            if _is_auth_error(exc):
+                # 401(토큰 만료 등) → 캐시 클라이언트 폐기. 다음 턴 _ensure_client가 새 토큰으로
+                # 재생성한다(audit high #7: 영구 401로 세션이 죽던 것 방지).
+                self._client_instance = None
+                self.last_error = "auth"
+            elif is_limit_error(exc):
                 self.last_error = "limit"
             print(f"[GPT] 오류: {exc}")
             return

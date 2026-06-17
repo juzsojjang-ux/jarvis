@@ -20,6 +20,28 @@ from jarvis.audio.util import resample
 
 RVC_INGEST_RATE = 40000
 WORKER_PATH = Path(__file__).resolve().parent / "rvc_worker.py"
+_CONVERT_TIMEOUT = 60.0  # 단일 변환 응답 대기 상한(초)
+
+
+def _readline_timeout(stream, timeout: float):
+    """파이프 readline에 타임아웃. 초과면 None(라인은 미수신). 워커가 모델 로드/변환에서
+    멈춰도(mps 초기화·HF 다운로드 대기 등) 이벤트 루프 뒤 to_thread가 영구 정지하지 않게."""
+    box: dict = {}
+
+    def _read():
+        try:
+            box["line"] = stream.readline()
+        except Exception as exc:  # noqa: BLE001
+            box["err"] = exc
+
+    t = threading.Thread(target=_read, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return None
+    if "err" in box:
+        raise box["err"]
+    return box.get("line", "")
 
 
 class PersistentRVC:
@@ -56,9 +78,15 @@ class PersistentRVC:
             self._proc = subprocess.Popen(
                 self._cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=sys.stderr, text=True, bufsize=1, env=self._env())
-            line = self._proc.stdout.readline().strip()  # blocks until models load
-            if line != "READY":
-                raise RuntimeError(f"RVC worker failed to start: {line!r}")
+            # ready_timeout을 실제로 적용(저장만 되고 안 쓰이던 것) — 모델 로드가 멈추면
+            # 워커를 죽이고 예외를 던져, 락 뒤에 모든 변환이 영구히 줄서 막히지 않게 한다.
+            line = _readline_timeout(self._proc.stdout, self._ready_timeout)
+            if line is None:
+                self._proc.kill()
+                self._proc = None
+                raise RuntimeError(f"RVC 워커가 {self._ready_timeout:.0f}s 내 준비되지 않았습니다")
+            if line.strip() != "READY":
+                raise RuntimeError(f"RVC worker failed to start: {line.strip()!r}")
         return self._proc
 
     def warm(self) -> None:
@@ -78,9 +106,13 @@ class PersistentRVC:
                 sf.write(in_wav, x, RVC_INGEST_RATE)
                 proc.stdin.write(f"CONVERT\t{in_wav}\t{out_wav}\n")
                 proc.stdin.flush()
-                reply = proc.stdout.readline().strip()
-                if reply != "OK":
-                    raise RuntimeError(f"RVC worker error: {reply!r}")
+                reply = _readline_timeout(proc.stdout, _CONVERT_TIMEOUT)
+                if reply is None:
+                    self._proc.kill()           # 변환이 멈췄다 — 워커 폐기(다음 호출이 재기동)
+                    self._proc = None
+                    raise RuntimeError(f"RVC 변환 응답이 {_CONVERT_TIMEOUT:.0f}s 내 없습니다")
+                if reply.strip() != "OK":
+                    raise RuntimeError(f"RVC worker error: {reply.strip()!r}")
                 out, sr = sf.read(out_wav, dtype="float32")
         out = np.asarray(out, dtype=np.float32).reshape(-1)
         self.sample_rate = int(sr)  # model's true output rate

@@ -66,7 +66,10 @@ async def _consult_gpt(question: str, settings: Any, brain: Any = None) -> str:
     if brain is None:
         if _gpt_brain is None:
             from .codex_auth import is_codex_logged_in  # noqa: PLC0415
-            has_key = bool(getattr(settings, "openai_api_key", None))
+            from .openai_brain import _gpt_key  # noqa: PLC0415
+            # settings.openai_api_key는 존재하지 않는 필드라 키 보유자도 '자문 불가' 오판하던
+            # 것을 수정(audit medium): 실제 키 해석기(gpt_api_key→keyring)를 쓴다.
+            has_key = bool(_gpt_key(settings))
             if not is_codex_logged_in() and not has_key:
                 return ("GPT 자문 불가 — ChatGPT(codex) 로그인이나 API 키가 없습니다. "
                         "터미널에서 `codex login` 하면 활성화됩니다.")

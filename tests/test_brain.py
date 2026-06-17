@@ -83,11 +83,12 @@ def test_respond_streams_deltas_with_cached_persona():
     assert brain.last_usage.cache_read_input_tokens == 4321
 
 
-def test_warm_prewarms_with_max_tokens_zero():
+def test_warm_prewarms_with_min_tokens():
+    # max_tokens는 1 이상이어야 Anthropic API가 수락한다(0이면 400) — 예열은 max_tokens=1.
     brain, fake = _make_brain()
     asyncio.run(brain.warm())
     ck = fake.messages.create_kwargs
-    assert ck["max_tokens"] == 0
+    assert ck["max_tokens"] == 1
     assert ck["model"] == "claude-haiku-4-5"
     assert ck["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert ck["system"][0]["text"] == "가" * 7000  # same prefix bytes as respond()

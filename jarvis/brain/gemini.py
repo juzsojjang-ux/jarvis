@@ -85,7 +85,9 @@ class GeminiBrain:
     def _system_prompt(self) -> str:
         from jarvis.brain.subscription import _guidance_for  # noqa: PLC0415
         memory_text = self._memory.text().strip() if (self._memory is not None and hasattr(self._memory, "text")) else ""
-        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for("en")
+        # reply_language 설정을 따른다(audit medium: Gemini를 메인 두뇌로 쓰면 항상 영어만).
+        lang = getattr(self._settings, "reply_language", "ko")
+        tail = (f"# 기억\n{memory_text}\n\n" if memory_text else "") + _guidance_for(lang)
         return f"{self._persona}\n\n{tail}"
 
     def _function_tool(self) -> Any:

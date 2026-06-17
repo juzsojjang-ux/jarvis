@@ -69,7 +69,10 @@ class OrbHub:
 
     def __init__(self) -> None:
         self._clients: set[queue.Queue] = set()
-        self._lock = threading.Lock()
+        # RLock: publish*가 락을 잡은 채 _emit(역시 락 사용)을 호출하므로 재진입 필요.
+        # 공유 상태(_text/_notice/_telemetry/_expand/_last)의 동시 변경·스냅샷 일관성 보장
+        # (audit low: 락 없이 변경해 텔레메트리/publish 스레드가 경합하던 것).
+        self._lock = threading.RLock()
         self._text = ""  # current on-screen subtitle (Korean), persists across level pumps
         self._notice = ""  # 우측 정보(두뇌 show_panel) — 명시적으로 비울 때까지 유지
         self._telemetry: list[dict] = []  # 자비스 실시간 텔레메트리 패널(주기 갱신)
@@ -82,7 +85,8 @@ class OrbHub:
         q: queue.Queue = queue.Queue(maxsize=64)
         with self._lock:
             self._clients.add(q)
-        q.put(dict(self._last))  # replay current state immediately on connect
+            snapshot = dict(self._last)   # _last 스냅샷도 락 안에서(일관성)
+        q.put(snapshot)  # replay current state immediately on connect
         return q
 
     def unsubscribe(self, q: queue.Queue) -> None:
@@ -93,28 +97,31 @@ class OrbHub:
                 notice: str | None = None, expand: bool | None = None) -> dict:
         if state not in _VALID_STATES:
             state = "idle"
-        # Subtitle lifecycle: set when given; cleared whenever JARVIS isn't speaking.
-        if text is not None:
-            self._text = text
-        if state != "speaking":
-            self._text = ""
-        if notice is not None:
-            self._notice = notice
-        if expand is not None:
-            self._expand = bool(expand)
-        return self._emit(state, level)
+        with self._lock:
+            # Subtitle lifecycle: set when given; cleared whenever JARVIS isn't speaking.
+            if text is not None:
+                self._text = text
+            if state != "speaking":
+                self._text = ""
+            if notice is not None:
+                self._notice = notice
+            if expand is not None:
+                self._expand = bool(expand)
+            return self._emit(state, level)
 
     def publish_notice(self, notice: str | None) -> dict:
         """우측 상단 알림만 갱신(현재 상태/자막은 그대로 유지)."""
-        self._notice = notice or ""
-        last = self._last
-        return self._emit(last.get("state", "idle"), last.get("level", 0.0))
+        with self._lock:
+            self._notice = notice or ""
+            last = self._last
+            return self._emit(last.get("state", "idle"), last.get("level", 0.0))
 
     def publish_telemetry(self, items: list[dict] | None) -> dict:
         """자비스 텔레메트리 패널 목록을 통째로 교체(주기 호출). 상태/자막/알림은 유지."""
-        self._telemetry = list(items or [])
-        last = self._last
-        return self._emit(last.get("state", "idle"), last.get("level", 0.0))
+        with self._lock:
+            self._telemetry = list(items or [])
+            last = self._last
+            return self._emit(last.get("state", "idle"), last.get("level", 0.0))
 
     def _emit(self, state: str, level: float) -> dict:
         panels = _brain_cards(self._notice) + list(self._telemetry)

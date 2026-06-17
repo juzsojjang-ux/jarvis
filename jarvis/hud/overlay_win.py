@@ -100,15 +100,22 @@ def _run_pywebview(url: str) -> bool:
 
 
 def main(url: str) -> int:
+    import importlib.util
     import time
 
     from jarvis.hud.procwatch import pid_alive, watch_parent
 
     ppid = os.getppid()  # 메인 자비스 — 죽으면 우리(와 앱 창)도 정리한다
-    if os.environ.get("JARVIS_HUD_PYWEBVIEW", "1") != "0":
-        watch_parent(ppid)  # pywebview 창은 우리 프로세스 소유 — 함께 죽는다
-    if _run_pywebview(url):
-        return 0
+    # pywebview 창은 '우리 프로세스 소유'라 부모가 죽으면 watch_parent의 기본 동작(os._exit)으로
+    # 우리가 죽으면 창도 함께 닫힌다. 단 이 기본 워처는 '브라우저 Popen 창'은 못 닫는다 — 그래서
+    # pywebview를 실제로 쓸 때(webview 설치 + 토글 ON)만 건다. 안 그러면 app 모드 폴백에서
+    # 고아 브라우저 창이 남는다(audit high #10).
+    use_pw = (os.environ.get("JARVIS_HUD_PYWEBVIEW", "1") != "0"
+              and importlib.util.find_spec("webview") is not None)
+    if use_pw:
+        watch_parent(ppid)
+        if _run_pywebview(url):
+            return 0
     browser = _find_browser()
     if not browser:
         print("[overlay] Edge/Chrome를 찾지 못했습니다. HUD를 브라우저로 열려면 "
@@ -120,13 +127,22 @@ def main(url: str) -> int:
     except OSError as exc:
         print(f"[overlay] 앱 모드 실행 실패: {exc}")
         return 1
-    # 상주하며 감시: 메인이 죽으면 앱 창을 닫고(고아 HUD 방지), 창이 닫히면 끝낸다.
+
+    # 앱 모드: 부모가 죽으면 '브라우저 창까지' 닫고 종료한다(고아 HUD 방지).
+    def _on_parent_dead() -> None:
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+        os._exit(0)
+
+    watch_parent(ppid, on_dead=_on_parent_dead)
+    # 창(브라우저)이 닫히면 우리도 끝낸다.
     while True:
         if proc.poll() is not None:
             return 0
-        if not pid_alive(ppid):
-            proc.terminate()
-            return 0
+        if not pid_alive(ppid):       # 워처가 먼저 잡지만, 안전망으로 한 번 더 확인
+            _on_parent_dead()
         time.sleep(2.0)
 
 

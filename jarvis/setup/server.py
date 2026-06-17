@@ -800,6 +800,28 @@ class SetupServer:
                     self._send_json(400, {"ok": False, "error": "프로바이더를 선택하세요."})
                     return
 
+                # 설정 모드에서 키를 비워 보내면(음성/이름/키만 변경) 검증을 건너뛰고 기존 키를
+                # 유지한다 — gemini/gpt 두뇌일 때 음성만 바꾸려 해도 키 재입력을 강요하던 것 수정
+                # (audit medium). save_key는 빈 키를 무시하므로 기존 키가 보존된다.
+                if outer._settings_mode and not key:
+                    try:
+                        try:
+                            outer._store_save(provider, key, voice=voice, name=name,
+                                              ptt_key=ptt_key)
+                        except TypeError:
+                            try:
+                                outer._store_save(provider, key, voice=voice, name=name)
+                            except TypeError:
+                                outer._store_save(provider, key)
+                    except Exception:  # noqa: BLE001
+                        self._send_json(500, {"ok": False, "error": "설정 저장 중 오류가 났습니다."})
+                        return
+                    outer.chosen = provider
+                    outer.done.set()
+                    self._send_json(200, {"ok": True,
+                                          "message": "설정을 저장했습니다. 재시작하면 적용됩니다."})
+                    return
+
                 try:
                     ok, msg = asyncio.run(outer._validator(provider, key))
                 except Exception:  # noqa: BLE001
