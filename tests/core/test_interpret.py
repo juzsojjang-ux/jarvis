@@ -22,7 +22,9 @@ def test_detect_lang_empty_is_english():
     assert detect_lang("12345 !!!") == "en"
 
 
-def test_speak_korean_invokes_say():
+def test_speak_korean_invokes_say(monkeypatch):
+    # 맥 경로(say) 검증 — 윈도우는 PowerShell 분기라 플랫폼을 darwin으로 고정한다.
+    monkeypatch.setattr("jarvis.core.interpret.sys.platform", "darwin")
     calls = []
 
     def runner(cmd, capture_output=True, text=True, timeout=None):

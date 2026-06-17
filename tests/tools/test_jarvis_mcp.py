@@ -180,10 +180,11 @@ def _recording_runner(stdout="", returncode=0):
     return runner
 
 
-def test_toggle_dark_mode():
-    from jarvis.tools.jarvis_mcp import system_toggle_action
+def test_toggle_dark_mode(monkeypatch):
+    import jarvis.tools.jarvis_mcp as m
+    monkeypatch.setattr(m, "_is_mac", lambda: True)  # 맥 경로 검증(윈도우는 '맥 전용' 반환)
     r = _recording_runner()
-    out = system_toggle_action("dark_mode", "toggle", runner=r)
+    out = m.system_toggle_action("dark_mode", "toggle", runner=r)
     assert "다크" in out
     assert any("dark mode" in " ".join(c) for c in r.calls)
 
@@ -213,10 +214,11 @@ def test_toggle_bluetooth_missing_blueutil():
     assert "blueutil" in out
 
 
-def test_toggle_brightness_presses_key_4x():
-    from jarvis.tools.jarvis_mcp import system_toggle_action
+def test_toggle_brightness_presses_key_4x(monkeypatch):
+    import jarvis.tools.jarvis_mcp as m
+    monkeypatch.setattr(m, "_is_mac", lambda: True)  # 맥 경로 검증(윈도우는 '맥 전용' 반환)
     r = _recording_runner()
-    system_toggle_action("brightness_up", "on", runner=r)
+    m.system_toggle_action("brightness_up", "on", runner=r)
     assert len([c for c in r.calls if "key code 144" in " ".join(c)]) == 4
 
 
