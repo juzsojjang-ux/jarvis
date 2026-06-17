@@ -59,6 +59,7 @@ datas_raw = [
 
     # HUD overlay HTML (served by OrbServer)
     _data(REPO_ROOT / "jarvis" / "hud" / "orb.html", "jarvis/hud"),
+    _data(REPO_ROOT / "jarvis" / "hud" / "ask.html", "jarvis/hud"),
 
     # HUD orb — 알파 영상(엔진별): mac=HEVC .mov, win=VP9 .webm. 검정 배경이 빠져있어
     # WebKit(WKWebView)에서도 검정 박스 없이 표시된다. (SVG 휘도키는 video에 안 먹음)
