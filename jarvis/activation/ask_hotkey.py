@@ -21,7 +21,7 @@ _NAMED = {"space": keyboard.Key.space, "enter": keyboard.Key.enter,
 _DEFAULT = "alt+space"
 
 
-def parse_hotkey(spec: str):
+def parse_hotkey(spec: str) -> tuple[set, "keyboard.Key | keyboard.KeyCode"]:
     """'alt+space' → (수식키 집합, 메인 키). 파싱 실패 시 기본(alt+space)로 폴백."""
     tokens = [t.strip().lower() for t in (spec or "").split("+") if t.strip()]
     mods: set = set()
@@ -54,6 +54,7 @@ class AskHotkey:
         self._fired = False
 
     def start(self, on_fire: Callable[[], None]) -> None:
+        self.stop()  # 중복 start 시 기존 리스너 누수 방지
         self._on_fire = on_fire
         self._listener = keyboard.Listener(
             on_press=self._handle_press, on_release=self._handle_release)
@@ -65,6 +66,8 @@ class AskHotkey:
             self._listener = None
 
     def _handle_press(self, key) -> None:
+        # 순서: mod 먼저, main 나중에 눌러야 발화한다(역순은 의도적으로 무시 — 전역
+        # 단축키 관례). 메인 키를 떼기 전까지 _fired 래치로 단 1회만 발화.
         self._pressed.add(key)
         mod_ok = any(m in self._pressed for m in self._mods)
         if mod_ok and key == self._main and not self._fired:
