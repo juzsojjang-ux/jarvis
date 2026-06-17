@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -13,14 +14,15 @@ _W, _H = 460, 380
 
 
 def _chromium() -> str | None:
-    names = (("msedge", "chrome") if sys.platform.startswith("win")
-             else ("Google Chrome", "Microsoft Edge", "Chromium", "Brave Browser"))
     if sys.platform == "darwin":
         for app in ("Google Chrome", "Microsoft Edge", "Chromium", "Brave Browser"):
             p = f"/Applications/{app}.app/Contents/MacOS/{app}"
             if os.path.exists(p):
                 return p
         return None
+    # 윈도우/리눅스: PATH에서 크로미엄 바이너리를 찾는다(플랫폼별 실제 실행파일명).
+    names = (("msedge", "chrome") if sys.platform.startswith("win")
+             else ("google-chrome", "chromium", "chromium-browser", "brave-browser"))
     for exe in names:
         p = shutil.which(exe) or shutil.which(exe + ".exe")
         if p:
@@ -41,11 +43,25 @@ def main(url: str) -> int:
     args = [browser, f"--app={url}", f"--window-size={_W},{_H}",
             f"--user-data-dir={prof}", "--no-first-run", "--no-default-browser-check"]
     try:
-        subprocess.run(args)
-        return 0
+        proc = subprocess.Popen(args)
     except OSError as exc:
         print(f"[타자] 입력창 실행 실패: {exc}")
         return 1
+    # 부모(자비스)가 죽으면 이 입력창도 함께 닫는다(HUD 오버레이와 동일) — 유령 창 방지.
+    # 기본 watch_parent는 os._exit만 하므로, 별도 프로세스인 브라우저를 직접 종료한다.
+    def _on_parent_dead() -> None:
+        with contextlib.suppress(Exception):
+            proc.terminate()
+        os._exit(0)
+    with contextlib.suppress(Exception):
+        from jarvis.hud.procwatch import watch_parent
+        watch_parent(on_dead=_on_parent_dead)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        with contextlib.suppress(Exception):
+            proc.terminate()
+    return 0
 
 
 if __name__ == "__main__":
