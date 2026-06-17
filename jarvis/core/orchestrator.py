@@ -77,6 +77,7 @@ class Orchestrator:
         self._attentive_timer: asyncio.Task | None = None
         self._warm_task: asyncio.Task | None = None
         self._remote_busy = False
+        self._text_busy = False  # 타자 턴 진행 중 — 음성/PTT/원격과 레이스 차단
         self._watch_task = None  # 화면 감시 모드 루프
         self.usage = UsageTracker()  # 토큰 사용량 집계(세션+누적)
         self.last_bug: str | None = None  # 마지막 오류 상세 — "고쳐줘" 참조 + 우측 알림
@@ -1042,6 +1043,63 @@ class Orchestrator:
                 self.brain.remote_mode = False
             self._remote_busy = False
             self._to_idle()
+
+    async def text_turn(self, text: str, *, speak: bool = False) -> dict:
+        """타자 입력 한 턴 — 명령은 _route_command로, 일반 질의는 두뇌→한국어 텍스트.
+        speak=True면 답을 음성으로도 재생한다. 사용자가 화면 앞에 있으므로 remote_mode는
+        켜지 않는다(되묻기·확인 허용). _text_busy가 음성/PTT 경로와 레이스를 막는다."""
+        if not text.strip():
+            return {"reply": "무엇을 도와드릴까요?"}
+        if self._text_busy or self._remote_busy or not self._can_announce():
+            return {"reply": "지금 다른 일을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."}
+        self._text_busy = True
+        self.state = State.THINKING
+        self._publish("thinking")
+        try:
+            if await self._route_command(text):
+                return {"reply": "처리했습니다."}
+            parts: list[str] = []
+            await self._await_warm()
+            async for delta in self.brain.respond(text):
+                parts.append(delta)
+            en = "".join(parts).strip()
+            ko = (getattr(self.brain, "last_subtitle", "") or "").strip()
+            reply = ko or en or "답을 만들지 못했습니다."
+            if speak:
+                with contextlib.suppress(Exception):
+                    await self._speak_reply(en or reply, ko or reply)
+            return {"reply": reply, "reply_en": en}
+        except Exception as exc:  # noqa: BLE001 - 한 턴 실패가 상태를 가두면 안 된다
+            print(f"[타자] 처리 오류: {exc}")
+            return {"reply": "처리 중 오류가 났습니다."}
+        finally:
+            self._text_busy = False
+            self._to_idle()
+
+    async def speak_text(self, en: str, ko: str = "") -> dict:
+        """이미 화면에 뜬 답을 음성으로 재생(🔊 버튼). 영어 본문 en을 합성·재생하고
+        한국어 자막 ko를 오브에 띄운다. 바쁘면 재생하지 않는다(레이스 방지)."""
+        if not (en or "").strip():
+            return {"ok": False}
+        if self._remote_busy or self._text_busy or not self._can_announce():
+            return {"ok": False}
+        await self._speak_reply(en, ko)
+        return {"ok": True}
+
+    async def _speak_reply(self, en: str, ko: str = "") -> None:
+        """영어 본문을 합성→음색변환→재생(캐시 안 함 — 임의 길이). 한국어 자막 동반.
+        _synth_phrase와 같은 경로이되 캐시만 뺀다. 실패는 삼킨다(음성 best-effort)."""
+        en = (en or "").strip()
+        if not en:
+            return
+        try:
+            audio = await self.tts.synth(en)
+            conv = await asyncio.to_thread(self.vc.convert, audio, self.tts.sample_rate)
+            out = resample(np.asarray(conv, dtype=np.float32).reshape(-1),
+                           self.vc.sample_rate, self.settings.playback_rate)
+        except Exception:  # noqa: BLE001 - 합성/변환 실패해도 텍스트 답은 이미 갔다
+            return
+        self._queue_audio(out, ko)
 
     # Instant acknowledgements (English speech, Korean subtitle). Cached after first
     # synth so they play with zero delay — JARVIS answers the moment you stop talking.

@@ -1138,3 +1138,70 @@ def test_announce_error_rate_limits_distinct_errors(monkeypatch):
     asyncio.run(run())
     assert len(spoken) == 1            # 8초 안 연속 오류는 음성 1회로 캡
     assert orch.last_bug == "beta"     # 그래도 최신 오류는 시각 알림에 기록
+
+
+# ----- text_turn / speak_text / _speak_reply -----
+
+def test_text_turn_returns_text_without_voice():
+    orch, pb = _make()
+    res = asyncio.run(orch.text_turn("안녕"))
+    assert res["reply"]                 # 텍스트 답이 온다
+    assert pb.feeds == []               # speak=False → 음성 없음
+    assert orch.state == State.IDLE
+
+
+def test_text_turn_korean_subtitle_preferred():
+    orch, _pb = _make()
+
+    class _SubBrain:
+        last_subtitle = "한국어 답"
+        async def respond(self, text):
+            yield "english answer"
+    orch.brain = _SubBrain()
+    res = asyncio.run(orch.text_turn("hi"))
+    assert res["reply"] == "한국어 답" and res["reply_en"] == "english answer"
+
+
+def test_text_turn_routes_command_with_ack():
+    orch, _pb = _make()
+    seen = []
+
+    async def _fake_route(text):
+        seen.append(text)
+        return True
+    orch._route_command = _fake_route  # 명령으로 처리되는 척
+    res = asyncio.run(orch.text_turn("화면 제어 모드 켜줘"))
+    assert seen == ["화면 제어 모드 켜줘"]
+    assert res["reply"] == "처리했습니다."
+
+
+def test_text_turn_busy_blocks():
+    orch, _pb = _make()
+    orch._text_busy = True
+    res = asyncio.run(orch.text_turn("안녕"))
+    assert "다른 일" in res["reply"]
+
+
+def test_text_turn_recovers_on_brain_error():
+    orch, _pb = _make()
+
+    class _BoomBrain:
+        async def respond(self, text):
+            raise RuntimeError("down")
+            yield
+    orch.brain = _BoomBrain()
+    res = asyncio.run(orch.text_turn("hi"))
+    assert "오류" in res["reply"] and orch.state == State.IDLE
+
+
+def test_text_turn_speak_true_plays_audio():
+    orch, pb = _make()
+    res = asyncio.run(orch.text_turn("hi", speak=True))
+    assert res["reply"]
+    assert len(pb.feeds) >= 1           # speak=True → 음성 재생
+
+
+def test_speak_text_plays_given_english():
+    orch, pb = _make()
+    res = asyncio.run(orch.speak_text("hello there", "안녕하세요"))
+    assert res["ok"] is True and len(pb.feeds) == 1
