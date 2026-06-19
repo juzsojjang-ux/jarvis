@@ -14,35 +14,42 @@ from . import tool_policy as tp
 
 async def gate_decision(brain: Any, tool_name: str, tool_input: dict) -> tuple[bool, str | None]:
     inp = tool_input or {}
-    base = tool_name.split("__")[-1]
-    # 1) 원격 턴 — 읽기 전용 허용목록만(현 동작 보존)
-    if getattr(brain, "remote_mode", False):
-        if tool_name.startswith("mcp__jarvis__") and base in tp.READONLY:
+    try:
+        base = tool_name.split("__")[-1]
+        # 1) 원격 턴 — 읽기 전용 허용목록만(현 동작 보존)
+        if getattr(brain, "remote_mode", False):
+            if tool_name.startswith("mcp__jarvis__") and base in tp.READONLY:
+                return True, None
+            if "__" not in tool_name and base in tp.SAFE_BUILTINS:
+                return True, None
+            return False, f"{base}은 원격에서는 실행할 수 없습니다."
+        # 2) 파국적 데니리스트 — 무조건 차단
+        if tp.is_catastrophic(tool_name, inp):
+            return False, f"{base}은 안전상 차단했습니다."
+        # 3) 전권 위임
+        if TRUST_GATE.is_on():
             return True, None
-        if "__" not in tool_name and base in tp.SAFE_BUILTINS:
+        # 4) tier 분류
+        settings = getattr(brain, "_settings", None)
+        tier = tp.classify(
+            tool_name, inp,
+            bash_auto_allow=bool(getattr(settings, "bash_auto_allow", True)),
+            plugin_servers=frozenset(plugins.plugin_servers()),
+            trusted_servers=frozenset(plugins.trusted_servers()),
+        )
+        if tier in (tp.READ, tp.LOCAL):
             return True, None
-        return False, f"{base}은 원격에서는 실행할 수 없습니다."
-    # 2) 파국적 데니리스트 — 무조건 차단
-    if tp.is_catastrophic(tool_name, inp):
-        return False, f"{base}은 안전상 차단했습니다."
-    # 3) 전권 위임
-    if TRUST_GATE.is_on():
-        return True, None
-    # 4) tier 분류
-    settings = getattr(brain, "_settings", None)
-    tier = tp.classify(
-        tool_name, inp,
-        bash_auto_allow=bool(getattr(settings, "bash_auto_allow", True)),
-        plugin_servers=frozenset(plugins.plugin_servers()),
-        trusted_servers=frozenset(plugins.trusted_servers()),
-    )
-    if tier in (tp.READ, tp.LOCAL):
-        return True, None
-    confirm = getattr(brain, "_confirm", None)
-    if confirm is None:
-        return False, f"{base}은 음성 확인이 필요합니다."
-    ok = await confirm(tp.confirm_prompt(base, dict(inp)))
-    return (True, None) if ok else (False, f"{base} 작업을 취소했습니다.")
+        confirm = getattr(brain, "_confirm", None)
+        if confirm is None:
+            return False, f"{base}은 음성 확인이 필요합니다."
+        ok = await confirm(tp.confirm_prompt(base, dict(inp)))
+        return (True, None) if ok else (False, f"{base} 작업을 취소했습니다.")
+    except Exception as exc:  # noqa: BLE001
+        try:
+            print(f"[게이트] 판정 오류(차단): {exc}")
+        except Exception:  # noqa: BLE001
+            pass
+        return False, "게이트 확인 중 오류가 발생했습니다."
 
 
 def build_hooks(brain: Any) -> dict:

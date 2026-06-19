@@ -60,3 +60,15 @@ def test_build_hooks_denies_catastrophic():
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     ok = asyncio.run(cb({"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}}, "t", {}))
     assert ok == {}
+
+
+def test_send_denied_when_user_rejects():
+    async def no(p): return False
+    ok, why = _go(_Brain(confirm=no), "mcp__jarvis__send_mail", {"to": "a"})
+    assert ok is False and "취소" in why
+
+
+def test_remote_allows_safe_builtin():
+    b = _Brain(confirm=None, remote=True)
+    assert _go(b, "Read", {"file_path": "/tmp/x"})[0] is True
+    assert _go(b, "Bash", {"command": "ls"})[0] is False   # 원격에선 Bash 차단
