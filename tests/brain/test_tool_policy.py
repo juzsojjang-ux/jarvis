@@ -1,4 +1,5 @@
 import asyncio
+import os
 from jarvis.brain.tool_policy import decide, READONLY, GUARDED
 
 
@@ -54,3 +55,45 @@ def test_readonly_matches_claude_remote_allowlist():
 def test_remote_blocks_capture_screen():
     ok, why = _run(decide("capture_screen", {}, remote_mode=True, trust_on=False, confirm=None))
     assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# Task 1: classify() + helpers
+# ---------------------------------------------------------------------------
+from jarvis.brain.tool_policy import (
+    classify, in_scope, is_destructive_bash,
+    READ, LOCAL, SEND, DELETE, PLUGIN_UNTRUSTED, EXTERNAL_MCP,
+)
+
+
+def test_classify_jarvis_read_local_send():
+    assert classify("mcp__jarvis__get_time", {}) == READ
+    assert classify("mcp__jarvis__set_volume", {"level": 50}) == LOCAL
+    assert classify("mcp__jarvis__send_mail", {"to": "a"}) == SEND
+
+
+def test_classify_builtin_read_and_bash_loose():
+    assert classify("Read", {"file_path": "/tmp/x"}) == READ
+    assert classify("Bash", {"command": "ls ~/Desktop"}) == LOCAL          # 비파괴 → 느슨 자동허용
+    assert classify("Bash", {"command": "rm -rf build"}) == DELETE         # 파괴 → 확인
+    assert classify("Bash", {"command": "ls"}, bash_auto_allow=False) == DELETE  # strict 토글
+
+
+def test_classify_write_scope():
+    inside = os.path.join(os.path.expanduser("~"), "notes.txt")
+    assert classify("Write", {"file_path": inside}) == LOCAL
+    assert classify("Write", {"file_path": "/etc/hosts"}) == DELETE
+
+
+def test_classify_external_and_plugin():
+    assert classify("mcp__premiere__export", {}) == EXTERNAL_MCP
+    assert classify("mcp__notion__write", {}, plugin_servers=frozenset({"notion"})) == PLUGIN_UNTRUSTED
+    assert classify("mcp__notion__write", {}, plugin_servers=frozenset({"notion"}),
+                    trusted_servers=frozenset({"notion"})) == LOCAL
+
+
+def test_is_destructive_bash():
+    assert is_destructive_bash("rm -rf build") is True
+    assert is_destructive_bash("ls ~/Desktop") is False
+    assert in_scope(os.path.join(os.path.expanduser("~"), "a")) is True
+    assert in_scope("/etc/passwd") is False

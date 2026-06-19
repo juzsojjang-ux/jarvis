@@ -2,7 +2,8 @@
 원격=읽기전용, 전권=전부, 발송=확인, 그 외=자동 허용(로컬 사용자 현장)."""
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Optional
+import os
+from collections.abc import Awaitable, Callable
 
 READONLY = frozenset({
     "get_time", "get_weather", "battery_status", "get_reminders",
@@ -17,16 +18,18 @@ GUARDED = frozenset({"send_message", "send_mail"})
 def confirm_prompt(name: str, args: dict) -> str:
     a = args or {}
     if name == "send_message":
-        r = str(a.get("recipient", "")); t = str(a.get("text", ""))[:40]
+        r = str(a.get("recipient", ""))
+        t = str(a.get("text", ""))[:40]
         return f"{r}에게 '{t}' 보낼까요?"
     if name == "send_mail":
-        to = str(a.get("to", "")); s = str(a.get("subject", ""))
+        to = str(a.get("to", ""))
+        s = str(a.get("subject", ""))
         return f"{to}에게 '{s}' 메일 보낼까요?"
     return f"{name} 작업을 실행할까요?"
 
 
 async def decide(name: str, args: dict, *, remote_mode: bool, trust_on: bool,
-                 confirm: Optional[Callable[[str], Awaitable[bool]]]) -> tuple[bool, Optional[str]]:
+                 confirm: Callable[[str], Awaitable[bool]] | None) -> tuple[bool, str | None]:
     """(실행 허용?, 거부 시 두뇌에 돌려줄 한국어 사유)."""
     if remote_mode:
         if name in READONLY:
@@ -40,3 +43,69 @@ async def decide(name: str, args: dict, *, remote_mode: bool, trust_on: bool,
         ok = await confirm(confirm_prompt(name, args))
         return (True, None) if ok else (False, "사용자가 취소했습니다.")
     return True, None
+
+
+# ---------------------------------------------------------------------------
+# Task 1: tier 상수 + classify() + 헬퍼
+# ---------------------------------------------------------------------------
+
+READ = "read"
+LOCAL = "local"
+SEND = "send"
+DELETE = "delete"
+PLUGIN_UNTRUSTED = "plugin_untrusted"
+EXTERNAL_MCP = "external_mcp"
+
+SAFE_BUILTINS = frozenset({
+    "Read", "Glob", "Grep", "TodoWrite", "WebSearch", "WebFetch", "NotebookRead",
+})
+
+_DESTRUCTIVE = ("rm ", "rm\t", "rmdir", " dd ", "mkfs", "shutdown", "reboot",
+                "kill ", "killall", "diskutil", "fdisk")
+
+
+def is_destructive_bash(cmd: str) -> bool:
+    low = f" {cmd.strip().lower()} "
+    return any(tok in low for tok in _DESTRUCTIVE)
+
+
+def in_scope(path: str) -> bool:
+    if not path:
+        return False
+    try:
+        p = os.path.realpath(os.path.expanduser(path))
+    except Exception:  # noqa: BLE001
+        return False
+    roots = [os.path.realpath(os.path.expanduser("~")),
+             os.path.realpath(os.getcwd()),
+             os.path.realpath(os.path.expanduser("~/.jarvis"))]
+    return any(p == r or p.startswith(r + os.sep) for r in roots)
+
+
+def classify(tool_name: str, tool_input: dict, *, bash_auto_allow: bool = True,
+             plugin_servers: frozenset = frozenset(),
+             trusted_servers: frozenset = frozenset()) -> str:
+    inp = tool_input or {}
+    base = tool_name.split("__")[-1]
+    if tool_name.startswith("mcp__jarvis__"):
+        if base in GUARDED:
+            return SEND
+        return READ if base in READONLY else LOCAL
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__")
+        server = parts[1] if len(parts) > 1 else ""
+        if server in trusted_servers:
+            return LOCAL
+        if server in plugin_servers:
+            return PLUGIN_UNTRUSTED
+        return EXTERNAL_MCP
+    if base in SAFE_BUILTINS:
+        return READ
+    if base == "Bash":
+        if not bash_auto_allow:
+            return DELETE
+        return DELETE if is_destructive_bash(str(inp.get("command", ""))) else LOCAL
+    if base in ("Write", "Edit", "NotebookEdit", "MultiEdit"):
+        path = inp.get("file_path") or inp.get("notebook_path") or ""
+        return LOCAL if in_scope(str(path)) else DELETE
+    return DELETE  # 알 수 없는 빌트인 → 확인(보수)
