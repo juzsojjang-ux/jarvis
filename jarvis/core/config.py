@@ -168,6 +168,10 @@ class Settings(BaseSettings):
     ask_hotkey: str = "alt+space"   # 입력창 호출 단축키(설정에서 변경). 윈도우=ctrl+space
     orb_hotkey: str = "alt+o"       # 오브 크기 토글 단축키(중앙↔우측하단, 설정에서 변경)
 
+    # --- v3.1 에이전트 토대 ---
+    plugins_enabled: bool = False   # ~/.jarvis/plugins/ 로컬 플러그인 로드(기본 끔)
+    bash_auto_allow: bool = True    # 느슨: 비파괴 Bash 자동허용(False=항상 확인)
+
     @property
     def api_key(self) -> str:
         key = keyring.get_password(self.keyring_service, self.keyring_user)
