@@ -46,6 +46,12 @@ def test_normal_action_auto_allowed():
     assert ok is True
 
 
+def test_decide_local_jarvis_auto_allows():
+    ok, _ = _run(decide("open_app", {"app": "Safari"},
+                        remote_mode=False, trust_on=False, confirm=None))
+    assert ok is True
+
+
 def test_readonly_matches_claude_remote_allowlist():
     from jarvis.brain.subscription import SubscriptionBrain
     from jarvis.brain.tool_policy import READONLY

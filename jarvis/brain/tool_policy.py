@@ -30,14 +30,14 @@ def confirm_prompt(name: str, args: dict) -> str:
 
 async def decide(name: str, args: dict, *, remote_mode: bool, trust_on: bool,
                  confirm: Callable[[str], Awaitable[bool]] | None) -> tuple[bool, str | None]:
-    """(실행 허용?, 거부 시 두뇌에 돌려줄 한국어 사유)."""
+    """(실행 허용?, 거부 시 두뇌에 돌려줄 한국어 사유). gemini/openai 두뇌용 — 민짜 이름.
+    classify를 단일 기준으로 쓰되, 이 두뇌들엔 빌트인/플러그인이 없어 jarvis 등급만 의미."""
     if remote_mode:
-        if name in READONLY:
-            return True, None
-        return False, "원격에서는 실행할 수 없습니다."
+        return (True, None) if name in READONLY else (False, "원격에서는 실행할 수 없습니다.")
     if trust_on:
         return True, None
-    if name in GUARDED:
+    tier = classify(f"mcp__jarvis__{name}", args)
+    if tier == SEND:
         if confirm is None:
             return False, "확인할 수 없어 실행하지 않았습니다."
         ok = await confirm(confirm_prompt(name, args))
