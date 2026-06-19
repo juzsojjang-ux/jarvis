@@ -25,7 +25,6 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
-from ..core.control_gate import TRUST_GATE
 from .history import ConversationHistory
 
 # Safety net: strip URLs and source/citation tails the model might still leak into the
@@ -205,7 +204,7 @@ class SubscriptionBrain:
         self._client: Any = None
         self._client_key: tuple[int, str] | None = None  # (thinking, model) of live client
         self._xlate: dict[str, Any] = {}  # 통역용 방향별 영속 클라이언트(콜드스타트 제거)
-        self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(예열·턴 동시 호출 레이스 방지)
+        self._xlate_locks: dict[str, asyncio.Lock] = {}  # 방향별 직렬화(레이스 방지)
         self.remote_mode = False  # 원격 턴 중 — 파괴 도구는 음성 확인 없이 즉시 거부
         self.last_subtitle = ""  # Korean subtitle of the last reply (for the HUD)
         self.last_usage = None   # 마지막 턴의 토큰 usage(SDK ResultMessage) — 사용량 집계용
@@ -219,15 +218,9 @@ class SubscriptionBrain:
     _DEEP_TRIGGERS = ("최대 사고", "깊게 생각", "깊이 생각", "심층", "딥씽킹", "곰곰이",
                       "max thinking", "think hard", "think deeply", "deep think")
 
-    # 읽기 전용·무해 — 음성 확인 없이 자동 허용.
-    _SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "TodoWrite", "WebSearch",
-                             "WebFetch", "NotebookRead"})
-
-    # 발송류 — mcp__jarvis__이지만 되돌릴 수 없어 자동 허용에서 제외(음성 확인/전권 필요).
-    _GUARDED_JARVIS = frozenset({"send_message", "send_mail"})
-
     # 원격(아이폰) 턴에서 허용되는 jarvis 도구 — 읽기·무해 전용. control_mac(임의
     # AppleScript)·run_shortcut·system_toggle 등 상태를 바꾸는 도구는 원격 금지.
+    # 참조: tests/brain/test_tool_policy.py — tool_policy.READONLY와 동일성 검증에 쓰임.
     _REMOTE_SAFE_JARVIS = frozenset({
         "get_time", "get_weather", "battery_status", "get_reminders",
         "get_calendar_events", "list_timers", "get_messages", "get_unread_mail",
@@ -236,52 +229,14 @@ class SubscriptionBrain:
         "background_status", "recall_memory", "list_skills",
     })
 
-    def _confirm_prompt(self, tool: str, inp: dict) -> str:
-        if tool == "Bash":
-            cmd = str(inp.get("command", ""))[:80]
-            return f"명령을 실행할까요? {cmd}"
-        if tool in ("Write", "Edit", "NotebookEdit"):
-            path = inp.get("file_path") or inp.get("notebook_path") or "파일"
-            return f"{path} 파일을 수정할까요?"
-        if tool == "send_message":
-            r = str(inp.get("recipient", "")); t = str(inp.get("text", ""))[:40]
-            return f"{r}에게 '{t}' 보낼까요?"
-        if tool == "send_mail":
-            to = str(inp.get("to", "")); s = str(inp.get("subject", ""))
-            return f"{to}에게 '{s}' 메일 보낼까요?"
-        return f"{tool} 작업을 실행할까요?"
-
     async def _can_use_tool(self, tool_name, tool_input, context):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
-        # 원격 턴: 음성 확인 채널이 없다 — 읽기 전용 허용목록 외 전부 차단.
-        # 이 검사가 jarvis 자동 허용보다 먼저여야 한다(control_mac=임의 AppleScript).
-        if self.remote_mode:
-            base = tool_name.split("__")[-1]
-            if tool_name.startswith("mcp__jarvis__") and base in self._REMOTE_SAFE_JARVIS:
-                return PermissionResultAllow()
-            if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
-                return PermissionResultAllow()
-            return PermissionResultDeny(message=f"{base}은 원격에서는 실행할 수 없습니다.")
-
-        # 자동 허용은 ① 우리 인프로세스 jarvis MCP 도구, 또는 ② '__' 없는
-        # 내장 읽기셋뿐이다. mcp__타사__Read 처럼 끝 segment만 읽기셋과 같아도
-        # 통과하던 우회를 막는다(향후 다른 MCP 서버가 붙어도 안전).
-        if tool_name.startswith("mcp__jarvis__"):
-            if tool_name.split("__")[-1] not in self._GUARDED_JARVIS:
-                return PermissionResultAllow()
-            # 발송류는 자동 허용하지 않고 아래 confirm/전권 경로로 흐른다
-        if "__" not in tool_name and tool_name in self._SAFE_TOOLS:
-            return PermissionResultAllow()
-        base = tool_name.split("__")[-1]  # confirm_prompt / deny 메시지용
-        if TRUST_GATE.is_on():
-            return PermissionResultAllow()  # 전권 위임 모드 — 확인 없이 실행
-        if self._confirm is None:
-            return PermissionResultDeny(message=f"{base}은 음성 확인이 필요합니다.")
-        ok = await self._confirm(self._confirm_prompt(base, dict(tool_input or {})))
+        from .gating import gate_decision
+        ok, why = await gate_decision(self, tool_name, dict(tool_input or {}))
         if ok:
             return PermissionResultAllow()
-        return PermissionResultDeny(message=f"{base} 작업을 취소했습니다.")
+        return PermissionResultDeny(message=why or "실행하지 않았습니다.")
 
     def _deep_tokens(self, user_text: str) -> int:
         low = user_text.lower()
@@ -352,18 +307,18 @@ class SubscriptionBrain:
         # _can_use_tool의 확인/전권 경로를 타고, 원격에선 전부 차단된다.
         mcp_servers: dict[str, Any] = {"jarvis": build_jarvis_mcp_server(self._memory)}
         mcp_servers.update(load_external_servers())
+        from jarvis.tools.plugins import discover as _discover_plugins
+
+        from .gating import build_hooks
         kw: dict[str, Any] = dict(
             system_prompt=self._system_prompt_arg(),
-            # allowed_tools에 든 도구는 SDK가 _can_use_tool을 건너뛰고 자동 승인한다
-            # (SDK 계약: "not invoked for tool calls already permitted by allowed_tools").
-            # 따라서 jarvis 도구는 여기 두지 않는다 — 전부 _can_use_tool을 단일 권위로
-            # 통과시켜야 발송 확인·원격 차단·전권 게이트가 실제로 작동한다. _can_use_tool이
-            # 읽기·무해 jarvis 도구를 자동 허용하므로 로컬 UX는 동일하다. 여기엔 무해한
-            # 읽기 빌트인만 둔다(콜백 절약).
-            allowed_tools=["WebSearch", "WebFetch", "Read", "Glob", "Grep",
-                           "TodoWrite"],
+            # 모든 도구가 _can_use_tool(단일 게이트)을 거치도록 allowed_tools를 비운다 —
+            # 읽기 빌트인이 게이트를 우회하던 구멍을 결정적으로 봉쇄(READ 등급이라 자동허용).
+            allowed_tools=[],
             can_use_tool=self._can_use_tool,
             mcp_servers=mcp_servers,
+            plugins=_discover_plugins(getattr(self._settings, "plugins_enabled", False)),
+            hooks=build_hooks(self),
             setting_sources=[],
             cwd=str(Path.home()),
             max_turns=100,  # 깊은 에이전트 작업(화면 제어·검증 루프) 여유 확보

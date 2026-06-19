@@ -170,7 +170,8 @@ def test_options_isolated_streaming_and_key_stripped(monkeypatch):
         b = _brain()
         client = await b._ensure_client()
         kw = client.options.kw
-        assert "WebSearch" in kw["allowed_tools"]
+        # Task 6: allowed_tools를 비워 읽기 빌트인 우회를 봉쇄 — 전부 _can_use_tool을 거친다.
+        assert kw["allowed_tools"] == []
         # jarvis 도구는 allowed_tools에 두지 않는다 — 두면 SDK가 _can_use_tool을
         # 건너뛰어 발송 확인·원격 차단이 무력화된다. 도구 가용성은 mcp_servers로 온다.
         assert "mcp__jarvis__open_app" not in kw["allowed_tools"]
@@ -527,6 +528,7 @@ def test_can_use_tool_normal_mode_unchanged():
 def test_trust_mode_allows_without_confirm(monkeypatch):
     import asyncio
     from jarvis.brain import subscription as sub
+    from jarvis.brain import gating
     from jarvis.brain.subscription import SubscriptionBrain
     from jarvis.core.config import Settings
 
@@ -536,7 +538,8 @@ def test_trust_mode_allows_without_confirm(monkeypatch):
 
     class _Gate:
         def is_on(self): return True
-    monkeypatch.setattr(sub, "TRUST_GATE", _Gate())
+    # Task 6: _can_use_tool은 gate_decision을 위임하므로 gating 모듈의 TRUST_GATE를 패치
+    monkeypatch.setattr(gating, "TRUST_GATE", _Gate())
 
     brain = SubscriptionBrain(Settings(), None, "p" * 4096, confirm=confirm)
 
@@ -549,13 +552,14 @@ def test_trust_mode_allows_without_confirm(monkeypatch):
 
 def test_trust_mode_does_not_override_remote_readonly(monkeypatch):
     import asyncio
-    from jarvis.brain import subscription as sub
+    from jarvis.brain import gating
     from jarvis.brain.subscription import SubscriptionBrain
     from jarvis.core.config import Settings
 
     class _Gate:
         def is_on(self): return True
-    monkeypatch.setattr(sub, "TRUST_GATE", _Gate())
+    # Task 6: gate_decision이 TRUST_GATE를 보므로 gating 모듈을 패치 (원격 차단이 먼저)
+    monkeypatch.setattr(gating, "TRUST_GATE", _Gate())
 
     brain = SubscriptionBrain(Settings(), None, "p" * 4096)
     brain.remote_mode = True  # 원격 + 전권 동시
@@ -709,5 +713,5 @@ def test_options_does_not_autoallow_jarvis_tools():
                  "mcp__jarvis__control_mac", "mcp__jarvis__system_toggle",
                  "mcp__jarvis__screen_control"):
         assert name not in allowed, f"{name} 가 allowed_tools에 있으면 게이트 우회"
-    # 읽기 빌트인은 자동 허용 유지
-    assert "Read" in allowed and "WebSearch" in allowed
+    # Task 6: allowed_tools를 완전히 비워 모든 도구가 _can_use_tool 단일 게이트를 통과한다
+    assert allowed == []

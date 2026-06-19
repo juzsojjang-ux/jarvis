@@ -29,17 +29,23 @@ def test_destructive_tool_denied_without_confirm():
     assert _decide(brain, "Write", {"file_path": "/x"}).behavior == "deny"
 
 
-def test_destructive_tool_allowed_on_yes():
-    asked = []
+def test_nondestructive_bash_auto_allows_loose():
+    brain = _brain(confirm=None)               # confirm 없어도
+    assert _decide(brain, "Bash", {"command": "ls ~/Desktop"}).behavior == "allow"
 
-    async def confirm(prompt):
-        asked.append(prompt)
-        return True
 
-    brain = _brain(confirm=confirm)
-    res = _decide(brain, "Bash", {"command": "ls ~/Desktop"})
-    assert res.behavior == "allow"
-    assert "ls ~/Desktop" in asked[0]
+def test_inscope_write_auto_allows_loose():
+    import os
+    brain = _brain(confirm=None)
+    inside = os.path.join(os.path.expanduser("~"), "note.txt")
+    assert _decide(brain, "Write", {"file_path": inside}).behavior == "allow"
+
+
+def test_catastrophic_denied_even_with_confirm():
+    async def yes(p): return True
+    brain = _brain(confirm=yes)
+    assert _decide(brain, "Bash", {"command": "rm -rf /"}).behavior == "deny"
+    assert _decide(brain, "Read", {"file_path": "/Users/x/.ssh/id_rsa"}).behavior == "deny"
 
 
 def test_destructive_tool_denied_on_no():
@@ -66,7 +72,7 @@ def test_factory_injects_confirm():
         return True
 
     brain = make_brain(Settings(), None, "p" * 4096, confirm=confirm)
-    asyncio.run(brain._can_use_tool("Bash", {"command": "echo hi"}, _ctx()))
+    asyncio.run(brain._can_use_tool("Bash", {"command": "rm -rf x"}, _ctx()))
     assert calls
 
 
