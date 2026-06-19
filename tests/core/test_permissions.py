@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from jarvis.core import permissions as P
 from jarvis.core import permissions
 
 
@@ -13,7 +14,7 @@ def test_non_mac_short_circuits(monkeypatch):
     assert permissions.input_monitoring_granted(prompt=True) is True
     assert permissions.screen_capture_trusted() is True
     assert permissions.ensure_permissions() == {
-        "input_monitoring": True, "accessibility": True, "screen": True}
+        "input_monitoring": True, "accessibility": True, "screen": True, "microphone": True}
 
 
 def test_accessibility_trusted_returns_bool_without_prompt():
@@ -27,8 +28,9 @@ def test_ensure_permissions_all_granted(monkeypatch):
     monkeypatch.setattr(permissions, "input_monitoring_granted", lambda prompt=False: True)
     monkeypatch.setattr(permissions, "accessibility_trusted", lambda prompt=False: True)
     monkeypatch.setattr(permissions, "screen_capture_trusted", lambda: True)
+    monkeypatch.setattr(permissions, "microphone_authorized", lambda: True)
     assert permissions.ensure_permissions() == {
-        "input_monitoring": True, "accessibility": True, "screen": True}
+        "input_monitoring": True, "accessibility": True, "screen": True, "microphone": True}
 
 
 def test_ensure_permissions_missing_input_monitoring_opens_settings(monkeypatch):
@@ -45,6 +47,36 @@ def test_ensure_permissions_missing_input_monitoring_opens_settings(monkeypatch)
     assert "Privacy_ListenEvent" in calls          # 입력 모니터링 설정창
     assert msgs and "입력 모니터링" in msgs[0]      # 음성 안내(PTT 키 권한)
 
+
+# ── Task 7: microphone_authorized + request_for ──────────────────────────────
+
+def test_request_for_opens_pane_once(monkeypatch):
+    opened = []
+    monkeypatch.setattr(P, "_is_mac", lambda: True)
+    monkeypatch.setattr(P, "open_settings_pane", lambda anchor: opened.append(anchor))
+    t = {"v": 100.0}
+    clock = lambda: t["v"]
+    P._last_request.clear()
+    P.request_for("accessibility", clock=clock)
+    P.request_for("accessibility", clock=clock)          # 즉시 반복 → 억제
+    assert opened == ["Privacy_Accessibility"]
+    t["v"] += 120.0
+    P.request_for("accessibility", clock=clock)          # TTL 경과 → 다시
+    assert opened == ["Privacy_Accessibility", "Privacy_Accessibility"]
+
+
+def test_request_for_noop_off_mac(monkeypatch):
+    monkeypatch.setattr(P, "_is_mac", lambda: False)
+    P._last_request.clear()
+    P.request_for("screen")  # 예외 없이 통과
+
+
+def test_microphone_authorized_off_mac(monkeypatch):
+    monkeypatch.setattr(P, "_is_mac", lambda: False)
+    assert P.microphone_authorized() is True
+
+
+# ── existing tests (continued) ────────────────────────────────────────────────
 
 def test_ensure_permissions_never_raises(monkeypatch):
     # accessibility_trusted가 터져도 ensure_permissions는 예외를 올리지 않는다.

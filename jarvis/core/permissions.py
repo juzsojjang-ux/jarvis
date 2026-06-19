@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 
 
@@ -87,6 +88,58 @@ def input_monitoring_granted(prompt: bool = False) -> bool:
         return False
 
 
+def microphone_authorized() -> bool:
+    """마이크 권한. notDetermined(0)/authorized(3)는 통과(미정은 sounddevice가 OS 요청).
+    denied(2)/restricted(1)만 False. API 불가 시 보수적 True(막지 않음)."""
+    if not _is_mac():
+        return True
+    try:
+        from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore
+        return AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio) in (0, 3)
+    except Exception:  # noqa: BLE001
+        return True
+
+
+_ANCHORS = {
+    "accessibility": "Privacy_Accessibility",
+    "screen": "Privacy_ScreenCapture",
+    "input_monitoring": "Privacy_ListenEvent",
+    "microphone": "Privacy_Microphone",
+}
+_MSG = {
+    "accessibility": "화면 제어에는 손쉬운 사용 권한이 필요합니다.",
+    "screen": "화면을 보려면 화면 기록 권한이 필요합니다.",
+    "input_monitoring": "키 입력에는 입력 모니터링 권한이 필요합니다.",
+    "microphone": "음성 인식에는 마이크 권한이 필요합니다.",
+}
+_last_request: dict[str, float] = {}
+_REQUEST_TTL_S = 60.0
+
+
+def request_for(
+    capability: str,
+    announce: Callable[[str], None] | None = None,
+    clock=time.monotonic,
+) -> None:
+    """런타임 권한 막힘 시 — 해당 설정 창을 열고 1회 안내. TTL 내 중복은 억제(잔소리 방지)."""
+    if not _is_mac():
+        return
+    now = clock()
+    if now - _last_request.get(capability, -1e9) < _REQUEST_TTL_S:
+        return
+    _last_request[capability] = now
+    anchor = _ANCHORS.get(capability)
+    if anchor:
+        open_settings_pane(anchor)
+    msg = _MSG.get(capability, "권한이 필요합니다.")
+    print(f"[권한] ⚠ {msg} 시스템 설정을 열었습니다 — 'JARVIS'를 켜주세요.")
+    if announce is not None:
+        try:
+            announce(msg + " 시스템 설정에서 켜주세요.")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def open_settings_pane(anchor: str) -> None:
     """시스템 설정의 개인정보 보호 창을 연다(예: Privacy_Accessibility)."""
     if not _is_mac():
@@ -106,12 +159,14 @@ def ensure_permissions(announce: Callable[[str], None] | None = None) -> dict[st
     - 화면 녹화: 상태만 확인(강제 안 함).
     반환 {"input_monitoring": bool, "accessibility": bool, "screen": bool}. 예외 없음."""
     if not _is_mac():
-        return {"input_monitoring": True, "accessibility": True, "screen": True}
+        return {"input_monitoring": True, "accessibility": True, "screen": True, "microphone": True}
     try:
         return _ensure_permissions_mac(announce)
     except Exception as exc:  # noqa: BLE001 - 권한 점검이 부팅을 막거나 깨면 안 된다
         print(f"[권한] 점검 중 오류(계속 진행): {exc}")
-        return {"input_monitoring": False, "accessibility": False, "screen": True}
+        return {
+            "input_monitoring": False, "accessibility": False, "screen": True, "microphone": True,
+        }
 
 
 def _ensure_permissions_mac(announce: Callable[[str], None] | None) -> dict[str, bool]:
@@ -132,8 +187,10 @@ def _ensure_permissions_mac(announce: Callable[[str], None] | None) -> dict[str,
               "실행하세요. (웨이크워드 '자비스'는 권한 없이도 됩니다.)")
         if announce is not None:
             try:
-                announce("키를 쓰려면 입력 모니터링 권한이 필요합니다. 시스템 설정을 열었으니 "
-                         "자비스를 허용하고 다시 실행해 주세요. 그동안은 자비스라고 부르시면 됩니다.")
+                announce(
+                    "키를 쓰려면 입력 모니터링 권한이 필요합니다. 시스템 설정을 열었으니 "
+                    "자비스를 허용하고 다시 실행해 주세요. 그동안은 자비스라고 부르시면 됩니다."
+                )
             except Exception:  # noqa: BLE001
                 pass
     else:
@@ -141,4 +198,7 @@ def _ensure_permissions_mac(announce: Callable[[str], None] | None) -> dict[str,
     if not scr:
         print("[권한] (참고) 화면 녹화 권한은 아직 없습니다 — '화면 봐줘'를 쓰실 때 "
               "OS가 자동으로 요청합니다.")
-    return {"input_monitoring": listen, "accessibility": acc, "screen": scr}
+    mic = microphone_authorized()
+    if not mic:
+        print("[권한] (참고) 마이크 권한이 꺼져 있습니다 — 음성 인식에 필요합니다.")
+    return {"input_monitoring": listen, "accessibility": acc, "screen": scr, "microphone": mic}
