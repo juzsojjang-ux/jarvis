@@ -97,6 +97,25 @@ def test_default_os_fallback_none_on_unsupported(monkeypatch):
     assert EdgeTTS._default_os_fallback() is None
 
 
+def test_warm_prebuilds_os_fallback(monkeypatch):
+    # warm()이 no-op이 아니라 부팅에서 OS 폴백을 미리 만들어 둔다 — 기본 Pocket 경로가 받는
+    # 예열을 alt(edge) 경로도 스스로 받게 해, 첫 턴에 edge가 실패해도 즉시 들리는 소리로 폴백.
+    sentinel = _FakeSay()
+    monkeypatch.setattr(EdgeTTS, "_default_os_fallback", staticmethod(lambda: sentinel))
+    tts = EdgeTTS(fetch=None, fallback=None)
+    assert tts._fallback is None
+    tts.warm()
+    assert tts._fallback is sentinel  # 예열이 폴백을 선구축함(이전엔 no-op이라 None 유지)
+
+
+def test_warm_is_safe_when_no_fallback(monkeypatch):
+    # 폴백조차 못 만드는 OS여도 warm()은 예외 없이 끝난다(부팅을 막지 않음).
+    monkeypatch.setattr(EdgeTTS, "_default_os_fallback", staticmethod(lambda: None))
+    tts = EdgeTTS(fetch=None, fallback=None)
+    tts.warm()
+    assert tts._fallback is None
+
+
 def test_stereo_downmixed_to_mono():
     sr = 24000
     stereo = (np.random.rand(2400, 2) * 0.1).astype(np.float32)

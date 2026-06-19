@@ -11,7 +11,8 @@ from __future__ import annotations
 import io
 import logging
 import sys
-from typing import Awaitable, Callable, Optional, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 import numpy as np
 import soundfile as sf
@@ -42,8 +43,8 @@ class EdgeTTS:
     macOS에서 자동으로 `say` 백엔드를 지연 생성; 비-macOS·생성 실패 시 무음)."""
 
     def __init__(self, voice: str = "en-GB-RyanNeural", sample_rate: int = 24000,
-                 fetch: Optional[Callable[[str, str], Awaitable[bytes]]] = None,
-                 fallback: Optional[_FallbackTTS] = None):
+                 fetch: Callable[[str, str], Awaitable[bytes]] | None = None,
+                 fallback: _FallbackTTS | None = None):
         self._voice = voice
         self.sample_rate = sample_rate
         self._fetch = fetch or _edge_fetch
@@ -51,7 +52,19 @@ class EdgeTTS:
         self._fallback_tried = False
 
     def warm(self) -> None:
-        return None
+        # alt(edge) 보이스도 부팅에서 스스로 초기화한다 — 기본 Pocket 경로의 예열을 동일하게 받게.
+        # (1) edge_tts(aiohttp/aiosignal 등)를 미리 import: 번들 누락·환경 문제를 '첫 턴 무음'이
+        #     아니라 부팅에서 로그/표준에러로 드러낸다. (2) OS 폴백(say/SAPI)을 선구축: 이후 어떤
+        #     합성 실패에도 무음이 아니라 들리는 소리로 떨어진다(기본 음성을 먼저 돌릴 필요 없음).
+        try:
+            import edge_tts  # noqa: F401
+        except Exception as exc:  # noqa: BLE001 - 예열 실패가 부팅을 막으면 안 된다
+            _log.warning("edge-tts import 실패(예열) — OS 폴백 음성으로 말합니다 (%s: %s)",
+                         type(exc).__name__, exc)
+            print(f"[음성] edge-tts 사용 불가: {type(exc).__name__}: {exc} — OS 음성으로 폴백",
+                  file=sys.stderr)
+        if self._fallback is None:
+            self._fallback = self._default_os_fallback()
 
     async def synth(self, text: str) -> np.ndarray:
         text = (text or "").strip()
@@ -93,7 +106,7 @@ class EdgeTTS:
             return np.zeros(0, dtype=np.float32)
 
     @staticmethod
-    def _default_os_fallback() -> Optional[_FallbackTTS]:
+    def _default_os_fallback() -> _FallbackTTS | None:
         """플랫폼별 OS 내장 TTS 폴백을 만든다(macOS=say, 윈도우=SAPI). 없으면 None."""
         try:
             if sys.platform == "darwin":
