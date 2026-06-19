@@ -145,6 +145,7 @@ jobs:
     permissions:
       contents: write          # 릴리스 생성/자산 업로드 권한
     steps:
+      - uses: actions/checkout@v4          # 제거 프로그램(packaging/자비스-제거.*)을 릴리스 자산으로 첨부하려고 체크아웃
       - uses: actions/download-artifact@v4
         with:
           path: dist            # dist/JARVIS-windows/…, dist/JARVIS-mac/…
@@ -155,13 +156,15 @@ jobs:
         run: |
           win=dist/JARVIS-windows/JARVIS-windows.zip
           mac=dist/JARVIS-mac/JARVIS-mac.zip
-          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n\n⚠️ 맥(미서명 앱) 첫 실행 — Gatekeeper 차단 해제(1회):\n압축 푼 폴더에서 터미널로 다음 실행 후 JARVIS.app 더블클릭\n    xattr -dr com.apple.quarantine JARVIS.app\n첫 실행 후 '시스템 설정 → 개인정보 보호 및 보안'에서 마이크·손쉬운 사용(Accessibility) 권한을 허용해야 음성·단축키가 동작합니다. (Apple Silicon 전용 빌드)"
+          rmmac="packaging/자비스-제거.command"   # 맥 제거 프로그램(체크아웃으로 확보)
+          rmwin="packaging/자비스-제거.bat"        # 윈도우 제거 프로그램
+          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n- 자비스-제거.command : 맥 제거 프로그램 (더블클릭 → y. 앱·데이터·권한 정리, 개발 소스는 보존)\n- 자비스-제거.bat : 윈도우 제거 프로그램\n\n⚠️ 맥(미서명 앱) 첫 실행 — Gatekeeper 차단 해제(1회):\n압축 푼 폴더에서 터미널로 다음 실행 후 JARVIS.app 더블클릭\n    xattr -dr com.apple.quarantine JARVIS.app\n첫 실행 후 '시스템 설정 → 개인정보 보호 및 보안'에서 마이크·손쉬운 사용(Accessibility) 권한을 허용해야 음성·단축키가 동작합니다. (Apple Silicon 전용 빌드)"
           publish() {  # $1=tag  $2=title  $3=notes
             if gh release view "$1" -R "$REPO" >/dev/null 2>&1; then
-              gh release upload "$1" "$win" "$mac" --clobber -R "$REPO"
+              gh release upload "$1" "$win" "$mac" "$rmmac" "$rmwin" --clobber -R "$REPO"
               printf "%b" "$3" | gh release edit "$1" --title "$2" --notes-file - -R "$REPO"
             else
-              printf "%b" "$3" | gh release create "$1" "$win" "$mac" --title "$2" --notes-file - -R "$REPO"
+              printf "%b" "$3" | gh release create "$1" "$win" "$mac" "$rmmac" "$rmwin" --title "$2" --notes-file - -R "$REPO"
             fi
           }
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
