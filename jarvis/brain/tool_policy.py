@@ -125,9 +125,9 @@ _CATASTROPHIC_BASH = ("rm -rf /", "rm -fr /", "rm -rf ~", "rm -fr ~", "rm -rf $h
 
 def is_catastrophic(tool_name: str, tool_input: dict) -> bool:
     inp = tool_input or {}
-    base = tool_name.split("__")[-1]
+    base = str(tool_name or "").split("__")[-1]
     if base == "Bash":
-        cmd = str(inp.get("command", "")).lower()
+        cmd = " ".join(str(inp.get("command", "")).lower().split())
         if any(p in cmd for p in _CATASTROPHIC_BASH):
             return True
         if any(s in cmd for s in SENSITIVE_PATHS):

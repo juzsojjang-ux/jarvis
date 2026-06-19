@@ -117,3 +117,12 @@ def test_catastrophic_sensitive_file():
     assert is_catastrophic("Read", {"file_path": "/Users/x/.ssh/id_rsa"}) is True
     assert is_catastrophic("Write", {"file_path": "/Users/x/.aws/credentials"}) is True
     assert is_catastrophic("Read", {"file_path": "/Users/x/notes.txt"}) is False
+
+
+def test_catastrophic_none_safe():
+    assert is_catastrophic(None, {}) is False
+    assert is_catastrophic("Bash", None) is False
+
+
+def test_catastrophic_whitespace_variant():
+    assert is_catastrophic("Bash", {"command": "rm  -rf   /"}) is True
