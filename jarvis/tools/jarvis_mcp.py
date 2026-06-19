@@ -18,15 +18,15 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from claude_agent_sdk import create_sdk_mcp_server, tool
+
+from ..core.control_gate import CONTROL_GATE
+from ..proactive.sources import fetch_events, fetch_reminders
+from ..proactive.timers import DEFAULT_BOARD
+
 
 def _is_mac() -> bool:
     return sys.platform == "darwin"
-
-from claude_agent_sdk import create_sdk_mcp_server, tool
-
-from ..proactive.sources import fetch_events, fetch_reminders
-from ..proactive.timers import DEFAULT_BOARD
-from ..core.control_gate import CONTROL_GATE
 
 _CITY_COORDS: dict[str, tuple[float, float]] = {
     "서울": (37.5665, 126.9780), "부산": (35.1796, 129.0756), "인천": (37.4563, 126.7052),
@@ -549,7 +549,8 @@ _MUSIC_FIND = {
 
 
 def play_music_action(query: str, kind: str = "any", runner=subprocess.run) -> str:
-    q = _osa_str((query or "").strip())   # 역슬래시+따옴표 안전 이스케이프(audit r4: 따옴표만 치환하던 것)
+    # 역슬래시+따옴표 안전 이스케이프(audit r4: 따옴표만 치환하던 것)
+    q = _osa_str((query or "").strip())
     if not q:
         return "무엇을 틀까요?"
     order = [kind] if kind in _MUSIC_FIND else ["track", "artist", "playlist"]
@@ -1043,7 +1044,8 @@ async def _click_by_name(args):
       "스코어 등 원어가 자연스러우면 그대로). 패널은 내용 양에 따라 자동으로 커진다 — "
       "짧은 알림은 작게, 긴 목록/표/상세 정보는 아주 크게(필요하면 스크롤). 그러니 정보가 "
       "많으면 줄이지 말고 풍부하게 정리해 넣어도 된다. 패널은 기본 숨김이니 도움될 때만 띄운다. "
-      "여러 항목을 별도 카드로 나누고 싶으면 카드 사이에 '---'만 있는 줄을 넣어라(각 카드 첫 줄=제목).",
+      "여러 항목을 별도 카드로 나누고 싶으면 카드 사이에 '---'만 있는 줄을 "
+      "넣어라(각 카드 첫 줄=제목).",
       {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]})
 async def _show_panel(args):
     from ..hud import notice_bus

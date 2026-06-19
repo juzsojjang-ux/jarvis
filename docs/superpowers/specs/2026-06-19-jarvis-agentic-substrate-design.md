@@ -72,21 +72,29 @@
 
 격리 원칙: 새 로직은 신규 모듈로 빼고, `subscription.py`는 **배선만** 바꾼다(거대 파일 비대화 방지).
 
+> **실측 보정(중요):** 정찰의 가정과 달리, 게이트와 권한 모듈이 이미 일부 존재한다. 따라서 신규 생성이 아니라 **기존 모듈 확장**으로 간다.
+> - 게이트가 둘이다: `SubscriptionBrain._can_use_tool`(구독 두뇌, 인라인) + `jarvis/brain/tool_policy.py:decide()`(gemini/openai 두뇌가 사용). → `tool_policy.py`를 **단일 정책 권위**로 확장하고 둘이 공유.
+> - `jarvis/core/permissions.py`가 이미 프리플라이트(`ensure_permissions()`: ListenEvent/Accessibility 프롬프트 + ScreenCapture 확인)를 하고 부팅(`__main__.py:224`)에서 호출 중. → 마이크 점검 + **런타임 막힐 때 재요청**만 추가.
+
+### 확장(기존 모듈)
+| 파일 | 변경 책임 | 추가/변경 인터페이스 |
+|---|---|---|
+| `jarvis/brain/tool_policy.py` | **단일 정책 권위.** 풀 도구명(`mcp__jarvis__*`/`mcp__<ext>__*`/빌트인) 분류 + 파국적 데니리스트 + "느슨" + 플러그인 신뢰. 기존 `decide()`는 신규 함수 위 얇은 래퍼로 재구현(gemini/openai 시그니처·동작 불변). | `classify(tool_name, tool_input, *, plugin_trust, bash_auto_allow) -> Tier`, `is_catastrophic(tool_name, tool_input) -> bool`, (유지) `decide(...)`, `READONLY`, `GUARDED` |
+| `jarvis/core/permissions.py` | 마이크 점검 추가 + **막힐 때 재요청**(런타임). | `microphone_authorized() -> bool`, `request_for(capability: str) -> None`(설정 열기+1회 안내) |
+
 ### 신규 모듈
 | 파일 | 책임 | 핵심 인터페이스 |
 |---|---|---|
-| `jarvis/brain/gating.py` | 게이트 단일 권위. `PreToolUse` 콜백과 `hooks=` dict 구성 | `build_hooks(brain) -> dict[HookEvent, list[HookMatcher]]` |
-| `jarvis/tools/policy.py` | 도구명 → 신뢰 등급 분류 + 파국적 데니리스트 | `classify(tool_name, tool_input, *, plugin_trust) -> Tier`, `is_catastrophic(tool_name, tool_input) -> bool` |
-| `jarvis/tools/plugins.py` | 로컬 플러그인 발견 + 신뢰 레지스트리 | `discover() -> list[SdkPluginConfig]`, `trusted_servers() -> set[str]`, `plugin_servers() -> set[str]` |
-| `jarvis/system/permissions.py` | OS 권한 프리플라이트 + 막힐 때 안내(mac/win) | `preflight() -> list[PermIssue]`, `request(capability)`, `classify_failure(exc|text) -> capability|None` |
+| `jarvis/brain/gating.py` | 구독 두뇌 게이트의 단일 진입. `PreToolUse` 훅(파국적 deny 방어심화) + 갱신된 `_can_use_tool` 본체를 `tool_policy`에 위임시키는 헬퍼 | `build_hooks(brain) -> dict[HookEvent, list[HookMatcher]]`, `gate_decision(brain, tool_name, tool_input) -> (allow: bool, reason: str|None)` |
+| `jarvis/tools/plugins.py` | 로컬 플러그인 발견 + 신뢰 레지스트리 | `discover(enabled: bool) -> list[SdkPluginConfig]`, `trusted_servers() -> set[str]`, `plugin_servers() -> set[str]` |
 
-### 수정
+### 수정(배선)
 | 파일 | 변경 |
 |---|---|
-| `jarvis/brain/subscription.py` | `_options()`에 `hooks=build_hooks(self)` + `plugins=plugins.discover()` 추가. `can_use_tool=` **제거**(→훅). `_can_use_tool`/`_confirm_prompt` 로직은 `gating.py`로 이전(brain은 `_confirm`·`remote_mode`만 노출). |
-| `jarvis/core/config.py` | `plugins_enabled: bool=False`, `permission_preflight: bool=True`, (선택) `bash_auto_allow: bool=True` 등 토글 |
-| `jarvis/__main__.py`(또는 부팅 경로) | 시작 시 `permissions.preflight()` 호출 → 이슈 있으면 HUD/음성 1회 안내 |
-| `jarvis/setup/server.py`·`store.py` | 설정창에 플러그인 on/off · 신뢰 토글 노출(기존 토글 패턴 따름) |
+| `jarvis/brain/subscription.py` | `_options()`: **`allowed_tools=[]`로 비움**(읽기 빌트인 우회 결정적 봉쇄 — 이제 게이트를 탐) + `plugins=plugins.discover(settings.plugins_enabled)` + `hooks=build_hooks(self)` 추가. `_can_use_tool` 본체를 `gating.gate_decision`(→`tool_policy`)에 위임하도록 교체(시그니처·반환 `PermissionResultAllow/Deny` 유지 → 기존 `test_can_use_tool.py`는 새 "느슨" 기대값으로 갱신). |
+| `jarvis/core/config.py` | `plugins_enabled: bool=False`, `bash_auto_allow: bool=True` 추가(프리플라이트는 기존 부팅 경로 사용) |
+| `jarvis/tools/jarvis_mcp.py` | `screen_control`/`capture_screen` 등 TCC 의존 도구가 권한 실패를 감지하면 `permissions.request_for(...)` 호출(막힐 때 재요청) |
+| `jarvis/setup/server.py`·`store.py` | 설정창에 플러그인 on/off 노출(기존 `ask_hotkey` 토글 패턴 따름). 플러그인 신뢰는 `~/.jarvis/plugins/trust.json` 직접 편집(이번 범위) |
 
 ### 외부 사실(검증 완료, `claude_agent_sdk/types.py`)
 - `ClaudeAgentOptions.hooks: dict[HookEvent, list[HookMatcher]] | None`
@@ -104,8 +112,15 @@
 
 ## 4. Hooks 가드레일(핵심) — 판정 흐름
 
-`build_hooks(brain)`는 `{"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool_use])]}`를 반환한다.
-`pre_tool_use(input, tool_use_id, ctx)`는 `input["tool_name"]`/`input["tool_input"]`로 아래 순서를 평가한다(먼저 매칭되는 것이 이김):
+**판정 단일 권위 = `tool_policy.classify` 기반 `gating.gate_decision(brain, tool_name, tool_input)`** 이 아래 순서를 평가한다(먼저
+매칭되는 것이 이김). 이 한 로직을 **두 지점**에서 호출한다:
+- **(주 게이트)** `SubscriptionBrain._can_use_tool` — `_options()`에서 `allowed_tools=[]`로 비웠으므로 **모든** 도구 호출이
+  여기를 통과한다(읽기 빌트인 우회 결정적 봉쇄). 결과를 `PermissionResultAllow/Deny`로 반환.
+- **(방어심화)** `PreToolUse` 훅 `build_hooks(brain)` = `{"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool_use])]}` —
+  최소한 `is_catastrophic`이면 `permissionDecision:"deny"`로 무조건 차단(미래에 다른 코드가 `allowed_tools`를 다시 채워도 안전). 동시에
+  미래 phase(PostToolUse 플라이트 레코더·hook-gated 자율행동)를 위한 `hooks=` 배선을 확립.
+
+판정 순서:
 
 1. **원격(아이폰) 턴** — `brain.remote_mode`가 켜져 있으면: `policy`의 원격 읽기전용 허용목록(`_REMOTE_SAFE_JARVIS`
    + `_SAFE_TOOLS`)만 `allow`, 나머지 `deny`. *(현 `_can_use_tool` 동작 그대로 보존 — 최우선)*
@@ -132,10 +147,12 @@
 > - "범위 내" = `$HOME`, 현재 작업 디렉터리 하위, `~/.jarvis` (단 §2 민감경로 제외). 그 밖(시스템 경로 등) Write/Edit는 `DELETE` 취급(확인).
 > - 비파괴 `Bash` 판정은 보수적 패턴 매칭(파괴 동사 부재 + 데니리스트 미해당). 애매하면 `DELETE`로(확인). `config.bash_auto_allow=False`면 모든 Bash 확인으로 강제.
 
-### 우회 구멍 봉쇄(핵심 메커니즘)
-6개 읽기 빌트인(`WebSearch/WebFetch/Read/Glob/Grep/TodoWrite`)은 `allowed_tools`에 **남겨**(권한 프롬프트 생략)
-두되, `PreToolUse` 훅은 이들에도 발화하므로 위험한 `Read`/`WebFetch`(예: 자격증명 경로·데니리스트)는 `deny`가 된다.
-즉 게이트가 **무조건**이 된다. *(가정: PreToolUse 훅이 allowed_tools 자동승인보다 먼저 평가됨 — §9 검증 항목)*
+### 우회 구멍 봉쇄(핵심 메커니즘 — 결정적)
+현재 6개 읽기 빌트인(`WebSearch/WebFetch/Read/Glob/Grep/TodoWrite`)이 `allowed_tools`에 있어 `_can_use_tool`을 우회한다.
+**해결: `allowed_tools=[]`로 비운다.** 그러면 모든 도구가 `_can_use_tool`(=`gate_decision`)을 거치므로, 위험한
+`Read`/`WebFetch`/`Bash`(자격증명 경로·데니리스트)도 `deny`할 수 있다. 읽기 빌트인은 `READ` 등급으로 자동허용되어 UX는 동일,
+콜백만 6개 늘 뿐(무시 가능). **SDK 훅 발화 시점 가정에 의존하지 않는다**(이게 §9 가정 #1을 load-bearing에서 내린다).
+`PreToolUse` 훅의 파국적 deny는 그 위의 2차 안전망.
 
 ---
 
@@ -154,26 +171,24 @@
 
 ## 6. 권한 자가복구(프리플라이트 + 막힐 때)
 
-### 6.1 프리플라이트(시작 시 1회)
-`permissions.preflight()`가 필요한 OS 권한 상태를 **조회**(추측 아님):
-- **macOS(pyobjc):**
-  - 손쉬운 사용(Accessibility): `AXIsProcessTrusted()`
-  - 화면 기록(ScreenCapture): `CGPreflightScreenCaptureAccess()`
-  - 마이크(Microphone): `AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio)`
-  - 입력 모니터링(ListenEvent): `IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)`
-- **Windows:** 해당 모델 없음 → 빈 목록(no-op).
+### 6.1 프리플라이트(시작 시 1회) — 기존 `ensure_permissions()` 확장
+`jarvis/core/permissions.py:ensure_permissions()`가 **이미** 부팅(`__main__.py:224`)에서 아래를 조회·안내 중:
+- 입력 모니터링(ListenEvent): `CGPreflightListenEventAccess` / `CGRequestListenEventAccess`(없으면 시스템 요청)
+- 손쉬운 사용(Accessibility): `AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})`
+- 화면 기록(ScreenCapture): `CGPreflightScreenCaptureAccess`(상태만)
+- 이슈 시 `open_settings_pane(...)` 딥링크 + 콘솔/음성 1회 안내, 모두 OK면 조용. **반복 알림 없음**(이미 충족).
 
-이슈가 있으면 부팅 직후 **HUD 패널 + 음성 1회** 안내("○○ 권한이 꺼져 있습니다. 켜주세요")하고 해당 설정 창을 연다
-(`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` 등 딥링크, 또는
-`AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})` / `CGRequestScreenCaptureAccess()`).
-모두 켜져 있으면 조용. **반복 알림 없음**(결정사항).
+**이번 추가:** 마이크 점검 `microphone_authorized()`(`AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio)`,
+실패 시 보수적 True — STT는 sounddevice가 첫 스트림에서 OS 자동요청). `ensure_permissions` 반환 dict에 `"microphone"` 추가.
+- **Windows:** 기존대로 전부 True(no-op).
 
-### 6.2 막힐 때(런타임)
-도구 실행이 OS 권한 거부로 실패하면 — 게이트는 허용했는데 OS가 막은 경우 —
-`permissions.classify_failure(...)`가 실패를 권한 종류로 매핑하고 `permissions.request(capability)`가 그 순간
-설정 창을 열며 "○○ 권한을 켜주세요"를 1회 재요청. 평상시 잔소리 없음.
-- 매핑 예: `screen_control`/`capture_screen` 실패 → ScreenCapture·Accessibility; STT 무입력 → Microphone·ListenEvent.
-- 훅이 `deny`한 경우(확인 거부·원격 차단)는 권한 문제가 아니므로 그대로 거부 메시지(자가복구 대상 아님).
+### 6.2 막힐 때(런타임) — 신규 `request_for(capability)`
+권한 벽을 **가장 잘 아는 지점은 도구 자신**이다(예: `screen_control`이 cliclick/screencapture 실패를 받음). 따라서
+TCC 의존 jarvis 도구(`screen_control`·`capture_screen`)가 권한 실패를 감지하면 `permissions.request_for(capability)`를
+호출 — 그 순간 해당 설정 창(`open_settings_pane`)을 열고 "○○ 권한을 켜주세요" 1회 안내 후 도구는 기존처럼 한국어 실패
+문자열을 반환(두뇌가 사용자에게 전달). 평상시 잔소리 없음(중복 호출은 짧은 TTL로 1회로 억제).
+- 매핑: `screen_control`/`click_by_name` → `"accessibility"`, `capture_screen` → `"screen"`.
+- 게이트가 `deny`한 경우(확인 거부·원격 차단)는 권한 문제가 아니므로 자가복구 대상 아님(그대로 거부 메시지).
 
 ---
 
@@ -210,9 +225,9 @@
 
 ## 9. 미해결 가정 — 구현(TDD) 중 검증
 
-1. **PreToolUse 훅이 `allowed_tools` 자동승인보다 먼저 평가되어 deny 가능한가.** — `claude_agent_sdk/testing`으로
-   읽기 빌트인(예: 데니리스트 경로 `Read`)이 실제 차단되는지 확인. 거짓이면 폴백: 6개 읽기 빌트인을 `allowed_tools`
-   에서 빼고 훅이 자동허용(콜백 1회 추가, 무해).
+1. ~~PreToolUse 훅이 allowed_tools보다 먼저 평가되는가~~ — **더 이상 load-bearing 아님.** `allowed_tools=[]`로 비워
+   우회를 결정적으로 막으므로, 봉쇄는 훅 발화 시점에 의존하지 않는다. 단, 빈 `allowed_tools` + `can_use_tool` 조합에서
+   모든 도구가 실제로 `_can_use_tool`을 거치는지(자동 통과되는 도구 없음)는 `claude_agent_sdk/testing`으로 확인.
 2. **`HookMatcher(matcher=None)`이 전체 도구를 매칭하는가.** — 거짓이면 도구별/광역 패턴(`"*"` 또는 알려진 도구명
    유니온)으로 대체.
 3. **훅 콜백이 `await brain._confirm(...)`처럼 비동기 음성 확인을 수행하고 그동안 SDK가 대기하는가**(타임아웃
