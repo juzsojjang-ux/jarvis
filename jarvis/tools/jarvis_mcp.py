@@ -975,10 +975,28 @@ async def _list_timers(_args):
     return _text(list_timers_action(DEFAULT_BOARD))
 
 
+def _screen_guard(capability: str) -> str | None:
+    """TCC 권한 프리체크 — 막혔으면 설정 열고(재요청) 안내 문자열 반환, OK면 None."""
+    from jarvis.core import permissions as _P
+    ok = _P.screen_capture_trusted() if capability == "screen" else _P.accessibility_trusted()
+    if ok:
+        return None
+    _P.request_for(capability)
+    if capability == "screen":
+        return (
+            "화면 기록 권한이 꺼져 있습니다. "
+            "방금 연 시스템 설정에서 JARVIS를 켜고 다시 시도해 주세요."
+        )
+    return "화면 제어에는 손쉬운 사용 권한이 필요합니다. 방금 연 시스템 설정에서 JARVIS를 켜주세요."
+
+
 @tool("capture_screen",
       "맥 화면을 캡처해 이미지 파일로 저장한다. 반환된 경로를 Read 도구로 읽으면 "
       "지금 화면을 직접 볼 수 있다. 화면 조작 전 좌표 파악에도 쓴다.", {})
 async def _capture_screen(_args):
+    g = _screen_guard("screen")
+    if g:
+        return _text(g)
     return _text(capture_screen_action())
 
 
@@ -995,6 +1013,9 @@ async def _capture_screen(_args):
           "amount": {"type": "integer"}},
        "required": ["action"]})
 async def _screen_control(args):
+    g = _screen_guard("accessibility")
+    if g:
+        return _text(g)
     a = args or {}
     return _text(screen_control_action(
         str(a.get("action") or ""), a.get("x"), a.get("y"),
@@ -1009,6 +1030,9 @@ async def _screen_control(args):
       {"type": "object", "properties": {"name": {"type": "string"},
        "role": {"type": "string"}}, "required": ["name"]})
 async def _click_by_name(args):
+    g = _screen_guard("accessibility")
+    if g:
+        return _text(g)
     a = args or {}
     return _text(ui_click_action(str(a.get("name", "")), role=str(a.get("role", ""))))
 
