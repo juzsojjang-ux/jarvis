@@ -156,9 +156,13 @@ jobs:
         run: |
           win=dist/JARVIS-windows/JARVIS-windows.zip
           mac=dist/JARVIS-mac/JARVIS-mac.zip
-          rmmac="packaging/자비스-제거.command"   # 맥 제거 프로그램(체크아웃으로 확보)
-          rmwin="packaging/자비스-제거.bat"        # 윈도우 제거 프로그램
-          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n- 자비스-제거.command : 맥 제거 프로그램 (더블클릭 → y. 앱·데이터·권한 정리, 개발 소스는 보존)\n- 자비스-제거.bat : 윈도우 제거 프로그램\n\n⚠️ 맥(미서명 앱) 첫 실행 — Gatekeeper 차단 해제(1회):\n압축 푼 폴더에서 터미널로 다음 실행 후 JARVIS.app 더블클릭\n    xattr -dr com.apple.quarantine JARVIS.app\n첫 실행 후 '시스템 설정 → 개인정보 보호 및 보안'에서 마이크·손쉬운 사용(Accessibility) 권한을 허용해야 음성·단축키가 동작합니다. (Apple Silicon 전용 빌드)"
+          # GitHub 릴리스 자산 이름은 비-ASCII를 제거한다(한글 '자비스-제거' → '-.command'로 뭉개짐).
+          # 그래서 제거 프로그램을 ASCII 이름으로 복사해서 자산으로 올린다(파일 내용은 동일).
+          cp "packaging/자비스-제거.command" JARVIS-uninstall-mac.command
+          cp "packaging/자비스-제거.bat" JARVIS-uninstall-win.bat
+          rmmac="JARVIS-uninstall-mac.command"
+          rmwin="JARVIS-uninstall-win.bat"
+          base="- JARVIS-windows.zip : 윈도우용 (압축 풀고 JARVIS.exe 실행)\n- JARVIS-mac.zip : 맥용 (압축 풀고 JARVIS.app 실행)\n- JARVIS-uninstall-mac.command : 맥 제거 프로그램 (더블클릭 → y. 앱·데이터·권한 정리, 개발 소스는 보존)\n- JARVIS-uninstall-win.bat : 윈도우 제거 프로그램\n\n⚠️ 맥(미서명 앱) 첫 실행 — Gatekeeper 차단 해제(1회):\n압축 푼 폴더에서 터미널로 다음 실행 후 JARVIS.app 더블클릭\n    xattr -dr com.apple.quarantine JARVIS.app\n첫 실행 후 '시스템 설정 → 개인정보 보호 및 보안'에서 마이크·손쉬운 사용(Accessibility) 권한을 허용해야 음성·단축키가 동작합니다. (Apple Silicon 전용 빌드)"
           publish() {  # $1=tag  $2=title  $3=notes
             if gh release view "$1" -R "$REPO" >/dev/null 2>&1; then
               gh release upload "$1" "$win" "$mac" "$rmmac" "$rmwin" --clobber -R "$REPO"
