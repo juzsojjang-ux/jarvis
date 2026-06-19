@@ -500,7 +500,11 @@ def test_can_use_tool_remote_mode_denies_without_confirm():
         )
 
     (bash, ctl, sc, tog, scr, read, web, gtime, gweather) = asyncio.run(run())
-    for deny in (bash, ctl, sc, tog, scr):
+    # rm -rf /: 파국적 차단이 원격 차단보다 먼저 실행되므로 "안전" 메시지
+    assert type(bash).__name__ == "PermissionResultDeny"
+    assert "안전" in bash.message
+    # 나머지 원격 차단
+    for deny in (ctl, sc, tog, scr):
         assert type(deny).__name__ == "PermissionResultDeny"
         assert "원격" in deny.message
     assert confirm_calls == []  # 음성 확인을 부르지도 않는다

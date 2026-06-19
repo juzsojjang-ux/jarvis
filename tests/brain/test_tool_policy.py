@@ -132,3 +132,78 @@ def test_catastrophic_none_safe():
 
 def test_catastrophic_whitespace_variant():
     assert is_catastrophic("Bash", {"command": "rm  -rf   /"}) is True
+
+
+# ---------------------------------------------------------------------------
+# Item 1: confirm_prompt speaks the command / path
+# ---------------------------------------------------------------------------
+from jarvis.brain.tool_policy import confirm_prompt
+
+
+def test_confirm_prompt_bash():
+    p = confirm_prompt("Bash", {"command": "ls ~/Desktop"})
+    assert "ls ~/Desktop" in p
+
+
+def test_confirm_prompt_write():
+    p = confirm_prompt("Write", {"file_path": "/Users/x/note.txt"})
+    assert "/Users/x/note.txt" in p
+
+
+def test_confirm_prompt_edit():
+    p = confirm_prompt("Edit", {"file_path": "/Users/x/foo.py"})
+    assert "/Users/x/foo.py" in p
+
+
+def test_confirm_prompt_notebook():
+    p = confirm_prompt("NotebookEdit", {"notebook_path": "/Users/x/nb.ipynb"})
+    assert "/Users/x/nb.ipynb" in p
+
+
+def test_confirm_prompt_send_still_works():
+    p = confirm_prompt("send_message", {"recipient": "민지", "text": "안녕"})
+    assert "민지" in p
+    p2 = confirm_prompt("send_mail", {"to": "a@b.com", "subject": "테스트"})
+    assert "a@b.com" in p2
+
+
+# ---------------------------------------------------------------------------
+# Item 3: precise relative-.env detection in is_catastrophic
+# ---------------------------------------------------------------------------
+
+
+def test_catastrophic_env_relative():
+    assert is_catastrophic("Read", {"file_path": ".env"}) is True
+
+
+def test_catastrophic_env_local():
+    assert is_catastrophic("Read", {"file_path": "/x/.env.local"}) is True
+
+
+def test_catastrophic_bash_cat_env():
+    assert is_catastrophic("Bash", {"command": "cat .env"}) is True
+
+
+def test_catastrophic_environment_not_flagged():
+    assert is_catastrophic("Read", {"file_path": "/x/.environment"}) is False
+
+
+def test_catastrophic_prevent_env_txt_not_flagged():
+    assert is_catastrophic("Read", {"file_path": "/x/prevent.env.txt"}) is False
+
+
+# ---------------------------------------------------------------------------
+# Item 4: word-boundary destructive Bash matcher
+# ---------------------------------------------------------------------------
+
+
+def test_destructive_bash_word_boundary_pkgrm():
+    assert is_destructive_bash("pkgrm x") is False
+
+
+def test_destructive_bash_real_rm():
+    assert is_destructive_bash("rm -rf build") is True
+
+
+def test_destructive_bash_ls_not_destructive():
+    assert is_destructive_bash("ls ~/Desktop") is False

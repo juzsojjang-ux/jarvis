@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Awaitable, Callable
 
 READONLY = frozenset({
@@ -17,6 +18,12 @@ GUARDED = frozenset({"send_message", "send_mail"})
 
 def confirm_prompt(name: str, args: dict) -> str:
     a = args or {}
+    if name == "Bash":
+        cmd = str(a.get("command", ""))[:80]
+        return f"명령을 실행할까요? {cmd}"
+    if name in ("Write", "Edit", "NotebookEdit", "MultiEdit"):
+        path = a.get("file_path") or a.get("notebook_path") or "파일"
+        return f"{path} 파일을 수정할까요?"
     if name == "send_message":
         r = str(a.get("recipient", ""))
         t = str(a.get("text", ""))[:40]
@@ -60,13 +67,13 @@ SAFE_BUILTINS = frozenset({
     "Read", "Glob", "Grep", "TodoWrite", "WebSearch", "WebFetch", "NotebookRead",
 })
 
-_DESTRUCTIVE = ("rm ", "rm\t", "rmdir", " dd ", "mkfs", "shutdown", "reboot",
-                "kill ", "killall", "diskutil", "fdisk")
+_DESTRUCTIVE_RE = re.compile(
+    r"\b(rm|rmdir|dd|mkfs|shutdown|reboot|kill|killall|diskutil|fdisk)\b"
+)
 
 
 def is_destructive_bash(cmd: str) -> bool:
-    low = f" {cmd.strip().lower()} "
-    return any(tok in low for tok in _DESTRUCTIVE)
+    return bool(_DESTRUCTIVE_RE.search(cmd.lower()))
 
 
 def in_scope(path: str) -> bool:
@@ -116,7 +123,13 @@ def classify(tool_name: str, tool_input: dict, *, bash_auto_allow: bool = True,
 # ---------------------------------------------------------------------------
 
 SENSITIVE_PATHS = ("/.ssh/", "/.aws/", "/.config/gh", "/.gnupg", "id_rsa",
-                   ".pem", "/library/keychains/", "keychain", "/.env", "credentials")
+                   ".pem", "/library/keychains/", "keychain", "credentials")
+
+
+def _is_env_file(token: str) -> bool:
+    """Return True for .env / .env.* files (exact basename match, no false positives)."""
+    b = os.path.basename(str(token).strip().strip("'\""))
+    return b == ".env" or b.startswith(".env.")
 
 _CATASTROPHIC_BASH = ("rm -rf /", "rm -fr /", "rm -rf ~", "rm -fr ~", "rm -rf $home",
                       ":(){", "mkfs", "dd of=/dev/", "of=/dev/sd", "> /dev/sd",
@@ -132,11 +145,13 @@ def is_catastrophic(tool_name: str, tool_input: dict) -> bool:
             return True
         if any(s in cmd for s in SENSITIVE_PATHS):
             return True
+        if any(_is_env_file(tok) for tok in cmd.split()):
+            return True
         if ("| sh" in cmd or "|sh" in cmd or "| bash" in cmd or "|bash" in cmd) and \
                 ("curl" in cmd or "wget" in cmd):
             return True
         return False
     if base in ("Read", "Write", "Edit", "NotebookEdit", "MultiEdit"):
         path = str(inp.get("file_path") or inp.get("notebook_path") or "").lower()
-        return any(s in path for s in SENSITIVE_PATHS)
+        return any(s in path for s in SENSITIVE_PATHS) or _is_env_file(path)
     return False

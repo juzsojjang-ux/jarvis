@@ -55,7 +55,7 @@ def test_destructive_tool_denied_on_no():
     brain = _brain(confirm=confirm)
     res = _decide(brain, "Write", {"file_path": "/Users/x/note.txt"})
     assert res.behavior == "deny"
-    assert "note.txt" in res.message or "취소" in res.message
+    assert "취소" in res.message
 
 
 def test_jarvis_mcp_tools_auto_allowed():

@@ -72,3 +72,39 @@ def test_remote_allows_safe_builtin():
     b = _Brain(confirm=None, remote=True)
     assert _go(b, "Read", {"file_path": "/tmp/x"})[0] is True
     assert _go(b, "Bash", {"command": "ls"})[0] is False   # 원격에선 Bash 차단
+
+
+# ---------------------------------------------------------------------------
+# Item 2: is_catastrophic runs BEFORE remote allowlist
+# ---------------------------------------------------------------------------
+
+
+def test_catastrophic_denied_before_remote_allowlist():
+    b = _Brain(confirm=None, remote=True)
+    ok, why = _go(b, "Read", {"file_path": "/Users/x/.ssh/id_rsa"})
+    assert ok is False
+    assert "안전" in why
+
+
+# ---------------------------------------------------------------------------
+# Item 5: plugin scan skipped when plugins disabled
+# ---------------------------------------------------------------------------
+
+
+class _SettingsNoPlugin:
+    bash_auto_allow = True
+    plugins_enabled = False
+
+
+class _BrainNoPlugin:
+    def __init__(self):
+        self._settings = _SettingsNoPlugin()
+        self._confirm = None
+        self.remote_mode = False
+
+
+def test_plugin_scan_skipped_external_mcp_still_denied():
+    b = _BrainNoPlugin()
+    ok, why = _go(b, "mcp__premiere__x", {})
+    # EXTERNAL_MCP → confirm required → no confirm → deny (no plugin I/O needed)
+    assert ok is False
