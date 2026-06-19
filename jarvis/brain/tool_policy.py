@@ -109,3 +109,34 @@ def classify(tool_name: str, tool_input: dict, *, bash_auto_allow: bool = True,
         path = inp.get("file_path") or inp.get("notebook_path") or ""
         return LOCAL if in_scope(str(path)) else DELETE
     return DELETE  # 알 수 없는 빌트인 → 확인(보수)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: 파국적 데니리스트 — 절대 실행 불가
+# ---------------------------------------------------------------------------
+
+SENSITIVE_PATHS = ("/.ssh/", "/.aws/", "/.config/gh", "/.gnupg", "id_rsa",
+                   ".pem", "/library/keychains/", "keychain", "/.env", "credentials")
+
+_CATASTROPHIC_BASH = ("rm -rf /", "rm -fr /", "rm -rf ~", "rm -fr ~", "rm -rf $home",
+                      ":(){", "mkfs", "dd of=/dev/", "of=/dev/sd", "> /dev/sd",
+                      "chmod -r 777 /", "chown -r root", "fork()")
+
+
+def is_catastrophic(tool_name: str, tool_input: dict) -> bool:
+    inp = tool_input or {}
+    base = tool_name.split("__")[-1]
+    if base == "Bash":
+        cmd = str(inp.get("command", "")).lower()
+        if any(p in cmd for p in _CATASTROPHIC_BASH):
+            return True
+        if any(s in cmd for s in SENSITIVE_PATHS):
+            return True
+        if ("| sh" in cmd or "|sh" in cmd or "| bash" in cmd or "|bash" in cmd) and \
+                ("curl" in cmd or "wget" in cmd):
+            return True
+        return False
+    if base in ("Read", "Write", "Edit", "NotebookEdit", "MultiEdit"):
+        path = str(inp.get("file_path") or inp.get("notebook_path") or "").lower()
+        return any(s in path for s in SENSITIVE_PATHS)
+    return False
